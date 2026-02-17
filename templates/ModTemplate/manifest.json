@@ -5,6 +5,7 @@
   "author": "Your Name",
   "description": "A brief description of what this mod does.",
   "entry_dll": "ModTemplate.dll",
+  "icon": "icon.png",
 
   "config_schema": {
     "enabled": {

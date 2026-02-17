@@ -741,6 +741,10 @@ void OnDraw()
 
     // Draw item icon (for item spawners, inventories, etc.)
     UIRenderer.DrawItem(itemType, x, y, width, height, alpha);
+
+    // Load and draw custom PNG textures (cached, aspect-ratio preserved)
+    object tex = UIRenderer.LoadTexture("path/to/image.png");
+    UIRenderer.DrawTexture(tex, x, y, width, height, alpha);
 }
 ```
 
@@ -928,6 +932,8 @@ bool open = UIRenderer.IsInventoryOpen;  // Check if inventory is open
 | `DrawTextSmall()` | Draw smaller text (0.75 scale) |
 | `DrawTextScaled()` | Draw text with custom scale |
 | `DrawItem()` | Draw item icon |
+| `LoadTexture()` | Load a PNG file as a texture (cached) |
+| `DrawTexture()` | Draw a loaded texture (aspect-ratio preserved) |
 | `BeginClip()`, `EndClip()` | Scissor clipping for scroll regions |
 | `IsClipping` | True if clipping is active |
 | `MouseX`, `MouseY` | Mouse position |
@@ -993,6 +999,10 @@ panel.Draggable = true;
 panel.CloseOnEscape = true;
 panel.ClipContent = true;    // Clip content to panel bounds
 panel.OnClose = () => { };   // Optional close callback
+panel.IconTexture = UIRenderer.LoadTexture("path/to/icon.png"); // Optional: override icon
+
+// Icon auto-resolution: if panel ID matches a mod ID, the mod's icon.png
+// is used automatically. Falls back to the default framework icon.
 
 // Open/close
 panel.Open();                // Open and auto-center

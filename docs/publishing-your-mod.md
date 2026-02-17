@@ -33,6 +33,7 @@ Before releasing:
   "description": "Clear description of what your mod does",
   "author": "Your Name",
   "entry_dll": "YourMod.dll",
+  "icon": "icon.png",
   "config_schema": {
     "enabled": { "type": "bool", "default": true, "label": "Enable Mod" }
   },
@@ -63,6 +64,7 @@ Your release should be a zip file containing:
 YourModName/
 ├── manifest.json       <- Required
 ├── YourMod.dll        <- Your compiled mod
+├── icon.png           <- Optional: mod icon (shown in UI headers)
 ├── README.md          <- Optional but recommended
 └── LICENSE            <- Optional but recommended
 ```

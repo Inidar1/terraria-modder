@@ -28,6 +28,7 @@ Create a new folder for your mod:
 src/MyFirstMod/
 ├── MyFirstMod.csproj
 ├── manifest.json
+├── icon.png              <- Optional: mod icon (shown in UI headers)
 └── Mod.cs
 ```
 
@@ -87,6 +88,7 @@ Create `manifest.json`:
   "author": "Your Name",
   "description": "A simple greeting mod",
   "entry_dll": "MyFirstMod.dll",
+  "icon": "icon.png",
 
   "config_schema": {
     "greeting": {
@@ -132,6 +134,7 @@ Create `manifest.json`:
 | `framework_version` | No | Minimum required TerrariaModder version |
 | `terraria_version` | No | Minimum Terraria version |
 | `homepage` | No | Mod homepage URL |
+| `icon` | No | Path to a PNG icon file (relative to mod folder, defaults to `icon.png`). Shown in panel headers and mod list. |
 | `tags` | No | Mod tags for categorization |
 
 **Note on `entry_dll`:** Optional. If omitted, defaults to the mod ID with hyphens removed plus `.dll` (e.g., `my-first-mod` → `myfirstmod.dll`). Specify explicitly if your DLL name differs from this pattern.

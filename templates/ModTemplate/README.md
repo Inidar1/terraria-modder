@@ -68,6 +68,7 @@ YourModName/
 ├── YourModName.csproj  # Project file
 ├── manifest.json       # Mod manifest (id, name, config, keybinds)
 ├── Mod.cs              # Main mod class
+├── icon.png            # Optional: mod icon (shown in panel headers)
 └── README.md           # This file (can delete)
 ```
 
