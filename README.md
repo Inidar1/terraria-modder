@@ -4,7 +4,7 @@ A lightweight modding framework for Terraria 1.4.5. No tModLoader required.
 
 ## Download
 
-Get the latest release from [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods), or follow build instructions below. Extract to your Terraria folder and run `TerrariaInjector.exe`.
+Get the latest release from [Nexus Mods](https://www.nexusmods.com/terraria/mods/135), or follow build instructions below. Extract to your Terraria folder and run `TerrariaInjector.exe`.
 
 ## Create Your Own Mods
 
@@ -20,20 +20,20 @@ A GUI mod manager app is coming soon.
 
 ## Included Mods
 
-| Mod | Description | Default Key |
-|-----|-------------|-------------|
-| ModMenu | In-game mod configuration | F6 |
-| SkipIntro | Skips the ReLogic splash screen | (auto) |
-| QuickKeys | Auto-torch, recall, quick-stack, ruler, extended hotbar (opt-in) | Tilde, Home, End, K |
-| ItemSpawner | In-game item spawner | Insert |
-| AutoBuffs | Automatically applies furniture buffs | (auto) |
-| PetChests | Use pets as portable piggy banks | (right-click) |
-| StorageHub | Unified storage with crafting, recipes, shimmer decraft, painting chest, relay network | F5 |
-| AdminPanel | God mode, movement speed, teleports, time controls, respawn | Backslash, F9 |
-| WhipStacking | Restores pre-1.4.5 whip tag stacking | (auto) |
-| SeedLab | Toggle secret seed features for world gen (WIP) | F10 |
+| Mod | Description | Default Key | Download |
+|-----|-------------|-------------|----------|
+| ModMenu | In-game mod configuration | F6 | Included in [Core](https://www.nexusmods.com/terraria/mods/135) |
+| SkipIntro | Skips the ReLogic splash screen | (auto) | [Nexus](https://www.nexusmods.com/terraria/mods/140) |
+| QuickKeys | Auto-torch, recall, quick-stack, ruler, extended hotbar (opt-in) | Tilde, Home, End, K | [Nexus](https://www.nexusmods.com/terraria/mods/143) |
+| ItemSpawner | In-game item spawner | Insert | [Nexus](https://www.nexusmods.com/terraria/mods/141) |
+| AutoBuffs | Automatically applies furniture buffs | (auto) | [Nexus](https://www.nexusmods.com/terraria/mods/138) |
+| PetChests | Use pets as portable piggy banks | (right-click) | [Nexus](https://www.nexusmods.com/terraria/mods/142) |
+| StorageHub | Unified storage with crafting, recipes, shimmer decraft, painting chest, relay network | F5 | [Nexus](https://www.nexusmods.com/terraria/mods/136) |
+| AdminPanel | God mode, movement speed, teleports, time controls, respawn | Backslash, F9 | [Nexus](https://www.nexusmods.com/terraria/mods/137) |
+| WhipStacking | Restores pre-1.4.5 whip tag stacking | (auto) | [Nexus](https://www.nexusmods.com/terraria/mods/139) |
+| SeedLab | Toggle secret seed features for world gen (WIP) | F10 | [Nexus](https://www.nexusmods.com/terraria/mods/144) |
 
-**Optional (separate download):**
+**Optional (for mod developers):**
 
 | Mod | Description | Default Key |
 |-----|-------------|-------------|
