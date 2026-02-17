@@ -1,0 +1,66 @@
+site_name: TerrariaModder
+site_description: A modding framework for Terraria 1.4.5
+site_url: https://inidar1.github.io/terraria-modder/
+repo_url: https://github.com/Inidar1/terraria-modder
+repo_name: Inidar1/terraria-modder
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep orange
+      accent: orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep orange
+      accent: orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - For Players:
+    - Installation: installation.md
+    - Finding Mods: finding-mods.md
+    - Troubleshooting: troubleshooting.md
+  - For Modders:
+    - Making Your First Mod: making-your-first-mod.md
+    - Harmony Basics: harmony-basics.md
+    - Core API Reference: core-api-reference.md
+    - Tested Patterns: tested-patterns.md
+    - Publishing Your Mod: publishing-your-mod.md
+  - Mod Walkthroughs:
+    - Overview: walkthroughs.md
+    - SkipIntro: walkthroughs/skip-intro.md
+    - AutoBuffs: walkthroughs/auto-buffs.md
+    - QuickKeys: walkthroughs/quick-keys.md
+    - PetChests: walkthroughs/pet-chests.md
+    - ItemSpawner: walkthroughs/item-spawner.md
+    - StorageHub: walkthroughs/storage-hub.md
+    - AdminPanel: walkthroughs/admin-panel.md
+    - WhipStacking: walkthroughs/whip-stacking.md
+    - DebugTools: walkthroughs/debug-tools.md
+    - SeedLab: walkthroughs/seed-lab.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
