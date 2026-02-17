@@ -14,7 +14,7 @@ This guide covers installing TerrariaModder for players who want to use mods.
 
 ## Step 1: Download
 
-Download **TerrariaModder Core** from [Nexus Mods](https://www.nexusmods.com/terraria/users/Inidar?tab=user+files). This is the framework that all mods require.
+Download **TerrariaModder Core** from [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods). This is the framework that all mods require.
 
 Then download any mods you want. Each mod is a separate download on the same Nexus page.
 

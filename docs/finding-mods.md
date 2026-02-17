@@ -5,24 +5,24 @@ nav_order: 4
 
 # Available Mods
 
-All official TerrariaModder mods are available on [Nexus Mods](https://www.nexusmods.com/terraria/users/Inidar?tab=user+files). Each mod is a separate download, so install only what you want.
+All official TerrariaModder mods are available on [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods). Each mod is a separate download, so install only what you want.
 
 ## Official Mods
 
 All mods require TerrariaModder Core to be installed first.
 
-| Mod | Description | Keybind |
-|-----|-------------|---------|
-| **SkipIntro** | Skips the ReLogic splash screen on startup | Automatic |
-| **QuickKeys** | Auto-torch, recall hotkey, quick-stack, ruler, extended hotbar | Tilde, Home, End, K |
-| **AutoBuffs** | Automatically applies nearby furniture buffs | Automatic |
-| **PetChests** | Right-click any cosmetic pet to access piggy bank | Right-click |
-| **ItemSpawner** | In-game item spawner UI (singleplayer) | Insert |
-| **StorageHub** | Unified storage with crafting, recipes, shimmer decraft, painting chest, relay network | F5 |
-| **AdminPanel** | God mode, movement speed, teleports, time controls, respawn settings | Backslash, F9 |
-| **WhipStacking** | Restores pre-1.4.5 whip tag stacking | Automatic |
-| **SeedLab** | Toggle secret seed features for world gen (WIP) | F10 |
-| **DebugTools** | Debug HTTP server, in-game console, virtual input, window management | Ctrl+` |
+| Mod | Description | Keybind | Download |
+|-----|-------------|---------|----------|
+| **SkipIntro** | Skips the ReLogic splash screen on startup | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/140) |
+| **QuickKeys** | Auto-torch, recall hotkey, quick-stack, ruler, extended hotbar | Tilde, Home, End, K | [Nexus](https://www.nexusmods.com/terraria/mods/143) |
+| **AutoBuffs** | Automatically applies nearby furniture buffs | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/138) |
+| **PetChests** | Right-click any cosmetic pet to access piggy bank | Right-click | [Nexus](https://www.nexusmods.com/terraria/mods/142) |
+| **ItemSpawner** | In-game item spawner UI (singleplayer) | Insert | [Nexus](https://www.nexusmods.com/terraria/mods/141) |
+| **StorageHub** | Unified storage with crafting, recipes, shimmer decraft, painting chest, relay network | F5 | [Nexus](https://www.nexusmods.com/terraria/mods/136) |
+| **AdminPanel** | God mode, movement speed, teleports, time controls, respawn settings | Backslash, F9 | [Nexus](https://www.nexusmods.com/terraria/mods/137) |
+| **WhipStacking** | Restores pre-1.4.5 whip tag stacking | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/139) |
+| **SeedLab** | Toggle secret seed features for world gen (WIP) | F10 | [Nexus](https://www.nexusmods.com/terraria/mods/144) |
+| **DebugTools** | Debug HTTP server, in-game console, virtual input, window management | Ctrl+` | — |
 
 **ModMenu** (F6) is built into Core, no separate download needed.
 

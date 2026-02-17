@@ -4,7 +4,7 @@ A lightweight modding framework for Terraria 1.4.5. No tModLoader required.
 
 ## Download
 
-Get the latest release from [Nexus Mods](https://www.nexusmods.com/terraria/mods/135), or follow build instructions below. Extract to your Terraria folder and run `TerrariaInjector.exe`.
+Get the latest release from [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods), or follow build instructions below. Extract to your Terraria folder and run `TerrariaInjector.exe`.
 
 ## Create Your Own Mods
 
