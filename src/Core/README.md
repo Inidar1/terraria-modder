@@ -55,7 +55,7 @@ Terraria/
 ## For Mod Authors
 
 See the main repository for documentation on creating mods:
-https://github.com/SixteenthBit/terraria-modder
+https://github.com/Inidar1/terraria-modder
 
 ## Multiplayer
 
