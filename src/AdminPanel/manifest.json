@@ -1,7 +1,7 @@
 {
   "id": "admin-panel",
   "name": "Admin Panel",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Inidar",
   "description": "Quick access to admin/cheat features with toggleable panel UI",
   "entry_dll": "AdminPanel.dll",

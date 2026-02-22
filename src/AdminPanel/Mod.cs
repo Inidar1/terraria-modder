@@ -15,7 +15,7 @@ namespace AdminPanel
     {
         public string Id => "admin-panel";
         public string Name => "Admin Panel";
-        public string Version => "1.0.0";
+        public string Version => "1.1.0";
 
         #region Constants
 
@@ -35,7 +35,8 @@ namespace AdminPanel
         private bool _enabled;
         private bool _singleplayerOnly;
 
-        private DraggablePanel _panel = new DraggablePanel("admin-panel", "Admin Panel", 380, 560);
+        private Action _pendingAction;
+        private DraggablePanel _panel = new DraggablePanel("admin-panel", "Admin Panel", 380, 620);
         private Slider _timeSlider = new Slider();
         private Slider _normalRespawnSlider = new Slider();
         private Slider _bossRespawnSlider = new Slider();
@@ -44,12 +45,21 @@ namespace AdminPanel
         private int _normalRespawnIndex = NormalDefaultIndex;
         private int _bossRespawnIndex = BossDefaultIndex;
 
+        // Tab state
+        private int _activeTab;
+        private static readonly string[] TabNames = { "Main", "Bosses", "NPCs" };
+        private const int TabBarHeight = 30;
+
         // Previous values for dirty detection (avoid saving every frame during drag)
         private bool _prevGodMode;
         private int _prevTimeSpeed = 1;
         private int _prevNormalRespawnIndex = NormalDefaultIndex;
         private int _prevBossRespawnIndex = BossDefaultIndex;
         private int _prevMoveSpeed = 1;
+        private bool _prevBiomeSpread;
+        private bool _prevRightClickSpawn;
+        private string _prevBossFavs = "";
+        private string _prevNpcFavs = "";
 
         #endregion
 
@@ -61,6 +71,10 @@ namespace AdminPanel
         private static float _bossRespawnMult = 1.0f;
         private static bool _inBossFight;
         private static int _moveSpeedMultiplier = 1;
+        private static bool _biomeSpreadDisabled;
+
+        // Biome spread reflection
+        private static FieldInfo _allowedToSpreadInfectionsField;
 
         private static Harmony _harmony;
         private static Timer _patchTimer;
@@ -151,6 +165,8 @@ namespace AdminPanel
             context.RegisterKeybind("god-mode", "Toggle God Mode", "Toggle invincibility", "F9", OnToggleGodMode);
 
             _panel.RegisterDrawCallback(OnDraw);
+            FrameEvents.OnPreUpdate += ExecutePendingAction;
+            FrameEvents.OnPreUpdate += UpdateNPCSpawner;
 
             _harmony = new Harmony("com.terrariamodder.adminpanel");
             _patchTimer = new Timer(ApplyPatches, null, 5000, Timeout.Infinite);
@@ -172,12 +188,17 @@ namespace AdminPanel
             _inBossFight = false;
             // Reset game state but keep settings
             try { _dayRateField?.SetValue(null, 1); } catch { }
+            // Restore biome spread for save safety
+            try { _allowedToSpreadInfectionsField?.SetValue(null, true); } catch { }
         }
 
         public void Unload()
         {
             _patchTimer?.Dispose();
             _patchTimer = null;
+            FrameEvents.OnPreUpdate -= ExecutePendingAction;
+            FrameEvents.OnPreUpdate -= UpdateNPCSpawner;
+            _pendingAction = null;
             _panel.UnregisterDrawCallback();
             _panel.Close();
             _harmony?.UnpatchAll("com.terrariamodder.adminpanel");
@@ -185,7 +206,11 @@ namespace AdminPanel
             _godModeActive = false;
             _timeSpeedMultiplier = 1;
             _moveSpeedMultiplier = 1;
+            _biomeSpreadDisabled = false;
+            // Restore biome spread on unload
+            try { _allowedToSpreadInfectionsField?.SetValue(null, true); } catch { }
             try { _dayRateField?.SetValue(null, 1); } catch { }
+            NPCSpawner.Unload();
             ClearReflectionCache();
             _log.Info("AdminPanel unloaded");
         }
@@ -221,7 +246,22 @@ namespace AdminPanel
                 _prevBossRespawnIndex = _bossRespawnIndex;
                 _prevMoveSpeed = _moveSpeedMultiplier;
 
-                _log.Info($"Settings loaded - god:{_godModeActive} time:{_timeSpeedMultiplier}x respawn:{NormalRespawnSeconds[_normalRespawnIndex]}s/{BossRespawnSeconds[_bossRespawnIndex]}s move:{_moveSpeedMultiplier}x");
+                // Biome spread
+                _biomeSpreadDisabled = _context.Config.Get<bool>("biomeSpreadDisabled", false);
+                _prevBiomeSpread = _biomeSpreadDisabled;
+
+                // NPC Spawner favourites
+                string bossFavs = _context.Config.Get<string>("bossFavourites", "");
+                string npcFavs = _context.Config.Get<string>("npcFavourites", "");
+                _prevBossFavs = bossFavs;
+                _prevNpcFavs = npcFavs;
+                NPCSpawner.LoadFavourites(bossFavs, npcFavs);
+
+                bool rightClickSpawn = _context.Config.Get<bool>("rightClickSpawn", false);
+                _prevRightClickSpawn = rightClickSpawn;
+                NPCSpawner.LoadRightClickSpawn(rightClickSpawn);
+
+                _log.Info($"Settings loaded - god:{_godModeActive} time:{_timeSpeedMultiplier}x respawn:{NormalRespawnSeconds[_normalRespawnIndex]}s/{BossRespawnSeconds[_bossRespawnIndex]}s move:{_moveSpeedMultiplier}x biomeSpread:{(_biomeSpreadDisabled ? "blocked" : "normal")}");
             }
             catch (Exception ex)
             {
@@ -323,6 +363,15 @@ namespace AdminPanel
                     _npcCenterProp = npcType.GetProperty("Center", BindingFlags.Public | BindingFlags.Instance);
                 }
 
+                // Biome spread control
+                var worldGenType = _mainType?.Assembly.GetType("Terraria.WorldGen");
+                if (worldGenType != null)
+                    _allowedToSpreadInfectionsField = worldGenType.GetField("AllowedToSpreadInfections", BindingFlags.Public | BindingFlags.Static);
+
+                // Initialize NPC spawner
+                NPCSpawner.Init(_log, _mainType, _playerType, _vector2Type,
+                    _vector2XField, _vector2YField, _myPlayerField, _playerArrayField, _playerCenterProp);
+
                 _log.Debug("Reflection initialized");
             }
             catch (Exception ex)
@@ -375,6 +424,7 @@ namespace AdminPanel
             _npcBossField = null;
             _npcTypeField = null;
             _npcCenterProp = null;
+            _allowedToSpreadInfectionsField = null;
         }
 
         #endregion
@@ -428,6 +478,19 @@ namespace AdminPanel
                     var prefix = typeof(Mod).GetMethod(nameof(HorizontalMovement_Prefix), BindingFlags.NonPublic | BindingFlags.Static);
                     _harmony.Patch(horizontalMovementMethod, prefix: new HarmonyMethod(prefix));
                     _log.Debug("Patched Player.HorizontalMovement for movement speed");
+                }
+
+                // WorldGen.hardUpdateWorld prefix - biome spread disable
+                var worldGenType = _mainType.Assembly.GetType("Terraria.WorldGen");
+                if (worldGenType != null)
+                {
+                    var hardUpdateMethod = worldGenType.GetMethod("hardUpdateWorld", BindingFlags.Public | BindingFlags.Static);
+                    if (hardUpdateMethod != null)
+                    {
+                        var prefix = typeof(Mod).GetMethod(nameof(HardUpdateWorld_Prefix), BindingFlags.NonPublic | BindingFlags.Static);
+                        _harmony.Patch(hardUpdateMethod, prefix: new HarmonyMethod(prefix));
+                        _log.Debug("Patched WorldGen.hardUpdateWorld for biome spread control");
+                    }
                 }
             }
             catch (Exception ex)
@@ -519,6 +582,19 @@ namespace AdminPanel
             catch { }
         }
 
+        /// <summary>
+        /// Prefix for WorldGen.hardUpdateWorld - blocks biome spread when toggle is on.
+        /// Also sets AllowedToSpreadInfections to false for grass growth methods.
+        /// </summary>
+        private static bool HardUpdateWorld_Prefix()
+        {
+            if (!_biomeSpreadDisabled) return true;
+
+            // Also suppress the AllowedToSpreadInfections flag for grass-related spread
+            try { _allowedToSpreadInfectionsField?.SetValue(null, false); } catch { }
+            return false; // Skip vanilla hardUpdateWorld entirely
+        }
+
         private static object GetLocalPlayer()
         {
             int myPlayer = (int)_myPlayerField.GetValue(null);
@@ -557,6 +633,54 @@ namespace AdminPanel
                 }
             }
             return false;
+        }
+
+        #endregion
+
+        #region Pending Action Queue
+
+        private void ExecutePendingAction()
+        {
+            var action = _pendingAction;
+            _pendingAction = null;
+            action?.Invoke();
+        }
+
+        private void UpdateNPCSpawner()
+        {
+            NPCSpawner.Update(_panel.IsOpen);
+            SaveFavouritesIfChanged();
+        }
+
+        private void SaveFavouritesIfChanged()
+        {
+            try
+            {
+                string bossFavs = NPCSpawner.SaveBossFavourites();
+                if (bossFavs != _prevBossFavs)
+                {
+                    _prevBossFavs = bossFavs;
+                    _context.Config.Set("bossFavourites", bossFavs);
+                    _context.Config.Save();
+                }
+
+                string npcFavs = NPCSpawner.SaveNPCFavourites();
+                if (npcFavs != _prevNpcFavs)
+                {
+                    _prevNpcFavs = npcFavs;
+                    _context.Config.Set("npcFavourites", npcFavs);
+                    _context.Config.Save();
+                }
+
+                bool rcs = NPCSpawner.RightClickSpawnEnabled;
+                if (rcs != _prevRightClickSpawn)
+                {
+                    _prevRightClickSpawn = rcs;
+                    _context.Config.Set("rightClickSpawn", rcs);
+                    _context.Config.Save();
+                }
+            }
+            catch { }
         }
 
         #endregion
@@ -615,91 +739,23 @@ namespace AdminPanel
             if (!_panel.BeginDraw()) return;
             try
             {
-                var s = new StackLayout(_panel.ContentX, _panel.ContentY, _panel.ContentWidth);
+                // Tab bar at top of content area
+                int tabY = _panel.ContentY;
+                var newTab = TabBar.Draw(_panel.X, tabY, _panel.Width, TabNames, _activeTab, TabBarHeight);
+                if (newTab != _activeTab)
+                    _activeTab = newTab;
 
-                // ---- PLAYER ----
-                s.SectionHeader("PLAYER");
-                if (s.Toggle("God Mode", _godModeActive)) OnToggleGodMode();
+                int contentY = tabY + TabBarHeight + 5;
+                var s = new StackLayout(_panel.ContentX, contentY, _panel.ContentWidth);
 
-                int hw = (s.Width - 8) / 2;
-                if (s.ButtonAt(s.X, hw, "Full Health")) RestoreHealth();
-                if (s.ButtonAt(s.X + hw + 8, hw, "Full Mana")) RestoreMana();
-                s.Advance(26);
+                switch (_activeTab)
+                {
+                    case 0: DrawMainTab(ref s); break;
+                    case 1: NPCSpawner.DrawBossTab(ref s); break;
+                    case 2: NPCSpawner.DrawNPCTab(ref s); break;
+                }
 
-                // ---- MOVEMENT ----
-                s.SectionHeader("MOVEMENT");
-                int labelW = 100;
-                int sy = s.Advance(SliderHeight);
-                UIRenderer.DrawText("Speed:", s.X, sy + 2, UIColors.TextDim);
-                _moveSpeedMultiplier = _moveSpeedSlider.Draw(s.X + 50, sy, s.Width - 50 - labelW, SliderHeight,
-                    _moveSpeedMultiplier, 1, 10);
-                string moveLabel = _moveSpeedMultiplier == 1 ? "1x (normal)" : $"{_moveSpeedMultiplier}x";
-                var moveLabelColor = _moveSpeedMultiplier == 1 ? UIColors.TextHint : UIColors.AccentText;
-                UIRenderer.DrawText(moveLabel, s.X + s.Width - UIRenderer.MeasureText(moveLabel), sy + 2, moveLabelColor);
-                SaveSettingIfChanged("moveSpeed", _moveSpeedMultiplier, ref _prevMoveSpeed);
-
-                // ---- TIME ----
-                s.SectionHeader("TIME");
-                int qw = (s.Width - 24) / 4;
-                if (s.ButtonAt(s.X, qw, "Dawn")) SetTime(true, 0);
-                if (s.ButtonAt(s.X + qw + 8, qw, "Noon")) SetTime(true, 27000);
-                if (s.ButtonAt(s.X + (qw + 8) * 2, qw, "Dusk")) SetTime(false, 0);
-                if (s.ButtonAt(s.X + (qw + 8) * 3, qw, "Night")) SetTime(false, 16200);
-                s.Advance(26);
-
-                sy = s.Advance(SliderHeight);
-                UIRenderer.DrawText("Speed:", s.X, sy + 2, UIColors.TextDim);
-                _timeSpeedMultiplier = _timeSlider.Draw(s.X + 50, sy, s.Width - 50 - labelW, SliderHeight,
-                    _timeSpeedMultiplier, 1, 60);
-                string timeLabel = _timeSpeedMultiplier == 1 ? "1x (normal)" : $"{_timeSpeedMultiplier}x";
-                var timeLabelColor = _timeSpeedMultiplier == 1 ? UIColors.TextHint : UIColors.AccentText;
-                UIRenderer.DrawText(timeLabel, s.X + s.Width - UIRenderer.MeasureText(timeLabel), sy + 2, timeLabelColor);
-                SaveSettingIfChanged("timeSpeed", _timeSpeedMultiplier, ref _prevTimeSpeed);
-
-                // ---- TELEPORT ----
-                s.SectionHeader("TELEPORT");
-                qw = (s.Width - 24) / 4;
-                if (s.ButtonAt(s.X, qw, "Spawn")) TeleportToSpawn();
-                if (s.ButtonAt(s.X + qw + 8, qw, "Dungeon")) TeleportToDungeon();
-                if (s.ButtonAt(s.X + (qw + 8) * 2, qw, "Hell")) TeleportToHell();
-                if (s.ButtonAt(s.X + (qw + 8) * 3, qw, "Beach")) TeleportToBeach();
-                s.Advance(26);
-                if (s.ButtonAt(s.X, hw, "Bed")) TeleportToBed();
-                if (s.ButtonAt(s.X + hw + 8, hw, "Random")) TeleportRandom();
-                s.Advance(26);
-
-                // ---- RESPAWN ----
-                s.SectionHeader("RESPAWN");
-                int sliderX = 60;
-                int sliderW = s.Width - sliderX - labelW;
-
-                sy = s.Advance(SliderHeight);
-                UIRenderer.DrawText("Normal:", s.X, sy + 3, UIColors.TextDim);
-                _normalRespawnIndex = _normalRespawnSlider.Draw(s.X + sliderX, sy, sliderW, SliderHeight,
-                    _normalRespawnIndex, 0, NormalRespawnSeconds.Length - 1);
-                _normalRespawnMult = NormalRespawnSeconds[_normalRespawnIndex] / 10f;
-                bool normalDefault = _normalRespawnIndex == NormalDefaultIndex;
-                string normalLabel = FormatRespawnLabel(NormalRespawnSeconds[_normalRespawnIndex], normalDefault);
-                UIRenderer.DrawText(normalLabel, s.X + s.Width - UIRenderer.MeasureText(normalLabel),
-                    sy + 3, normalDefault ? UIColors.TextHint : UIColors.AccentText);
-                SaveSettingIfChanged("normalRespawnIndex", _normalRespawnIndex, ref _prevNormalRespawnIndex);
-
-                sy = s.Advance(SliderHeight);
-                UIRenderer.DrawText("Boss:", s.X, sy + 3, UIColors.TextDim);
-                _bossRespawnIndex = _bossRespawnSlider.Draw(s.X + sliderX, sy, sliderW, SliderHeight,
-                    _bossRespawnIndex, 0, BossRespawnSeconds.Length - 1);
-                _bossRespawnMult = BossRespawnSeconds[_bossRespawnIndex] / 20f;
-                bool bossDefault = _bossRespawnIndex == BossDefaultIndex;
-                string bossLabel = FormatRespawnLabel(BossRespawnSeconds[_bossRespawnIndex], bossDefault);
-                if (_inBossFight && !bossDefault) bossLabel += "*";
-                var bossLabelColor = _inBossFight ? UIColors.Warning : (bossDefault ? UIColors.TextHint : UIColors.AccentText);
-                UIRenderer.DrawText(bossLabel, s.X + s.Width - UIRenderer.MeasureText(bossLabel), sy + 3, bossLabelColor);
-                SaveSettingIfChanged("bossRespawnIndex", _bossRespawnIndex, ref _prevBossRespawnIndex);
-
-                if (s.ButtonAt(s.X, hw, "Instant Respawn")) InstantRespawn();
-                s.Advance(26);
-
-                // ---- Status line at bottom ----
+                // Status line at bottom (always visible)
                 string status = _godModeActive ? "God Mode: ACTIVE" : "God Mode: OFF";
                 if (_moveSpeedMultiplier > 1) status += $"  |  Speed: {_moveSpeedMultiplier}x";
                 UIRenderer.DrawText(status,
@@ -713,6 +769,107 @@ namespace AdminPanel
             finally
             {
                 _panel.EndDraw();
+            }
+        }
+
+        private void DrawMainTab(ref StackLayout s)
+        {
+            // ---- PLAYER ----
+            s.SectionHeader("PLAYER");
+            if (s.Toggle("God Mode", _godModeActive)) OnToggleGodMode();
+
+            int hw = (s.Width - 8) / 2;
+            if (s.ButtonAt(s.X, hw, "Full Health")) RestoreHealth();
+            if (s.ButtonAt(s.X + hw + 8, hw, "Full Mana")) RestoreMana();
+            s.Advance(26);
+
+            // ---- MOVEMENT ----
+            s.SectionHeader("MOVEMENT");
+            int labelW = 100;
+            int sy = s.Advance(SliderHeight);
+            UIRenderer.DrawText("Speed:", s.X, sy + 2, UIColors.TextDim);
+            _moveSpeedMultiplier = _moveSpeedSlider.Draw(s.X + 50, sy, s.Width - 50 - labelW, SliderHeight,
+                _moveSpeedMultiplier, 1, 10);
+            string moveLabel = _moveSpeedMultiplier == 1 ? "1x (normal)" : $"{_moveSpeedMultiplier}x";
+            var moveLabelColor = _moveSpeedMultiplier == 1 ? UIColors.TextHint : UIColors.AccentText;
+            UIRenderer.DrawText(moveLabel, s.X + s.Width - UIRenderer.MeasureText(moveLabel), sy + 2, moveLabelColor);
+            SaveSettingIfChanged("moveSpeed", _moveSpeedMultiplier, ref _prevMoveSpeed);
+
+            // ---- TIME ----
+            s.SectionHeader("TIME");
+            int qw = (s.Width - 24) / 4;
+            if (s.ButtonAt(s.X, qw, "Dawn")) SetTime(true, 0);
+            if (s.ButtonAt(s.X + qw + 8, qw, "Noon")) SetTime(true, 27000);
+            if (s.ButtonAt(s.X + (qw + 8) * 2, qw, "Dusk")) SetTime(false, 0);
+            if (s.ButtonAt(s.X + (qw + 8) * 3, qw, "Night")) SetTime(false, 16200);
+            s.Advance(26);
+
+            sy = s.Advance(SliderHeight);
+            UIRenderer.DrawText("Speed:", s.X, sy + 2, UIColors.TextDim);
+            _timeSpeedMultiplier = _timeSlider.Draw(s.X + 50, sy, s.Width - 50 - labelW, SliderHeight,
+                _timeSpeedMultiplier, 1, 60);
+            string timeLabel = _timeSpeedMultiplier == 1 ? "1x (normal)" : $"{_timeSpeedMultiplier}x";
+            var timeLabelColor = _timeSpeedMultiplier == 1 ? UIColors.TextHint : UIColors.AccentText;
+            UIRenderer.DrawText(timeLabel, s.X + s.Width - UIRenderer.MeasureText(timeLabel), sy + 2, timeLabelColor);
+            SaveSettingIfChanged("timeSpeed", _timeSpeedMultiplier, ref _prevTimeSpeed);
+
+            // ---- TELEPORT ----
+            s.SectionHeader("TELEPORT");
+            qw = (s.Width - 24) / 4;
+            // Queue teleports for Update phase — executing during Draw gets
+            // rolled back by FpsUnlocked's position save/restore interpolation.
+            if (s.ButtonAt(s.X, qw, "Spawn")) _pendingAction = TeleportToSpawn;
+            if (s.ButtonAt(s.X + qw + 8, qw, "Dungeon")) _pendingAction = TeleportToDungeon;
+            if (s.ButtonAt(s.X + (qw + 8) * 2, qw, "Hell")) _pendingAction = TeleportToHell;
+            if (s.ButtonAt(s.X + (qw + 8) * 3, qw, "Beach")) _pendingAction = TeleportToBeach;
+            s.Advance(26);
+            if (s.ButtonAt(s.X, hw, "Bed")) _pendingAction = TeleportToBed;
+            if (s.ButtonAt(s.X + hw + 8, hw, "Random")) _pendingAction = TeleportRandom;
+            s.Advance(26);
+
+            // ---- RESPAWN ----
+            s.SectionHeader("RESPAWN");
+            int sliderX = 60;
+            int sliderW = s.Width - sliderX - labelW;
+
+            sy = s.Advance(SliderHeight);
+            UIRenderer.DrawText("Normal:", s.X, sy + 3, UIColors.TextDim);
+            _normalRespawnIndex = _normalRespawnSlider.Draw(s.X + sliderX, sy, sliderW, SliderHeight,
+                _normalRespawnIndex, 0, NormalRespawnSeconds.Length - 1);
+            _normalRespawnMult = NormalRespawnSeconds[_normalRespawnIndex] / 10f;
+            bool normalDefault = _normalRespawnIndex == NormalDefaultIndex;
+            string normalLabel = FormatRespawnLabel(NormalRespawnSeconds[_normalRespawnIndex], normalDefault);
+            UIRenderer.DrawText(normalLabel, s.X + s.Width - UIRenderer.MeasureText(normalLabel),
+                sy + 3, normalDefault ? UIColors.TextHint : UIColors.AccentText);
+            SaveSettingIfChanged("normalRespawnIndex", _normalRespawnIndex, ref _prevNormalRespawnIndex);
+
+            sy = s.Advance(SliderHeight);
+            UIRenderer.DrawText("Boss:", s.X, sy + 3, UIColors.TextDim);
+            _bossRespawnIndex = _bossRespawnSlider.Draw(s.X + sliderX, sy, sliderW, SliderHeight,
+                _bossRespawnIndex, 0, BossRespawnSeconds.Length - 1);
+            _bossRespawnMult = BossRespawnSeconds[_bossRespawnIndex] / 20f;
+            bool bossDefault = _bossRespawnIndex == BossDefaultIndex;
+            string bossLabel = FormatRespawnLabel(BossRespawnSeconds[_bossRespawnIndex], bossDefault);
+            if (_inBossFight && !bossDefault) bossLabel += "*";
+            var bossLabelColor = _inBossFight ? UIColors.Warning : (bossDefault ? UIColors.TextHint : UIColors.AccentText);
+            UIRenderer.DrawText(bossLabel, s.X + s.Width - UIRenderer.MeasureText(bossLabel), sy + 3, bossLabelColor);
+            SaveSettingIfChanged("bossRespawnIndex", _bossRespawnIndex, ref _prevBossRespawnIndex);
+
+            if (s.ButtonAt(s.X, hw, "Instant Respawn")) InstantRespawn();
+            s.Advance(26);
+
+            // ---- WORLD ----
+            s.SectionHeader("WORLD");
+            if (s.Toggle("Disable Biome Spread", _biomeSpreadDisabled))
+            {
+                _biomeSpreadDisabled = !_biomeSpreadDisabled;
+                // Restore AllowedToSpreadInfections when re-enabling
+                if (!_biomeSpreadDisabled)
+                {
+                    try { _allowedToSpreadInfectionsField?.SetValue(null, true); } catch { }
+                }
+                _log.Info($"Biome spread: {(_biomeSpreadDisabled ? "DISABLED" : "enabled")}");
+                SaveSettingIfChanged("biomeSpreadDisabled", _biomeSpreadDisabled, ref _prevBiomeSpread);
             }
         }
 
