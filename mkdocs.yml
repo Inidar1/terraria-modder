@@ -66,6 +66,7 @@ nav:
     - WhipStacking: walkthroughs/whip-stacking.md
     - DebugTools: walkthroughs/debug-tools.md
     - SeedLab: walkthroughs/seed-lab.md
+    - Asset Experience Mod: walkthroughs/asset-experience-mod.md
 
 markdown_extensions:
   - admonition
