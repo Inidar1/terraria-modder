@@ -7,7 +7,6 @@ using StorageHub.Storage;
 using StorageHub.Config;
 using StorageHub.Relay;
 using TerrariaModder.Core.UI.Widgets;
-using StorageHub.PaintingChest;
 
 namespace StorageHub.UI.Tabs
 {
@@ -36,8 +35,6 @@ namespace StorageHub.UI.Tabs
 
         // Cached item counts for upgrade checks
         private Dictionary<int, int> _itemCounts = new Dictionary<int, int>();
-        private int _chestItemCount;
-        private int _chestIconItemId = -1;
         private bool _needsRefresh = true;
 
         /// <summary>
@@ -97,12 +94,6 @@ namespace StorageHub.UI.Tabs
             // Tier section (includes station memory toggle)
             drawY = DrawTierSection(x, drawY, contentWidth);
 
-            // Painting chest section (only if feature enabled)
-            if (PaintingChestManager.Enabled)
-            {
-                drawY = DrawPaintingChestSection(x, drawY, contentWidth);
-            }
-
             // Relays section
             drawY = DrawRelaysSection(x, drawY, contentWidth);
 
@@ -132,13 +123,6 @@ namespace StorageHub.UI.Tabs
             if (ProgressionTier.HasStationMemory(_config.Tier))
                 tierLines++; // extra line for toggle button
             height += SectionHeight + LineHeight * tierLines + 40 + 20;
-
-            // Painting chest section (if enabled)
-            if (PaintingChestManager.Enabled)
-            {
-                // header + capacity line + upgrade row or max text + spacing
-                height += SectionHeight + LineHeight + 44 + 20;
-            }
 
             // Relays: header + relay lines + spacing
             height += SectionHeight + Math.Max(1, _config.Relays.Count) * LineHeight + 20;
@@ -460,105 +444,6 @@ namespace StorageHub.UI.Tabs
             return y + 10;
         }
 
-        private int DrawPaintingChestSection(int x, int y, int width)
-        {
-            const int IconSize = 24;
-            const int RowHeight = 34;
-
-            // Section header
-            if (IsVisible(y, SectionHeight))
-            {
-                UIRenderer.DrawRect(x, y, width, SectionHeight, UIColors.HeaderBg);
-                UIRenderer.DrawText("Mysterious Painting", x + 10, y + 6, UIColors.TextTitle);
-            }
-            y += SectionHeight + 5;
-
-            // Current capacity
-            int currentLevel = _config.PaintingChestLevel;
-            int capacity = PaintingChestProgression.GetCapacity(currentLevel);
-            if (IsVisible(y, LineHeight))
-            {
-                UIRenderer.DrawText($"Current Capacity: {capacity} slots", x + 10, y, UIColors.TextDim);
-            }
-            y += LineHeight + 5;
-
-            // Next tier upgrade
-            var nextTier = PaintingChestProgression.GetNextTier(currentLevel);
-            if (nextTier != null)
-            {
-                bool meetsGameTier = _config.Tier >= nextTier.RequiredGameTier;
-                bool hasEnough = _chestItemCount >= nextTier.RequiredCount;
-                bool canUnlock = meetsGameTier && hasEnough;
-
-                int btnWidth = 80;
-                int btnHeight = 22;
-                int btnX = x + width - btnWidth - 10;
-                bool hover = IsVisible(y, RowHeight) && canUnlock && WidgetInput.IsMouseOver(btnX, y + 4, btnWidth, btnHeight);
-
-                if (IsVisible(y, RowHeight))
-                {
-                    // Draw chest icon
-                    if (_chestIconItemId > 0)
-                    {
-                        UIRenderer.DrawItem(_chestIconItemId, x + 8, y + 4, IconSize, IconSize);
-                        if (WidgetInput.IsMouseOver(x + 8, y + 4, IconSize, IconSize))
-                            ItemTooltip.Set(_chestIconItemId);
-                    }
-
-                    // Upgrade text
-                    int textX = x + 8 + IconSize + 8;
-                    UIRenderer.DrawText($"{nextTier.RequiredCount} chests needed to unlock next level ({nextTier.Capacity} Slots)",
-                        textX, y + 8, meetsGameTier ? UIColors.AccentText : UIColors.TextHint);
-
-                    // Count or tier requirement
-                    int countX = btnX - 70;
-                    if (meetsGameTier)
-                    {
-                        UIRenderer.DrawText($"{_chestItemCount}/{nextTier.RequiredCount}", countX, y + 8,
-                            hasEnough ? UIColors.Success : UIColors.Error);
-                    }
-                    else
-                    {
-                        UIRenderer.DrawText($"(Tier {nextTier.RequiredGameTier}+)", countX, y + 8, UIColors.TextHint);
-                    }
-
-                    // Button
-                    UIRenderer.DrawRect(btnX, y + 4, btnWidth, btnHeight,
-                        canUnlock ? (hover ? UIColors.ButtonHover : UIColors.Button) : UIColors.SectionBg);
-                    UIRenderer.DrawText("Unlock", btnX + 18, y + 8,
-                        canUnlock ? UIColors.Text : UIColors.TextHint);
-                }
-
-                if (hover && canUnlock && WidgetInput.MouseLeftClick)
-                {
-                    var chestItemIds = PaintingChestProgression.GetChestItemIds();
-                    if (_itemConsumer.ConsumeItems(chestItemIds, nextTier.RequiredCount))
-                    {
-                        _config.PaintingChestLevel = nextTier.TargetLevel;
-                        _config.Save();
-                        int newCapacity = PaintingChestProgression.GetCapacity(nextTier.TargetLevel);
-                        PaintingChestManager.ResizeAllPaintingChests(newCapacity);
-                        _log.Info($"Painting chest upgraded to level {nextTier.TargetLevel} ({newCapacity} slots)");
-                        _needsRefresh = true;
-                        OnStorageModified?.Invoke();
-                    }
-                    WidgetInput.ConsumeClick();
-                }
-
-                y += RowHeight;
-            }
-            else
-            {
-                if (IsVisible(y, LineHeight))
-                {
-                    UIRenderer.DrawText("Maximum capacity reached", x + 10, y, UIColors.Success);
-                }
-                y += LineHeight;
-            }
-
-            return y + 10;
-        }
-
         private void RefreshItemCounts()
         {
             _itemCounts.Clear();
@@ -579,14 +464,6 @@ namespace StorageHub.UI.Tabs
                 }
                 else
                     _itemCounts[item.ItemId] = item.Stack;
-            }
-
-            // Count chest items for painting chest upgrades
-            if (PaintingChestManager.Enabled)
-            {
-                _chestItemCount = PaintingChestProgression.CountChestItems(_itemCounts);
-                var chestIds = PaintingChestProgression.GetChestItemIds();
-                _chestIconItemId = chestIds.Length > 0 ? chestIds[0] : -1;
             }
 
             // Log counts for unlock items for debugging

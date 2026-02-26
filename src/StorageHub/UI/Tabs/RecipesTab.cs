@@ -27,7 +27,7 @@ namespace StorageHub.UI.Tabs
         private readonly StorageHubConfig _config;
 
         // UI components
-        private readonly TextInput _searchBar = new TextInput("Search...", 200);
+        private readonly TextInput _searchBar = new TextInput("Search / #tag...", 200);
         private readonly ScrollView _itemScroll = new ScrollView();
         private readonly ScrollView _createdByScroll = new ScrollView();
         private readonly ScrollView _usedInScroll = new ScrollView();
@@ -53,8 +53,8 @@ namespace StorageHub.UI.Tabs
         private RecipeSortMode _currentSort = RecipeSortMode.Craft;
         private bool _sortAscending = true;
 
-        // Category classification cache (loaded once from ContentSamples)
-        private Dictionary<int, CategoryFilter> _itemCategories;
+        // Item trait cache (loaded once from ContentSamples)
+        private Dictionary<int, ItemSearchTraits> _itemTraits;
 
         // Double-click tracking
         private int _lastClickedItemId = -1;
@@ -762,10 +762,10 @@ namespace StorageHub.UI.Tabs
                 _itemSortOrder = LoadCreativeSortOrder();
             }
 
-            // Load item categories from ContentSamples (once)
-            if (_itemCategories == null)
+            // Load item traits from ContentSamples (once)
+            if (_itemTraits == null)
             {
-                _itemCategories = ClassifyAllItems();
+                _itemTraits = ItemSearchTraitsBuilder.GetAllFromContentSamples(_log);
             }
 
             // Get all unique output items from recipes
@@ -818,9 +818,10 @@ namespace StorageHub.UI.Tabs
                 else
                     entry.SortOrder = nextFallback++;
 
-                // Category from ContentSamples classification
-                entry.Category = (_itemCategories != null && _itemCategories.TryGetValue(itemId, out var cat))
-                    ? cat : CategoryFilter.Misc;
+                // Category/traits from ContentSamples classification
+                entry.Traits = (_itemTraits != null && _itemTraits.TryGetValue(itemId, out var traits))
+                    ? traits : ItemSearchTraits.Default;
+                entry.Category = entry.Traits.PrimaryCategory;
 
                 // Determine craftability
                 entry.CraftStatus = ItemCraftStatus.NoCraft;
@@ -868,7 +869,7 @@ namespace StorageHub.UI.Tabs
 
         private void FilterItems()
         {
-            string search = _searchBar.Text.ToLower();
+            var query = MagicSearchQuery.Parse(_searchBar.Text);
             _filteredItems = new List<ItemEntry>();
 
             foreach (var item in _allItems)
@@ -877,8 +878,8 @@ namespace StorageHub.UI.Tabs
                 if (item.CraftStatus == ItemCraftStatus.NoCraft)
                     continue;
 
-                // Apply text search
-                if (!string.IsNullOrEmpty(search) && !item.Name.ToLower().Contains(search))
+                // Apply text/tag search
+                if (!query.Matches(item.Name, tag => MagicSearchQuery.MatchesTag(item.Traits, tag, false)))
                     continue;
 
                 // Apply category filter
@@ -1149,6 +1150,7 @@ namespace StorageHub.UI.Tabs
             public ItemCraftStatus CraftStatus;
             public int SortOrder; // From ContentSamples creative sorting
             public CategoryFilter Category;
+            public ItemSearchTraits Traits;
         }
 
         private enum ItemCraftStatus
@@ -1270,96 +1272,5 @@ namespace StorageHub.UI.Tabs
             }
         }
 
-        /// <summary>
-        /// Classify all items into categories using ContentSamples.ItemsByType reflection.
-        /// Called once and cached.
-        /// </summary>
-        private Dictionary<int, CategoryFilter> ClassifyAllItems()
-        {
-            var result = new Dictionary<int, CategoryFilter>();
-            try
-            {
-                var contentSamplesType = Type.GetType("Terraria.ID.ContentSamples, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.ID.ContentSamples");
-                if (contentSamplesType == null) return result;
-
-                var itemsByTypeField = contentSamplesType.GetField("ItemsByType",
-                    BindingFlags.Public | BindingFlags.Static);
-                if (itemsByTypeField == null) return result;
-
-                var dict = itemsByTypeField.GetValue(null) as System.Collections.IDictionary;
-                if (dict == null) return result;
-
-                // Cache field accessors
-                FieldInfo damageField = null, pickField = null, axeField = null, hammerField = null;
-                FieldInfo headSlotField = null, bodySlotField = null, legSlotField = null;
-                FieldInfo accessoryField = null, consumableField = null;
-                FieldInfo createTileField = null, createWallField = null, materialField = null;
-
-                foreach (System.Collections.DictionaryEntry entry in dict)
-                {
-                    int id = (int)entry.Key;
-                    var item = entry.Value;
-
-                    if (damageField == null)
-                    {
-                        var t = item.GetType();
-                        damageField = t.GetField("damage");
-                        pickField = t.GetField("pick");
-                        axeField = t.GetField("axe");
-                        hammerField = t.GetField("hammer");
-                        headSlotField = t.GetField("headSlot");
-                        bodySlotField = t.GetField("bodySlot");
-                        legSlotField = t.GetField("legSlot");
-                        accessoryField = t.GetField("accessory");
-                        consumableField = t.GetField("consumable");
-                        createTileField = t.GetField("createTile");
-                        createWallField = t.GetField("createWall");
-                        materialField = t.GetField("material");
-                    }
-
-                    int damage = (int)damageField.GetValue(item);
-                    int pick = (int)pickField.GetValue(item);
-                    int axe = (int)axeField.GetValue(item);
-                    int hammer = (int)hammerField.GetValue(item);
-                    int headSlot = (int)headSlotField.GetValue(item);
-                    int bodySlot = (int)bodySlotField.GetValue(item);
-                    int legSlot = (int)legSlotField.GetValue(item);
-                    bool accessory = (bool)accessoryField.GetValue(item);
-                    bool consumable = (bool)consumableField.GetValue(item);
-                    int createTile = (int)createTileField.GetValue(item);
-                    int createWall = (int)createWallField.GetValue(item);
-                    bool material = (bool)materialField.GetValue(item);
-
-                    // Priority order matters: tools have damage, placeables are consumable
-                    CategoryFilter cat;
-                    if (pick > 0 || axe > 0 || hammer > 0)
-                        cat = CategoryFilter.Tools;
-                    else if (damage > 0)
-                        cat = CategoryFilter.Weapons;
-                    else if (headSlot > -1 || bodySlot > -1 || legSlot > -1)
-                        cat = CategoryFilter.Armor;
-                    else if (accessory)
-                        cat = CategoryFilter.Accessories;
-                    else if (createTile >= 0 || createWall >= 0)
-                        cat = CategoryFilter.Placeable;
-                    else if (consumable)
-                        cat = CategoryFilter.Consumables;
-                    else if (material)
-                        cat = CategoryFilter.Materials;
-                    else
-                        cat = CategoryFilter.Misc;
-
-                    result[id] = cat;
-                }
-
-                _log.Debug($"Classified {result.Count} items into categories");
-            }
-            catch (Exception ex)
-            {
-                _log.Error($"Failed to classify items: {ex.Message}");
-            }
-            return result;
-        }
     }
 }

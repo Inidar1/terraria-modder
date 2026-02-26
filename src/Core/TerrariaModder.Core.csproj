@@ -10,6 +10,9 @@
     <OutputPath>..\..\build\core\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <TerrariaInstallDir Condition="'$(TerrariaInstallDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Terraria</TerrariaInstallDir>
+    <TerrariaAssemblyPath Condition="Exists('..\..\Terraria\Terraria.exe')">..\..\Terraria\Terraria.exe</TerrariaAssemblyPath>
+    <TerrariaAssemblyPath Condition="'$(TerrariaAssemblyPath)' == ''">$(TerrariaInstallDir)\Terraria.exe</TerrariaAssemblyPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,7 +21,7 @@
 
   <ItemGroup>
     <Reference Include="Terraria">
-      <HintPath>..\..\Terraria\Terraria.exe</HintPath>
+      <HintPath>$(TerrariaAssemblyPath)</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>

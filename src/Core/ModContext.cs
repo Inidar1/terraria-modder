@@ -112,6 +112,30 @@ namespace TerrariaModder.Core
 
         #endregion
 
+        #region Custom Tiles
+
+        /// <summary>
+        /// Register a custom modded tile type.
+        /// Requires core config flag: experimental_custom_tiles=true.
+        /// </summary>
+        /// <param name="tileName">Unique tile name within this mod (e.g. "storage-heart").</param>
+        /// <param name="definition">Tile definition and behavior metadata.</param>
+        /// <returns>True if registered successfully.</returns>
+        public bool RegisterTile(string tileName, TileDefinition definition)
+        {
+            return AssetSystem.RegisterTile(Manifest.Id, tileName, definition);
+        }
+
+        /// <summary>
+        /// Get all custom tile names registered by this mod.
+        /// </summary>
+        public IEnumerable<string> GetTiles()
+        {
+            return TileRegistry.GetTilesForMod(Manifest.Id);
+        }
+
+        #endregion
+
         #region Custom Recipes
 
         /// <summary>

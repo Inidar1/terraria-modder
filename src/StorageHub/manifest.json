@@ -30,11 +30,11 @@
       "label": "Recursive Depth",
       "description": "Maximum depth for recursive sub-crafting. 0 = unlimited, 1 = one level of sub-crafting, 2-5 = deeper chains."
     },
-    "paintingChest": {
+    "dedicatedBlocksOnly": {
       "type": "bool",
       "default": true,
-      "label": "Painting Chest",
-      "description": "Enable the Mysterious Painting (a painting that functions as a chest with upgradeable capacity)"
+      "label": "Dedicated Blocks Only",
+      "description": "When enabled, only Storage Unit blocks are registered into the storage network."
     }
   },
   "keybinds": [

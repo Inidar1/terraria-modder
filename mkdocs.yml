@@ -62,6 +62,7 @@ nav:
     - PetChests: walkthroughs/pet-chests.md
     - ItemSpawner: walkthroughs/item-spawner.md
     - StorageHub: walkthroughs/storage-hub.md
+    - StorageHub Disk Storage: walkthroughs/storage-hub-disk-storage.md
     - AdminPanel: walkthroughs/admin-panel.md
     - WhipStacking: walkthroughs/whip-stacking.md
     - DebugTools: walkthroughs/debug-tools.md

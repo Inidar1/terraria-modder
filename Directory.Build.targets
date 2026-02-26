@@ -1,0 +1,88 @@
+<Project>
+  <PropertyGroup>
+    <EnableTerrariaModderDeploy Condition="'$(EnableTerrariaModderDeploy)' == ''">true</EnableTerrariaModderDeploy>
+    <TerrariaModderDeployRoot Condition="'$(TerrariaModderDeployRoot)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Terraria\TerrariaModder</TerrariaModderDeployRoot>
+  </PropertyGroup>
+
+  <Target Name="DeployTerrariaModderCore"
+          AfterTargets="Build"
+          Condition="'$(EnableTerrariaModderDeploy)' == 'true'
+                    and '$(DesignTimeBuild)' != 'true'
+                    and '$(AssemblyName)' == 'TerrariaModder.Core'
+                    and Exists('$(TargetPath)')
+                    and Exists('$(TerrariaModderDeployRoot)')">
+    <PropertyGroup>
+      <_DeployCoreDir>$(TerrariaModderDeployRoot)\core</_DeployCoreDir>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_DeployCoreDir)" />
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFiles="$(_DeployCoreDir)\$(TargetFileName)"
+          SkipUnchangedFiles="true" />
+
+    <Message Importance="High" Text="[Deploy] Core -&gt; $(_DeployCoreDir)" />
+  </Target>
+
+  <Target Name="DeployTerrariaModderPlugin"
+          AfterTargets="Build"
+          Condition="'$(EnableTerrariaModderDeploy)' == 'true'
+                    and '$(DesignTimeBuild)' != 'true'
+                    and '$(AssemblyName)' != 'TerrariaModder.Core'
+                    and Exists('$(MSBuildProjectDirectory)\manifest.json')
+                    and Exists('$(TargetPath)')
+                    and Exists('$(TerrariaModderDeployRoot)')">
+    <ReadLinesFromFile File="$(MSBuildProjectDirectory)\manifest.json">
+      <Output TaskParameter="Lines" ItemName="_ManifestLines" />
+    </ReadLinesFromFile>
+
+    <PropertyGroup>
+      <_ManifestText>@(_ManifestLines, ' ')</_ManifestText>
+      <_ManifestId>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', '\x22id\x22\s*:\s*\x22(?&lt;id&gt;[^\x22]+)\x22').Groups['id'].Value)</_ManifestId>
+      <_DeployPluginDir Condition="'$(_ManifestId)' != ''">$(TerrariaModderDeployRoot)\mods\$(_ManifestId)</_DeployPluginDir>
+      <_DeployPluginDir Condition="'$(_DeployPluginDir)' == ''">$(TerrariaModderDeployRoot)\mods\$(AssemblyName)</_DeployPluginDir>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_DeployPluginDir)" />
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFiles="$(_DeployPluginDir)\$(TargetFileName)"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\manifest.json"
+          DestinationFiles="$(_DeployPluginDir)\manifest.json"
+          SkipUnchangedFiles="true" />
+
+    <ItemGroup>
+      <_DeployTextureFilesAssets Include="$(MSBuildProjectDirectory)\assets\**\*.png" />
+      <_DeployTextureFilesAssetsCaps Include="$(MSBuildProjectDirectory)\Assets\**\*.png" />
+      <_DeployTextureFilesItems Include="$(MSBuildProjectDirectory)\Items\**\*.png" />
+      <_DeployTextureFilesComponents Include="$(MSBuildProjectDirectory)\Components\**\*.png" />
+      <_DeployTextureFilesTextures Include="$(MSBuildProjectDirectory)\Textures\**\*.png" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_DeployTextureFilesAssets)"
+          DestinationFolder="$(_DeployPluginDir)\assets\%(RecursiveDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_DeployTextureFilesAssets)' != ''" />
+
+    <Copy SourceFiles="@(_DeployTextureFilesAssetsCaps)"
+          DestinationFolder="$(_DeployPluginDir)\Assets\%(RecursiveDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_DeployTextureFilesAssetsCaps)' != ''" />
+
+    <Copy SourceFiles="@(_DeployTextureFilesItems)"
+          DestinationFolder="$(_DeployPluginDir)\Items\%(RecursiveDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_DeployTextureFilesItems)' != ''" />
+
+    <Copy SourceFiles="@(_DeployTextureFilesComponents)"
+          DestinationFolder="$(_DeployPluginDir)\Components\%(RecursiveDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_DeployTextureFilesComponents)' != ''" />
+
+    <Copy SourceFiles="@(_DeployTextureFilesTextures)"
+          DestinationFolder="$(_DeployPluginDir)\Textures\%(RecursiveDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_DeployTextureFilesTextures)' != ''" />
+
+    <Message Importance="High" Text="[Deploy] $(AssemblyName) -&gt; $(_DeployPluginDir)" />
+  </Target>
+</Project>

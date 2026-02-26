@@ -10,3 +10,7 @@ obj/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local reference repos (not part of this project)
+MagicStorage/
+.tools/

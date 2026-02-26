@@ -4,6 +4,11 @@
 
 A lightweight modding framework for Terraria 1.4.5. No tModLoader required.
 
+## Fork Notice
+
+This fork includes custom Storage Hub changes that align behavior more closely with Magic Storage-style networks and access flow.  
+It is an unofficial fork and is not affiliated with the original TerrariaModder maintainers.
+
 ## Download
 
 Get the latest release from [Nexus Mods](https://www.nexusmods.com/terraria/mods/135), or follow build instructions below. Extract to your Terraria folder and run `TerrariaInjector.exe`.
@@ -75,6 +80,9 @@ See the [Wiki](https://inidar1.github.io/terraria-modder/) for guides and refere
 Special thanks to [ConfuzzedCat](https://github.com/ConfuzzedCat) for [TerrariaInjector](https://github.com/ConfuzzedCat/TerrariaInjector), the injector that makes this entire project possible. Included in releases with their permission; check out the source at their repo.
 
 Built with [Harmony](https://github.com/pardeike/Harmony) (runtime patching) and [Mono.Cecil](https://github.com/jbevain/cecil) (assembly inspection), both MIT licensed.
+
+Storage Hub in this fork is inspired by [Magic Storage](https://github.com/blushiemagic/MagicStorage), created by `blushiemagic`.  
+Credit to the Magic Storage project for the original design direction and ecosystem concept.
 
 ## License
 

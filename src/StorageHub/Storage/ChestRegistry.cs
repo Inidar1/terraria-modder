@@ -36,6 +36,7 @@ namespace StorageHub.Storage
 
         // Fast lookup by position
         private HashSet<(int x, int y)> _registeredPositions = new HashSet<(int x, int y)>();
+        private HashSet<(int x, int y)> _temporaryOverridePositions;
 
         // Singleton for access from Harmony patches
         private static ChestRegistry _instance;
@@ -133,7 +134,8 @@ namespace StorageHub.Storage
         /// </summary>
         public bool IsRegistered(int x, int y)
         {
-            return _registeredPositions.Contains((x, y));
+            var active = _temporaryOverridePositions ?? _registeredPositions;
+            return active.Contains((x, y));
         }
 
         /// <summary>
@@ -141,13 +143,50 @@ namespace StorageHub.Storage
         /// </summary>
         public IEnumerable<(int x, int y)> GetRegisteredPositions()
         {
-            return _registeredPositions;
+            return _temporaryOverridePositions ?? _registeredPositions;
+        }
+
+        /// <summary>
+        /// Temporarily override the active storage positions used by readers.
+        /// Does not mutate persistent registrations.
+        /// </summary>
+        public IDisposable UseTemporaryPositions(IEnumerable<(int x, int y)> positions)
+        {
+            var previous = _temporaryOverridePositions;
+            _temporaryOverridePositions = positions != null
+                ? new HashSet<(int x, int y)>(positions)
+                : null;
+
+            return new DisposableScope(() => _temporaryOverridePositions = previous);
         }
 
         /// <summary>
         /// Get the count of registered chests.
         /// </summary>
-        public int Count => _registeredPositions.Count;
+        public int Count => (_temporaryOverridePositions ?? _registeredPositions).Count;
+
+        /// <summary>
+        /// Replace all registrations with a new set of positions.
+        /// Used by dedicated Storage Hub networks to mirror currently connected units.
+        /// </summary>
+        public bool ReplaceAll(IEnumerable<(int x, int y)> positions)
+        {
+            var next = new HashSet<(int x, int y)>();
+            if (positions != null)
+            {
+                foreach (var pos in positions)
+                    next.Add(pos);
+            }
+
+            if (_registeredPositions.SetEquals(next))
+                return false;
+
+            _registeredPositions = next;
+            _log.Debug($"[Registry] Replaced registrations, total: {_registeredPositions.Count}");
+            SaveToConfig();
+            OnRegistrationChanged?.Invoke();
+            return true;
+        }
 
         /// <summary>
         /// Clear all registrations.
@@ -185,6 +224,24 @@ namespace StorageHub.Storage
             if (toRemove.Count > 0)
             {
                 _log.Info($"Cleaned up {toRemove.Count} stale chest registrations");
+            }
+        }
+
+        private sealed class DisposableScope : IDisposable
+        {
+            private readonly Action _onDispose;
+            private bool _disposed;
+
+            public DisposableScope(Action onDispose)
+            {
+                _onDispose = onDispose;
+            }
+
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                _onDispose?.Invoke();
             }
         }
     }

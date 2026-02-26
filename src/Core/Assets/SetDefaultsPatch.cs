@@ -140,9 +140,11 @@ namespace TerrariaModder.Core.Assets
             item.useTime = def.UseTime;
             item.useAnimation = def.UseAnimation;
             item.useStyle = def.UseStyle;
+            item.useTurn = def.UseTurn;
             item.crit = def.Crit;
             item.mana = def.Mana;
             item.autoReuse = def.AutoReuse;
+            TrySetUseSound(item, def.UseSoundStyle);
 
             // Damage types
             item.melee = def.Melee;
@@ -176,7 +178,7 @@ namespace TerrariaModder.Core.Assets
             item.useAmmo = def.UseAmmo;
 
             // Placement
-            item.createTile = def.CreateTile;
+            item.createTile = ResolveCreateTile(def);
             item.createWall = def.CreateWall;
             item.placeStyle = def.PlaceStyle;
 
@@ -200,6 +202,107 @@ namespace TerrariaModder.Core.Assets
 
             // Ensure stack is at least 1 for non-air items
             if (item.stack <= 0) item.stack = 1;
+        }
+
+        private static void TrySetUseSound(Item item, int soundStyle)
+        {
+            if (item == null || soundStyle < 0)
+                return;
+
+            try
+            {
+                var itemType = item.GetType();
+
+                // 1. Legacy Terraria int field/property (most builds).
+                if (TrySetMemberValue(item, itemType, "useSound", soundStyle))
+                    return;
+                if (TrySetMemberValue(item, itemType, "UseSound", soundStyle))
+                    return;
+
+                // 2. Some builds expose SoundStyle/LegacySoundStyle as typed field/property.
+                var field = itemType.GetField("UseSound", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (field != null && TrySetTypedSoundMember(item, field.FieldType, value => field.SetValue(item, value), soundStyle))
+                    return;
+
+                var prop = itemType.GetProperty("UseSound", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (prop != null && prop.CanWrite)
+                    TrySetTypedSoundMember(item, prop.PropertyType, value => prop.SetValue(item, value, null), soundStyle);
+            }
+            catch (Exception ex)
+            {
+                _log?.Debug($"[SetDefaultsPatch] Failed setting UseSound: {ex.Message}");
+            }
+        }
+
+        private static bool TrySetMemberValue(object instance, Type type, string memberName, int value)
+        {
+            var field = type.GetField(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (field != null)
+            {
+                try
+                {
+                    field.SetValue(instance, Convert.ChangeType(value, field.FieldType));
+                    return true;
+                }
+                catch { }
+            }
+
+            var prop = type.GetProperty(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (prop != null && prop.CanWrite)
+            {
+                try
+                {
+                    prop.SetValue(instance, Convert.ChangeType(value, prop.PropertyType), null);
+                    return true;
+                }
+                catch { }
+            }
+
+            return false;
+        }
+
+        private static bool TrySetTypedSoundMember(object instance, Type memberType, Action<object> setter, int soundStyle)
+        {
+            if (memberType == null || setter == null)
+                return false;
+
+            try
+            {
+                if (memberType == typeof(int) || memberType == typeof(short) || memberType == typeof(byte) ||
+                    memberType == typeof(long) || memberType == typeof(uint) || memberType == typeof(ushort))
+                {
+                    setter(Convert.ChangeType(soundStyle, memberType));
+                    return true;
+                }
+
+                // Terraria.Audio.LegacySoundStyle(int style)
+                var ctor = memberType.GetConstructor(new[] { typeof(int) });
+                if (ctor != null)
+                {
+                    setter(ctor.Invoke(new object[] { soundStyle }));
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            return false;
+        }
+
+        private static int ResolveCreateTile(ItemDefinition def)
+        {
+            if (!string.IsNullOrWhiteSpace(def.CreateTileId))
+            {
+                int resolved = AssetSystem.ResolveTileType(def.CreateTileId);
+                if (resolved >= 0)
+                    return resolved;
+
+                _log?.Warn($"[SetDefaultsPatch] Could not resolve CreateTileId '{def.CreateTileId}', using CreateTile={def.CreateTile}");
+            }
+
+            return def.CreateTile;
         }
 
         private static bool[] _materialSet;

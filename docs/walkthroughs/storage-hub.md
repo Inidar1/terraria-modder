@@ -269,6 +269,8 @@ StorageHub saves progression data per-character per-world:
 }
 ```
 
+For disk-drive persistence internals (including the current prefix-byte UID model), see [StorageHub Disk Storage Format](storage-hub-disk-storage.md).
+
 ## UI Components
 
 StorageHub uses its own custom UI components (it predates the Widget Library), plus `TextUtil` from the Widget Library:

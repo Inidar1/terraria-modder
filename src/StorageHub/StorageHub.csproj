@@ -16,6 +16,11 @@
     </ProjectReference>
   </ItemGroup>
 
+  <!-- Painting-style fallback intentionally excluded in dedicated custom-tile rewrite -->
+  <ItemGroup>
+    <Compile Remove="PaintingChest\**\*.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="0Harmony">
       <HintPath>..\..\Terraria\Mods\Libs\0Harmony.dll</HintPath>

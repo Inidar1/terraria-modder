@@ -14,6 +14,8 @@ namespace StorageHub.UI
 
         // Ping state
         private int _pingChestIndex = -1;
+        private int _pingTileX = -1;
+        private int _pingTileY = -1;
         private int _pingTimer = 0;
         private const int PingDuration = 180; // 3 seconds at 60fps
 
@@ -99,8 +101,23 @@ namespace StorageHub.UI
         {
             if (chestIndex < 0) return;
             _pingChestIndex = chestIndex;
+            _pingTileX = -1;
+            _pingTileY = -1;
             _pingTimer = PingDuration;
             _log?.Debug($"[ChestPinger] Pinging chest {chestIndex}");
+        }
+
+        /// <summary>
+        /// Start pinging a specific tile position.
+        /// </summary>
+        public void PingTile(int tileX, int tileY)
+        {
+            if (tileX < 0 || tileY < 0) return;
+            _pingChestIndex = -1;
+            _pingTileX = tileX;
+            _pingTileY = tileY;
+            _pingTimer = PingDuration;
+            _log?.Debug($"[ChestPinger] Pinging tile ({tileX}, {tileY})");
         }
 
         /// <summary>
@@ -109,6 +126,8 @@ namespace StorageHub.UI
         public void StopPing()
         {
             _pingChestIndex = -1;
+            _pingTileX = -1;
+            _pingTileY = -1;
             _pingTimer = 0;
         }
 
@@ -131,41 +150,67 @@ namespace StorageHub.UI
 
             _pingTimer--;
 
-            if (_pingChestIndex < 0)
+            int tileX;
+            int tileY;
+            if (!TryGetActivePingTile(out tileX, out tileY))
             {
                 _pingTimer = 0;
                 return;
             }
 
-            // Spawn dust particles at chest location
-            try
+            // Spawn dust every few frames for visual effect
+            if (_pingTimer % 3 == 0)
             {
-                var chestArray = _chestArrayField?.GetValue(null) as Array;
-                if (chestArray == null || _pingChestIndex >= chestArray.Length) return;
+                SpawnPingDust(tileX, tileY);
+            }
+        }
 
-                var chest = chestArray.GetValue(_pingChestIndex);
-                if (chest == null) return;
+        private bool TryGetActivePingTile(out int tileX, out int tileY)
+        {
+            tileX = 0;
+            tileY = 0;
 
-                // Null check fields before accessing
-                if (_chestXField == null || _chestYField == null) return;
-
-                var xVal = _chestXField.GetValue(chest);
-                var yVal = _chestYField.GetValue(chest);
-                if (xVal == null || yVal == null) return;
-
-                int chestX = (int)xVal;
-                int chestY = (int)yVal;
-
-                // Spawn dust every few frames for visual effect
-                if (_pingTimer % 3 == 0)
+            if (_pingChestIndex >= 0)
+            {
+                // Spawn dust particles at chest location
+                try
                 {
-                    SpawnPingDust(chestX, chestY);
+                    var chestArray = _chestArrayField?.GetValue(null) as Array;
+                    if (chestArray == null || _pingChestIndex >= chestArray.Length)
+                        return false;
+
+                    var chest = chestArray.GetValue(_pingChestIndex);
+                    if (chest == null)
+                        return false;
+
+                    // Null check fields before accessing
+                    if (_chestXField == null || _chestYField == null)
+                        return false;
+
+                    var xVal = _chestXField.GetValue(chest);
+                    var yVal = _chestYField.GetValue(chest);
+                    if (xVal == null || yVal == null)
+                        return false;
+
+                    tileX = (int)xVal;
+                    tileY = (int)yVal;
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _log?.Debug($"[ChestPinger] Update error: {ex.Message}");
+                    return false;
                 }
             }
-            catch (Exception ex)
+
+            if (_pingTileX >= 0 && _pingTileY >= 0)
             {
-                _log?.Debug($"[ChestPinger] Update error: {ex.Message}");
+                tileX = _pingTileX;
+                tileY = _pingTileY;
+                return true;
             }
+
+            return false;
         }
 
         private void SpawnPingDust(int tileX, int tileY)
@@ -246,7 +291,11 @@ namespace StorageHub.UI
         /// </summary>
         public (int x, int y)? GetPingWorldPosition()
         {
-            if (_pingChestIndex < 0) return null;
+            if (_pingChestIndex < 0 && (_pingTileX < 0 || _pingTileY < 0))
+                return null;
+
+            if (_pingTileX >= 0 && _pingTileY >= 0)
+                return (_pingTileX, _pingTileY);
 
             try
             {

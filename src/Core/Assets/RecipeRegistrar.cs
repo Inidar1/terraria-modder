@@ -202,6 +202,11 @@ namespace TerrariaModder.Core.Assets
         {
             if (string.IsNullOrEmpty(name)) return -1;
 
+            // Core custom tile lookup first (supports "modid:tile-name" and vanilla fallbacks)
+            int resolved = AssetSystem.ResolveTileType(name);
+            if (resolved >= 0)
+                return resolved;
+
             // Try as int first
             if (int.TryParse(name, out int tileId))
                 return tileId;

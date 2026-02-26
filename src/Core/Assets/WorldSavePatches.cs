@@ -105,6 +105,7 @@ namespace TerrariaModder.Core.Assets
                 {
                     var chest = Main.chest[c];
                     if (chest?.item == null) continue;
+                    if (IsCustomContainerChest(chest)) continue;
 
                     for (int s = 0; s < chest.item.Length; s++)
                     {
@@ -308,6 +309,20 @@ namespace TerrariaModder.Core.Assets
         }
 
         // ── Helpers ──
+        private static bool IsCustomContainerChest(Chest chest)
+        {
+            if (chest == null) return false;
+
+            int x = chest.x;
+            int y = chest.y;
+            if (x < 0 || x >= Main.maxTilesX || y < 0 || y >= Main.maxTilesY)
+                return false;
+
+            if (!CustomTileContainers.TryGetTileDefinition(x, y, out var definition, out _))
+                return false;
+
+            return definition != null && definition.IsContainer;
+        }
 
         private static void RestoreAll()
         {

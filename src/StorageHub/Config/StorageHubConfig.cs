@@ -50,7 +50,6 @@ namespace StorageHub.Config
 
         // Character-specific data (global across worlds)
         public Dictionary<string, bool> SpecialUnlocks { get; set; } = new Dictionary<string, bool>();
-        public int PaintingChestLevel { get; set; } = 0;
 
         // Current world/character names for path construction
         private string _currentWorldName;
@@ -350,7 +349,7 @@ namespace StorageHub.Config
             }
 
             sb.AppendLine("  },");
-            sb.AppendLine($"  \"paintingChestLevel\": {PaintingChestLevel}");
+            sb.AppendLine("  \"dataVersion\": 2");
             sb.AppendLine("}");
             return sb.ToString();
         }
@@ -483,12 +482,6 @@ namespace StorageHub.Config
                 _log.Debug("[Config] Migrated 'decrafting' unlock to 'shimmer'");
             }
 
-            // Parse painting chest level
-            var pcMatch = System.Text.RegularExpressions.Regex.Match(json, @"""paintingChestLevel""\s*:\s*(\d+)");
-            if (pcMatch.Success && int.TryParse(pcMatch.Groups[1].Value, out int pcLevel))
-            {
-                PaintingChestLevel = Math.Max(0, Math.Min(4, pcLevel));
-            }
         }
 
         /// <summary>
@@ -570,7 +563,8 @@ namespace StorageHub.Config
         Stack,      // By stack size (highest first)
         Rarity,     // By rarity (highest first)
         Type,       // By item type ID
-        Recent      // Most recently registered first
+        Recent,     // Most recently registered first
+        MagicDefault // MagicStorage-style grouped ordering
     }
 
     /// <summary>

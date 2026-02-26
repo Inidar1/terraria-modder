@@ -54,10 +54,16 @@ namespace StorageHub.Storage
         public readonly int? Damage;
         /// <summary>Whether the item has pickaxe power.</summary>
         public readonly bool IsPickaxe;
+        /// <summary>Pickaxe power value (0 if not a pickaxe).</summary>
+        public readonly int PickPower;
         /// <summary>Whether the item has axe power.</summary>
         public readonly bool IsAxe;
+        /// <summary>Axe power value (0 if not an axe).</summary>
+        public readonly int AxePower;
         /// <summary>Whether the item has hammer power.</summary>
         public readonly bool IsHammer;
+        /// <summary>Hammer power value (0 if not a hammer).</summary>
+        public readonly int HammerPower;
         /// <summary>Whether the item is armor.</summary>
         public readonly bool IsArmor;
         /// <summary>Whether the item is an accessory.</summary>
@@ -68,6 +74,36 @@ namespace StorageHub.Storage
         public readonly bool IsPlaceable;
         /// <summary>Whether the item is a crafting material.</summary>
         public readonly bool IsMaterial;
+        /// <summary>Whether the item is vanity-related (vanity slot, dye, hair dye).</summary>
+        public readonly bool IsVanity;
+        /// <summary>Whether the item is ammo.</summary>
+        public readonly bool IsAmmo;
+        /// <summary>Ammo type ID (0 if not ammo).</summary>
+        public readonly int AmmoType;
+        /// <summary>Whether the item is potion-like (healing/mana/buff/potion flag).</summary>
+        public readonly bool IsPotion;
+        /// <summary>Healing amount (0 if none).</summary>
+        public readonly int HealLife;
+        /// <summary>Mana restoration amount (0 if none).</summary>
+        public readonly int HealMana;
+        /// <summary>Whether the item is fishing-related (pole or bait).</summary>
+        public readonly bool IsFishing;
+        /// <summary>Fishing pole power (0 if not a pole).</summary>
+        public readonly int FishingPolePower;
+        /// <summary>Bait power (0 if not bait).</summary>
+        public readonly int FishingBaitPower;
+        /// <summary>Whether the item is general equipment (accessory/mount/pet/fishing).</summary>
+        public readonly bool IsEquipment;
+        /// <summary>Weapon class flags (best effort from Terraria item fields).</summary>
+        public readonly bool IsMelee;
+        /// <summary>Weapon class flags (best effort from Terraria item fields).</summary>
+        public readonly bool IsRanged;
+        /// <summary>Weapon class flags (best effort from Terraria item fields).</summary>
+        public readonly bool IsMagic;
+        /// <summary>Weapon class flags (best effort from Terraria item fields).</summary>
+        public readonly bool IsSummon;
+        /// <summary>Weapon class flags (best effort from Terraria item fields).</summary>
+        public readonly bool IsThrown;
 
         /// <summary>
         /// Create a snapshot from item data.
@@ -84,13 +120,31 @@ namespace StorageHub.Storage
             int sourceSlot,
             int? damage = null,
             bool isPickaxe = false,
+            int pickPower = 0,
             bool isAxe = false,
+            int axePower = 0,
             bool isHammer = false,
+            int hammerPower = 0,
             bool isArmor = false,
             bool isAccessory = false,
             bool isConsumable = false,
             bool isPlaceable = false,
-            bool isMaterial = false)
+            bool isMaterial = false,
+            bool isVanity = false,
+            bool isAmmo = false,
+            int ammoType = 0,
+            bool isPotion = false,
+            int healLife = 0,
+            int healMana = 0,
+            bool isFishing = false,
+            int fishingPolePower = 0,
+            int fishingBaitPower = 0,
+            bool isEquipment = false,
+            bool isMelee = false,
+            bool isRanged = false,
+            bool isMagic = false,
+            bool isSummon = false,
+            bool isThrown = false)
         {
             ItemId = itemId;
             Stack = stack;
@@ -102,13 +156,31 @@ namespace StorageHub.Storage
             SourceSlot = sourceSlot;
             Damage = damage;
             IsPickaxe = isPickaxe;
+            PickPower = pickPower;
             IsAxe = isAxe;
+            AxePower = axePower;
             IsHammer = isHammer;
+            HammerPower = hammerPower;
             IsArmor = isArmor;
             IsAccessory = isAccessory;
             IsConsumable = isConsumable;
             IsPlaceable = isPlaceable;
             IsMaterial = isMaterial;
+            IsVanity = isVanity;
+            IsAmmo = isAmmo;
+            AmmoType = ammoType;
+            IsPotion = isPotion;
+            HealLife = healLife;
+            HealMana = healMana;
+            IsFishing = isFishing;
+            FishingPolePower = fishingPolePower;
+            FishingBaitPower = fishingBaitPower;
+            IsEquipment = isEquipment;
+            IsMelee = isMelee;
+            IsRanged = isRanged;
+            IsMagic = isMagic;
+            IsSummon = isSummon;
+            IsThrown = isThrown;
         }
 
         /// <summary>
@@ -147,12 +219,44 @@ namespace StorageHub.Storage
         public const int Safe = -3;
         public const int DefendersForge = -4;
         public const int VoidVault = -5;
+        public const int StorageDriveBase = 1_000_000;
+        public const int StorageDriveYStride = 10_000;
+
+        public static bool IsStorageDrive(int sourceIndex)
+        {
+            return sourceIndex >= StorageDriveBase;
+        }
+
+        public static int BuildStorageDriveIndex(int x, int y)
+        {
+            return StorageDriveBase + (x * StorageDriveYStride) + y;
+        }
+
+        public static bool TryDecodeStorageDriveIndex(int sourceIndex, out int x, out int y)
+        {
+            x = 0;
+            y = 0;
+
+            if (!IsStorageDrive(sourceIndex))
+                return false;
+
+            int encoded = sourceIndex - StorageDriveBase;
+            if (encoded < 0)
+                return false;
+
+            x = encoded / StorageDriveYStride;
+            y = encoded % StorageDriveYStride;
+            return x >= 0 && y >= 0;
+        }
 
         /// <summary>
         /// Get display name for a source index.
         /// </summary>
         public static string GetSourceName(int sourceIndex)
         {
+            if (TryDecodeStorageDriveIndex(sourceIndex, out int driveX, out int driveY))
+                return $"Storage Drive ({driveX}, {driveY})";
+
             return sourceIndex switch
             {
                 PlayerInventory => "Inventory",

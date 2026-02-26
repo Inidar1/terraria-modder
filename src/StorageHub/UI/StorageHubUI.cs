@@ -51,7 +51,7 @@ namespace StorageHub.UI
         private int _activeTab = TabItems;
 
         // UI Components
-        private readonly TextInput _searchInput = new TextInput("Search...", 200);
+        private readonly TextInput _searchInput = new TextInput("Search / #tag...", 200);
         private readonly ScrollView _scrollView = new ScrollView();
         private readonly ItemSlotGrid _itemGrid = new ItemSlotGrid();
 
@@ -159,6 +159,39 @@ namespace StorageHub.UI
                 // Unregister panel bounds - this automatically disables mouse blocking if no other panels
                 UIRenderer.UnregisterPanelBounds("storage-hub");
             }
+        }
+
+        /// <summary>
+        /// Open storage UI on the Items tab.
+        /// If already open, switches tab and refreshes.
+        /// </summary>
+        public void OpenItems()
+        {
+            OpenAtTab(TabItems);
+        }
+
+        /// <summary>
+        /// Open storage UI on the Crafting tab.
+        /// If already open, switches tab and refreshes.
+        /// </summary>
+        public void OpenCrafting()
+        {
+            OpenAtTab(TabCraft);
+        }
+
+        private void OpenAtTab(int tab)
+        {
+            _activeTab = Math.Max(0, Math.Min(TabNames.Length - 1, tab));
+
+            if (!_isOpen)
+            {
+                Toggle();
+                return;
+            }
+
+            _needsRefresh = true;
+            _framesSinceRefresh = 0;
+            MarkDirty();
         }
 
         /// <summary>
@@ -518,14 +551,16 @@ namespace StorageHub.UI
 
             _scrollView.End();
 
+            HandleCursorDepositInput(x, gridY, width, gridHeight, pingMode: _pingMode);
+
             // Help text at bottom - changes based on ping mode
             if (_pingMode)
             {
-                UIRenderer.DrawText("PING MODE: Click item to locate chest", x, y + height - 18, UIColors.Accent);
+                UIRenderer.DrawText("PING MODE: Click item to locate storage drive", x, y + height - 18, UIColors.Accent);
             }
             else
             {
-                UIRenderer.DrawText("L=Take  R=+1  Shift=Inv  Mid=Fav", x, y + height - 18, UIColors.TextHint);
+                UIRenderer.DrawText("L=Take  R=+1  Shift=Inv  Carry+L/R=Deposit  Mid=Fav", x, y + height - 18, UIColors.TextHint);
             }
 
             // Deferred tooltip (drawn last, on top)
@@ -605,7 +640,8 @@ namespace StorageHub.UI
             DrawItemsSortButton(xPos, y, 80, btnHeight, "Stack", SortMode.Stack); xPos += 84;
             DrawItemsSortButton(xPos, y, 80, btnHeight, "Rarity", SortMode.Rarity); xPos += 84;
             DrawItemsSortButton(xPos, y, 80, btnHeight, "Type", SortMode.Type); xPos += 84;
-            DrawItemsSortButton(xPos, y, 80, btnHeight, "Recent", SortMode.Recent);
+            DrawItemsSortButton(xPos, y, 80, btnHeight, "Recent", SortMode.Recent); xPos += 84;
+            DrawItemsSortButton(xPos, y, 80, btnHeight, "Magic", SortMode.MagicDefault);
         }
 
         private void DrawItemsSortButton(int x, int y, int btnWidth, int btnHeight, string text, SortMode mode)
@@ -651,7 +687,7 @@ namespace StorageHub.UI
 
         private void FilterItems()
         {
-            string search = _searchInput.Text.ToLower();
+            var query = MagicSearchQuery.Parse(_searchInput.Text);
             _filteredItems = new List<ItemSnapshot>();
 
             foreach (var item in _allItems)
@@ -660,12 +696,15 @@ namespace StorageHub.UI
                 if (item.SourceChestIndex < 0)
                     continue;
 
-                // Apply search filter
-                if (!string.IsNullOrEmpty(search) && !item.Name.ToLower().Contains(search))
+                var traits = ItemSearchTraitsBuilder.FromSnapshot(item);
+                bool isFavorite = _config.FavoriteItems.Contains(item.ItemId);
+
+                // Apply text/tag search filter
+                if (!query.Matches(item.Name, tag => MagicSearchQuery.MatchesTag(traits, tag, isFavorite)))
                     continue;
 
                 // Apply category filter
-                if (_config.ItemCategoryFilter != CategoryFilter.All && !MatchesCategory(item, _config.ItemCategoryFilter))
+                if (_config.ItemCategoryFilter != CategoryFilter.All && traits.PrimaryCategory != _config.ItemCategoryFilter)
                     continue;
 
                 _filteredItems.Add(item);
@@ -687,36 +726,10 @@ namespace StorageHub.UI
                     SortMode.Rarity => dir * a.Rarity.CompareTo(b.Rarity),
                     SortMode.Type => dir * a.ItemId.CompareTo(b.ItemId),
                     SortMode.Recent => 0,
+                    SortMode.MagicDefault => dir * MagicSearchQuery.CompareMagicDefault(a, b),
                     _ => dir * string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
                 };
             });
-        }
-
-        private bool MatchesCategory(ItemSnapshot item, CategoryFilter filter)
-        {
-            // Use priority-based classification (same order as CraftTab/RecipesTab)
-            // Tools have damage, placeables are consumable — priority order resolves overlaps
-            var cat = ClassifyItem(item);
-            return filter == cat;
-        }
-
-        private CategoryFilter ClassifyItem(ItemSnapshot item)
-        {
-            if (item.IsPickaxe || item.IsAxe || item.IsHammer)
-                return CategoryFilter.Tools;
-            if (item.Damage > 0)
-                return CategoryFilter.Weapons;
-            if (item.IsArmor)
-                return CategoryFilter.Armor;
-            if (item.IsAccessory)
-                return CategoryFilter.Accessories;
-            if (item.IsPlaceable)
-                return CategoryFilter.Placeable;
-            if (item.IsConsumable)
-                return CategoryFilter.Consumables;
-            if (item.IsMaterial)
-                return CategoryFilter.Materials;
-            return CategoryFilter.Misc;
         }
 
         private void OnItemClick(ItemSnapshot item, int index, bool isRightClick, bool isShiftHeld, bool isPingMode)
@@ -730,6 +743,14 @@ namespace StorageHub.UI
                 {
                     _chestPinger.PingChest(item.SourceChestIndex);
                 }
+                return;
+            }
+
+            if (!_storage.IsCursorEmpty())
+            {
+                int deposited = _storage.DepositFromCursor(singleItem: isRightClick);
+                if (deposited > 0)
+                    MarkDirty();
                 return;
             }
 
@@ -750,6 +771,32 @@ namespace StorageHub.UI
                 // Left-click: Take stack and place on cursor
                 if (_storage.TakeItemToCursor(item.SourceChestIndex, item.SourceSlot, item.Stack))
                     MarkDirty();
+            }
+        }
+
+        private void HandleCursorDepositInput(int gridX, int gridY, int gridWidth, int gridHeight, bool pingMode)
+        {
+            if (pingMode) return;
+            if (_storage.IsCursorEmpty()) return;
+            if (!WidgetInput.IsMouseOver(gridX, gridY, gridWidth, gridHeight)) return;
+
+            if (WidgetInput.MouseLeftClick)
+            {
+                int deposited = _storage.DepositFromCursor(singleItem: false);
+                if (deposited > 0)
+                {
+                    MarkDirty();
+                }
+                WidgetInput.ConsumeClick();
+            }
+            else if (WidgetInput.MouseRightClick)
+            {
+                int deposited = _storage.DepositFromCursor(singleItem: true);
+                if (deposited > 0)
+                {
+                    MarkDirty();
+                }
+                WidgetInput.ConsumeRightClick();
             }
         }
 

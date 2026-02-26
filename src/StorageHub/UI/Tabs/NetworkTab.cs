@@ -11,11 +11,11 @@ using TerrariaModder.Core.UI.Widgets;
 namespace StorageHub.UI.Tabs
 {
     /// <summary>
-    /// Network tab - shows crafting station availability and registered chests.
+    /// Network tab - shows crafting station availability and connected storage drives.
     ///
     /// Sections:
     /// A) Crafting Stations — 34 tile stations + 5 environment conditions
-    /// B) Registered Chests — with ping, deregister, range status
+    /// B) Connected Storage Drives — with ping, deregister, range status
     /// </summary>
     public class NetworkTab
     {
@@ -59,7 +59,7 @@ namespace StorageHub.UI.Tabs
         private static readonly string[] EnvironmentNames = { "Water", "Honey", "Lava", "Snow Biome", "Graveyard" };
 
         /// <summary>
-        /// Callback when storage is modified (chest deregistered).
+        /// Callback when storage is modified (storage node deregistered).
         /// </summary>
         public Action OnStorageModified { get; set; }
 
@@ -323,7 +323,7 @@ namespace StorageHub.UI.Tabs
             if (IsVisible(y, SectionHeight))
             {
                 UIRenderer.DrawRect(x, y, width, SectionHeight, UIColors.HeaderBg);
-                UIRenderer.DrawText($"Registered Chests ({chests.Count})", x + 10, y + 6, UIColors.TextTitle);
+                UIRenderer.DrawText($"Connected Storage Drives ({chests.Count})", x + 10, y + 6, UIColors.TextTitle);
 
                 // Station memory toggle (right side of header, next to spoilers-style placement)
                 if (ProgressionTier.HasStationMemory(_config.Tier))
@@ -365,7 +365,7 @@ namespace StorageHub.UI.Tabs
             {
                 if (IsVisible(y, ChestRowHeight))
                 {
-                    UIRenderer.DrawText("No chests registered. Open chests to add them.", x + 10, y + 4, UIColors.TextHint);
+                    UIRenderer.DrawText("No connected storage drives in this network.", x + 10, y + 4, UIColors.TextHint);
                 }
                 y += ChestRowHeight;
             }
@@ -401,7 +401,7 @@ namespace StorageHub.UI.Tabs
             UIRenderer.DrawRect(dotX, dotY, DotSize, DotSize, chest.IsInRange ? UIColors.Success : UIColors.Error);
 
             // Chest name (truncated to fit before buttons on right)
-            string name = string.IsNullOrEmpty(chest.Name) ? $"Chest at ({chest.X}, {chest.Y})" : chest.Name;
+            string name = string.IsNullOrEmpty(chest.Name) ? $"Storage Drive at ({chest.X}, {chest.Y})" : chest.Name;
             int nameMaxW = width - 200; // reserve space for info + ping + X buttons
             UIRenderer.DrawText(TextUtil.Truncate(name, nameMaxW), x + 30, y + 6, chest.IsInRange ? UIColors.Text : UIColors.TextDim);
 
@@ -421,7 +421,10 @@ namespace StorageHub.UI.Tabs
 
             if (pingHover && WidgetInput.MouseLeftClick)
             {
-                _pinger.PingChest(chest.ChestIndex);
+                if (SourceIndex.IsStorageDrive(chest.ChestIndex))
+                    _pinger.PingTile(chest.X, chest.Y);
+                else
+                    _pinger.PingChest(chest.ChestIndex);
                 WidgetInput.ConsumeClick();
             }
 
@@ -446,7 +449,7 @@ namespace StorageHub.UI.Tabs
             // Confirmation background
             UIRenderer.DrawRect(x + 5, y + 1, width - 10, ChestRowHeight - 2, UIColors.SectionBg);
 
-            string name = string.IsNullOrEmpty(chest.Name) ? $"Chest at ({chest.X}, {chest.Y})" : chest.Name;
+            string name = string.IsNullOrEmpty(chest.Name) ? $"Storage Drive at ({chest.X}, {chest.Y})" : chest.Name;
             string confirmText = TextUtil.Truncate($"Remove {name}?", width - 140);
             UIRenderer.DrawText(confirmText, x + 10, y + 6, UIColors.Warning);
 

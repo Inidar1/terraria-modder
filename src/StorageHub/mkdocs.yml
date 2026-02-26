@@ -1,0 +1,34 @@
+site_name: Storage Hub Docs
+site_description: Documentation for the Storage Hub TerrariaModder plugin.
+site_author: TerrariaModder
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+      accent: amber
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+
+nav:
+  - Overview: index.md
+  - Getting Started: getting-started.md
+  - Blocks and Recipes: blocks-and-recipes.md
+  - Progression and Disks: progression-and-disks.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true
