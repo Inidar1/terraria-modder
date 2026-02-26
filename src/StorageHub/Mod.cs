@@ -1392,12 +1392,11 @@ namespace StorageHub
                               _storageUnitTileType >= 0 &&
                               _storageComponentTileType >= 0 &&
                               _storageConnectorTileType >= 0 &&
-                              _storageAccessTileType >= 0 &&
-                              _storageCraftingAccessTileType >= 0;
+                              _storageAccessTileType >= 0;
 
             if (!validTypes)
             {
-                _log.Warn($"[QuickStack] Dedicated tile type resolution failed: heart={_storageHeartTileType}, unit={_storageUnitTileType}, component={_storageComponentTileType}, connector={_storageConnectorTileType}, access={_storageAccessTileType}, crafting={_storageCraftingAccessTileType}");
+                _log.Warn($"[QuickStack] Dedicated tile type resolution failed: heart={_storageHeartTileType}, unit={_storageUnitTileType}, component={_storageComponentTileType}, connector={_storageConnectorTileType}, access={_storageAccessTileType}, crafting(optional)={_storageCraftingAccessTileType}");
                 return false;
             }
 

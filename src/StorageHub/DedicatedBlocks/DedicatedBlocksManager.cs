@@ -32,6 +32,9 @@ namespace StorageHub.DedicatedBlocks
         public const string ItemDiskAdvancedId = "storage-hub:storage-disk-advanced-item";
         public const string ItemDiskQuantumId = "storage-hub:storage-disk-quantum-item";
 
+        // Keep implementation in source, but disabled for release builds until complete.
+        private static readonly bool EnableStorageCraftingInterface = false;
+
         private static bool _diskItemTypesCached;
         private static int _basicDiskItemType = -1;
         private static int _improvedDiskItemType = -1;
@@ -210,42 +213,45 @@ namespace StorageHub.DedicatedBlocks
                 }
             });
 
-            context.RegisterTile("storage-crafting-access", new TileDefinition
+            if (EnableStorageCraftingInterface)
             {
-                DisplayName = "Storage Crafting Interface",
-                Texture = "assets/tiles/storage-crafting-access.png",
-                Width = 2,
-                Height = 2,
-                OriginX = 1,
-                OriginY = 1,
-                CoordinateHeights = new[] { 16, 16 },
-                CoordinateWidth = 16,
-                CoordinatePadding = 2,
-                FrameImportant = true,
-                NoAttach = false,
-                Solid = false,
-                SolidTop = true,
-                Table = true,
-                Lighted = true,
-                LavaDeath = true,
-                HitSoundStyle = 1,
-                MapColorR = 127,
-                MapColorG = 194,
-                MapColorB = 97,
-                DropItemId = ItemCraftingAccessId,
-                OnRightClick = (x, y, player) =>
+                context.RegisterTile("storage-crafting-access", new TileDefinition
                 {
-                    try
+                    DisplayName = "Storage Crafting Interface",
+                    Texture = "assets/tiles/storage-crafting-access.png",
+                    Width = 2,
+                    Height = 2,
+                    OriginX = 1,
+                    OriginY = 1,
+                    CoordinateHeights = new[] { 16, 16 },
+                    CoordinateWidth = 16,
+                    CoordinatePadding = 2,
+                    FrameImportant = true,
+                    NoAttach = false,
+                    Solid = false,
+                    SolidTop = true,
+                    Table = true,
+                    Lighted = true,
+                    LavaDeath = true,
+                    HitSoundStyle = 1,
+                    MapColorR = 127,
+                    MapColorG = 194,
+                    MapColorB = 97,
+                    DropItemId = ItemCraftingAccessId,
+                    OnRightClick = (x, y, player) =>
                     {
-                        return onStorageCraftingAccessRightClick?.Invoke(x, y) ?? false;
+                        try
+                        {
+                            return onStorageCraftingAccessRightClick?.Invoke(x, y) ?? false;
+                        }
+                        catch (Exception ex)
+                        {
+                            log?.Error($"Storage crafting access right-click error: {ex.Message}");
+                            return false;
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        log?.Error($"Storage crafting access right-click error: {ex.Message}");
-                        return false;
-                    }
-                }
-            });
+                });
+            }
 
             context.RegisterTile("disk-upgrader", new TileDefinition
             {
@@ -476,25 +482,28 @@ namespace StorageHub.DedicatedBlocks
                 Value = 15000
             });
 
-            context.RegisterItem("storage-crafting-access-item", new ItemDefinition
+            if (EnableStorageCraftingInterface)
             {
-                DisplayName = "Storage Crafting Interface",
-                Tooltip = new[] { "Access storage and crafting from one terminal" },
-                Texture = "assets/items/storage-crafting-access.png",
-                CreateTileId = TileCraftingAccessId,
-                PlaceStyle = 0,
-                Width = 24,
-                Height = 24,
-                MaxStack = 99,
-                Consumable = true,
-                UseStyle = 1,
-                UseTurn = true,
-                UseTime = 10,
-                UseAnimation = 15,
-                AutoReuse = true,
-                Rarity = 3,
-                Value = 30000
-            });
+                context.RegisterItem("storage-crafting-access-item", new ItemDefinition
+                {
+                    DisplayName = "Storage Crafting Interface",
+                    Tooltip = new[] { "Access storage and crafting from one terminal" },
+                    Texture = "assets/items/storage-crafting-access.png",
+                    CreateTileId = TileCraftingAccessId,
+                    PlaceStyle = 0,
+                    Width = 24,
+                    Height = 24,
+                    MaxStack = 99,
+                    Consumable = true,
+                    UseStyle = 1,
+                    UseTurn = true,
+                    UseTime = 10,
+                    UseAnimation = 15,
+                    AutoReuse = true,
+                    Rarity = 3,
+                    Value = 30000
+                });
+            }
 
             // Starter placeholder recipes.
             context.RegisterRecipe(new RecipeDefinition
