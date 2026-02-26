@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using StorageHub.DedicatedBlocks;
+using TerrariaModder.Core.Assets;
 using TerrariaModder.Core.Logging;
 
 namespace StorageHub.Patches
@@ -118,8 +119,19 @@ namespace StorageHub.Patches
             if (!IsDiskItem(__instance))
                 return true;
 
-            __result = string.Empty;
-            return false;
+            int itemType = GetSafeInt(_itemTypeField, __instance, 0);
+            if (itemType > 0)
+            {
+                var definition = ItemRegistry.GetDefinition(itemType);
+                if (definition != null && !string.IsNullOrWhiteSpace(definition.DisplayName))
+                {
+                    __result = definition.DisplayName;
+                    return false;
+                }
+            }
+
+            // Fallback: allow vanilla if we couldn't resolve a custom display name.
+            return true;
         }
 
         private static bool Prefix_Prefix(object __instance, int pre)
