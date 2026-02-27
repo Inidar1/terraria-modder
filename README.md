@@ -6,7 +6,13 @@ A lightweight modding framework for Terraria 1.4.5. No tModLoader required.
 
 ## Fork Notice
 
-This fork includes custom Storage Hub changes that align behavior more closely with Magic Storage-style networks and access flow.  
+This fork is focused on two areas:
+
+- Ongoing changes to the `StorageHub` mod
+- Core TerrariaModder changes to add experimental custom tile support
+
+Many of these changes were developed with help from OpenAI Codex (`gpt-5.3-codex`), and several textures were created using [Aseprite](https://www.aseprite.org/) ([GitHub](https://github.com/aseprite/aseprite)).
+
 It is an unofficial fork and is not affiliated with the original TerrariaModder maintainers.
 
 ## Download
@@ -81,8 +87,12 @@ Special thanks to [ConfuzzedCat](https://github.com/ConfuzzedCat) for [TerrariaI
 
 Built with [Harmony](https://github.com/pardeike/Harmony) (runtime patching) and [Mono.Cecil](https://github.com/jbevain/cecil) (assembly inspection), both MIT licensed.
 
-Storage Hub in this fork is inspired by [Magic Storage](https://github.com/blushiemagic/MagicStorage), created by `blushiemagic`.  
-Credit to the Magic Storage project for the original design direction and ecosystem concept.
+TerrariaModder was originally created by [Inidar](https://github.com/inidar1).
+
+My Storage Hub changes in this fork are inspired by [Magic Storage](https://github.com/blushiemagic/MagicStorage), created by [blushiemagic](https://github.com/blushiemagic) and currently maintained by [absoluteAquarian](https://github.com/absoluteAquarian).  
+Credit to the Magic Storage project for design direction relevant to this fork's changes.
+
+Additional thanks to [Applied Energistics 2](https://github.com/AppliedEnergistics/Applied-Energistics-2) and all of its contributors for the broader storage-network design inspiration.
 
 ## License
 
