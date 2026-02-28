@@ -14,10 +14,14 @@ Design inspiration comes from [Magic Storage](https://github.com/blushiemagic/Ma
 ## Features
 
 ### Unified Storage Access
-- **One UI for all chests** - Press F5 to access items from all registered chests
+- **One UI for all chests** - Open it from a Storage Core or Storage Access block
 - **Smart chest registration** - Chests are registered when you open them (prevents remote looting of unexplored areas)
 - **Search & filter** - Find items instantly with text search and category filters
 - **Sort options** - Sort by name, stack size, rarity, type, or most recent
+
+### Recipe Browser
+- **Recipe-only hotkey UI** - Press F5 to open a standalone recipes browser
+- **Main recipes tab unchanged** - The unified Storage Hub UI still includes the full Recipes tab
 
 ### One-Click Crafting
 - **See what you can craft** - Shows all craftable recipes based on your connected storage
@@ -169,7 +173,7 @@ Includes:
 
 ## Keybind Customization
 
-The toggle key (default F5) can be rebound via the Mod Menu (F6). All keybinds are stored centrally in:
+The recipe browser key (default F5) can be rebound via the Mod Menu (F6). All keybinds are stored centrally in:
 ```
 Terraria/TerrariaModder/core/keybinds.json
 ```

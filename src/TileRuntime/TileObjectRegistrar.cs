@@ -6,10 +6,10 @@ using Terraria.DataStructures;
 using Terraria.Enums;
 using TerrariaModder.Core.Logging;
 
-namespace TerrariaModder.Core.Assets
+namespace TerrariaModder.TileRuntime
 {
     /// <summary>
-    /// Applies tile flags and object-data metadata for custom tile runtime IDs.
+    /// Applies tile flags and object-data metadata for runtime-owned custom tile IDs.
     /// </summary>
     internal static class TileObjectRegistrar
     {
@@ -37,7 +37,7 @@ namespace TerrariaModder.Core.Assets
 
                 _applied = false;
                 _lastFailureCount = -1;
-                _log?.Warn("[TileObjectRegistrar] Detected missing TileObjectData entries after prior apply; reapplying");
+                _log?.Warn("[TileRuntime.TileObjectRegistrar] Detected missing TileObjectData entries after prior apply; reapplying");
             }
 
             int applied = 0;
@@ -68,30 +68,22 @@ namespace TerrariaModder.Core.Assets
                     }
 
                     failed++;
-                    _log?.Error($"[TileObjectRegistrar] Failed applying {fullId} (type {runtimeType}): {root.GetType().Name}: {root.Message}");
+                    _log?.Error($"[TileRuntime.TileObjectRegistrar] Failed applying {fullId} (type {runtimeType}): {root.GetType().Name}: {root.Message}");
                 }
             }
 
             if (failed == 0 && deferred == 0)
             {
                 _applied = true;
-                _log?.Info($"[TileObjectRegistrar] Applied metadata for {applied} custom tiles");
+                _log?.Info($"[TileRuntime.TileObjectRegistrar] Applied metadata for {applied} custom tiles");
             }
-            else
+            else if (_lastFailureCount != failed)
             {
-                // Avoid spamming identical retry logs every frame.
-                if (_lastFailureCount != failed)
-                {
-                    _lastFailureCount = failed;
-                    if (failed > 0)
-                    {
-                        _log?.Warn($"[TileObjectRegistrar] Applied metadata for {applied}/{TileRegistry.Count} custom tiles; will retry failed registrations");
-                    }
-                    else if (deferred > 0)
-                    {
-                        _log?.Info($"[TileObjectRegistrar] TileObjectData not ready yet ({deferred} pending); will retry registration");
-                    }
-                }
+                _lastFailureCount = failed;
+                if (failed > 0)
+                    _log?.Warn($"[TileRuntime.TileObjectRegistrar] Applied metadata for {applied}/{TileRegistry.Count} custom tiles; will retry failed registrations");
+                else if (deferred > 0)
+                    _log?.Info($"[TileRuntime.TileObjectRegistrar] TileObjectData not ready yet ({deferred} pending); will retry registration");
             }
         }
 
@@ -110,7 +102,6 @@ namespace TerrariaModder.Core.Assets
             SetMainBool("tileMergeDirt", runtimeType, def.MergeDirt);
             SetMainBool("tileContainer", runtimeType, def.IsContainer);
 
-            // TileID.Sets flags
             SetTileSetBool("DisableSmartCursor", runtimeType, def.DisableSmartCursor);
             SetTileSetBool("BasicChest", runtimeType, def.IsContainer && def.RegisterAsBasicChest);
         }
@@ -118,14 +109,13 @@ namespace TerrariaModder.Core.Assets
         private static void RegisterTileObjectData(int runtimeType, TileDefinition def)
         {
             if (def.Width == 1 && def.Height == 1)
-                return; // 1x1 can use raw tile placement
+                return;
 
             var asm = typeof(Main).Assembly;
             var todType = asm.GetType("Terraria.ObjectData.TileObjectData");
             if (todType == null)
                 throw new TileObjectDataNotReadyException("TileObjectData type not found");
 
-            // If already registered, skip re-adding (important for retry path).
             if (HasTileObjectData(todType, runtimeType))
                 return;
 
@@ -142,8 +132,6 @@ namespace TerrariaModder.Core.Assets
             {
                 WithTileObjectDataWriteAccess(todType, () =>
                 {
-                    // Keep newTile initialized from the same style for vanilla-side consumers,
-                    // but use direct _data assignment as our single registration path.
                     newTileField.SetValue(null, data);
                     ApplyTileObjectDataFields(data, def);
                     AssignTileObjectDataEntry(todType, runtimeType, data);
@@ -188,8 +176,6 @@ namespace TerrariaModder.Core.Assets
 
         private static void ApplyTileObjectDataFields(object tileObjectData, TileDefinition def)
         {
-            if (tileObjectData == null || def == null) return;
-
             SetMember(tileObjectData, "Width", def.Width);
             SetMember(tileObjectData, "Height", def.Height);
             SetMember(tileObjectData, "CoordinateWidth", def.CoordinateWidth);
@@ -206,9 +192,6 @@ namespace TerrariaModder.Core.Assets
             object origin = CreatePoint16(def.OriginX, def.OriginY);
             if (origin != null) SetMember(tileObjectData, "Origin", origin);
 
-            // Allow object-on-object placement (for machine-style 2x2 tiles) when the tile
-            // declares a non-solid top surface. Without this, many style templates only anchor
-            // to fully solid blocks, which prevents stacking custom components.
             if (!def.Solid && def.SolidTop && def.Width > 0)
             {
                 var anchorBottom = new AnchorData(
@@ -231,8 +214,7 @@ namespace TerrariaModder.Core.Assets
                 if (getTileData == null)
                     return false;
 
-                object existing = getTileData.Invoke(null, new object[] { runtimeType, 0, 0 });
-                return existing != null;
+                return getTileData.Invoke(null, new object[] { runtimeType, 0, 0 }) != null;
             }
             catch
             {
@@ -284,8 +266,6 @@ namespace TerrariaModder.Core.Assets
 
         private static void WithTileObjectDataWriteAccess(Type todType, Action action)
         {
-            if (action == null) return;
-
             FieldInfo roField = null;
             bool originalReadOnly = true;
             bool restore = false;
@@ -333,14 +313,13 @@ namespace TerrariaModder.Core.Assets
             }
             catch (Exception ex)
             {
-                _log?.Debug($"[TileObjectRegistrar] Failed to create TileObjectData copy: {ex.Message}");
+                _log?.Debug($"[TileRuntime.TileObjectRegistrar] Failed to create TileObjectData copy: {ex.Message}");
                 return null;
             }
         }
 
         private static void RegisterMapEntry(int runtimeType, TileDefinition def)
         {
-            // Legend cache label replacement for custom tiles.
             try
             {
                 var langType = typeof(Lang);
@@ -357,7 +336,6 @@ namespace TerrariaModder.Core.Assets
             }
             catch
             {
-                // Non-fatal.
             }
         }
 

@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>TileRuntimeBootstrap</AssemblyName>
+    <RootNamespace>TileRuntimeBootstrap</RootNamespace>
+    <OutputType>Library</OutputType>
+    <LangVersion>latest</LangVersion>
+    <OutputPath>..\..\build\plugins\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Core\TerrariaModder.Core.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\TileRuntime\TileRuntime.csproj">
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="0Harmony">
+      <HintPath>..\..\Terraria\Mods\Libs\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="DeployTileRuntimeDependency"
+          AfterTargets="Build"
+          Condition="'$(EnableTerrariaModderDeploy)' == 'true'
+                    and '$(DesignTimeBuild)' != 'true'
+                    and Exists('$(TargetDir)TerrariaModder.TileRuntime.dll')
+                    and Exists('$(TerrariaModderDeployRoot)')">
+    <PropertyGroup>
+      <_TileRuntimeDeployDir>$(TerrariaModderDeployRoot)\mods\tile-runtime</_TileRuntimeDeployDir>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_TileRuntimeDeployDir)" />
+    <Copy SourceFiles="$(TargetDir)TerrariaModder.TileRuntime.dll"
+          DestinationFiles="$(_TileRuntimeDeployDir)\TerrariaModder.TileRuntime.dll"
+          SkipUnchangedFiles="true" />
+  </Target>
+</Project>

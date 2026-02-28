@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
-    <AssemblyName>StorageHub</AssemblyName>
-    <RootNamespace>StorageHub</RootNamespace>
+    <AssemblyName>TerrariaModder.TileRuntime</AssemblyName>
+    <RootNamespace>TerrariaModder.TileRuntime</RootNamespace>
     <OutputType>Library</OutputType>
     <LangVersion>latest</LangVersion>
     <OutputPath>..\..\build\plugins\</OutputPath>
@@ -17,14 +17,6 @@
     <ProjectReference Include="..\Core\TerrariaModder.Core.csproj">
       <Private>false</Private>
     </ProjectReference>
-    <ProjectReference Include="..\TileRuntime\TileRuntime.csproj">
-      <Private>false</Private>
-    </ProjectReference>
-  </ItemGroup>
-
-  <!-- Painting-style fallback intentionally excluded in dedicated custom-tile rewrite -->
-  <ItemGroup>
-    <Compile Remove="PaintingChest\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>

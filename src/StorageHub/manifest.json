@@ -5,12 +5,13 @@
   "author": "TerrariaModder",
   "description": "Unified storage access, crafting, and item management. Access all your chests from one place.",
   "entry_dll": "StorageHub.dll",
+  "dependencies": ["tile-runtime"],
   "config_schema": {
     "enabled": {
       "type": "bool",
       "default": true,
       "label": "Enabled",
-      "description": "Master toggle for the Storage Hub mod. When disabled, the toggle keybind does nothing."
+      "description": "Master toggle for the Storage Hub mod. When disabled, storage access and the recipe browser keybind do nothing."
     },
     "blockHotbarFromCrafting": {
       "type": "bool",
@@ -39,9 +40,9 @@
   },
   "keybinds": [
     {
-      "id": "toggle",
-      "label": "Toggle Storage Hub",
-      "description": "Open/close the Storage Hub UI",
+      "id": "recipes",
+      "label": "Open Recipe Browser",
+      "description": "Open/close the recipe-only browser UI",
       "default": "F5"
     }
   ]

@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.Reflection;
 using TerrariaModder.Core.Logging;
 
-namespace TerrariaModder.Core.Assets
+namespace TerrariaModder.TileRuntime
 {
     /// <summary>
-    /// Extends tile-indexed arrays so runtime tile IDs above vanilla are safe.
+    /// Extends tile-indexed Terraria arrays so runtime tile IDs above vanilla are safe.
+    /// This is the first tile-global mutation moved into the shared runtime.
     /// </summary>
-    public static class TileTypeExtension
+    internal static class TileTypeExtension
     {
         private static ILogger _log;
         private static bool _applied;
@@ -23,7 +24,7 @@ namespace TerrariaModder.Core.Assets
             _log = logger;
             if (_applied)
             {
-                _log?.Warn("[TileTypeExtension] Already applied");
+                _log?.Warn("[TileRuntime.TileTypeExtension] Already applied");
                 return OriginalCount;
             }
 
@@ -36,14 +37,14 @@ namespace TerrariaModder.Core.Assets
                 var countField = tileIdType.GetField("Count", BindingFlags.Public | BindingFlags.Static);
                 if (countField == null)
                 {
-                    _log?.Error("[TileTypeExtension] TileID.Count field not found");
+                    _log?.Error("[TileRuntime.TileTypeExtension] TileID.Count field not found");
                     return -1;
                 }
 
                 OriginalCount = ReadCountValue(countField);
                 if (OriginalCount <= 0)
                 {
-                    _log?.Error("[TileTypeExtension] Invalid TileID.Count value");
+                    _log?.Error("[TileRuntime.TileTypeExtension] Invalid TileID.Count value");
                     return -1;
                 }
 
@@ -52,12 +53,12 @@ namespace TerrariaModder.Core.Assets
 
                 if (newCount > ushort.MaxValue)
                 {
-                    _log?.Warn($"[TileTypeExtension] Requested count {newCount} exceeds ushort max; clamping to {ushort.MaxValue}");
+                    _log?.Warn($"[TileRuntime.TileTypeExtension] Requested count {newCount} exceeds ushort max; clamping to {ushort.MaxValue}");
                     newCount = ushort.MaxValue;
                 }
 
                 ExtendedCount = newCount;
-                _log?.Info($"[TileTypeExtension] Original TileID.Count={OriginalCount}, extending to {ExtendedCount}");
+                _log?.Info($"[TileRuntime.TileTypeExtension] Original TileID.Count={OriginalCount}, extending to {ExtendedCount}");
 
                 int setsResized = ResizeTileIdSets(tileIdType, OriginalCount, ExtendedCount);
                 int textureResized = ResizeTextureAssets(OriginalCount, ExtendedCount);
@@ -72,19 +73,19 @@ namespace TerrariaModder.Core.Assets
                 if (_criticalFailures.Count > 0)
                 {
                     string joined = string.Join("; ", _criticalFailures.ToArray());
-                    _log?.Error($"[TileTypeExtension] Critical tile array failures: {joined}");
+                    _log?.Error($"[TileRuntime.TileTypeExtension] Critical tile array failures: {joined}");
                     if (failFast)
                         throw new InvalidOperationException("Critical tile array extension failed");
                 }
 
                 _applied = true;
-                _log?.Info($"[TileTypeExtension] Complete: {setsResized} sets + {textureResized} texture + {mainResized} main + {langResized} lang + {assemblyResized} assembly arrays + {sceneMetricsResized} scene-metrics arrays");
-                _log?.Info($"[TileTypeExtension] Resize inventory count: {_resizedMembers.Count}");
+                _log?.Info($"[TileRuntime.TileTypeExtension] Complete: {setsResized} sets + {textureResized} texture + {mainResized} main + {langResized} lang + {assemblyResized} assembly arrays + {sceneMetricsResized} scene-metrics arrays");
+                _log?.Info($"[TileRuntime.TileTypeExtension] Resize inventory count: {_resizedMembers.Count}");
                 return OriginalCount;
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileTypeExtension] Failed: {ex.Message}\n{ex.StackTrace}");
+                _log?.Error($"[TileRuntime.TileTypeExtension] Failed: {ex.Message}\n{ex.StackTrace}");
                 return -1;
             }
         }
@@ -108,17 +109,22 @@ namespace TerrariaModder.Core.Assets
             {
                 if (value > short.MaxValue)
                 {
-                    _log?.Warn($"[TileTypeExtension] TileID.Count is short; clamping {value} to {short.MaxValue}");
+                    _log?.Warn($"[TileRuntime.TileTypeExtension] TileID.Count is short; clamping {value} to {short.MaxValue}");
                     value = short.MaxValue;
                 }
+
                 countField.SetValue(null, (short)value);
             }
             else if (countField.FieldType == typeof(ushort))
+            {
                 countField.SetValue(null, (ushort)value);
+            }
             else
+            {
                 countField.SetValue(null, value);
+            }
 
-            _log?.Info($"[TileTypeExtension] TileID.Count updated to {value}");
+            _log?.Info($"[TileRuntime.TileTypeExtension] TileID.Count updated to {value}");
         }
 
         private static int ResizeTileIdSets(Type tileIdType, int oldSize, int newSize)
@@ -129,12 +135,11 @@ namespace TerrariaModder.Core.Assets
                 var setsType = tileIdType.GetNestedType("Sets", BindingFlags.Public);
                 if (setsType == null)
                 {
-                    _log?.Warn("[TileTypeExtension] TileID.Sets not found");
+                    _log?.Warn("[TileRuntime.TileTypeExtension] TileID.Sets not found");
                     _criticalFailures.Add("TileID.Sets missing");
                     return 0;
                 }
 
-                // Resize SetFactory internals
                 var factoryField = setsType.GetField("Factory", BindingFlags.Public | BindingFlags.Static);
                 if (factoryField != null)
                 {
@@ -150,18 +155,19 @@ namespace TerrariaModder.Core.Assets
                             var cache = cacheField?.GetValue(factory);
                             cache?.GetType().GetMethod("Clear")?.Invoke(cache, null);
                         }
+
                         _resizedMembers.Add("TileID.Sets.Factory._size");
-                        _log?.Debug("[TileTypeExtension] Updated Tile SetFactory._size and cleared caches");
                     }
                 }
 
                 foreach (var field in setsType.GetFields(BindingFlags.Public | BindingFlags.Static))
                 {
-                    if (field.Name == "Factory") continue;
-                    if (!field.FieldType.IsArray) continue;
+                    if (field.Name == "Factory" || !field.FieldType.IsArray)
+                        continue;
 
                     var arr = field.GetValue(null) as Array;
-                    if (arr == null || arr.Length != oldSize) continue;
+                    if (arr == null || arr.Length != oldSize)
+                        continue;
 
                     if (TryResizeArrayField(field, null, arr, oldSize, newSize))
                     {
@@ -172,8 +178,9 @@ namespace TerrariaModder.Core.Assets
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileTypeExtension] Error resizing TileID.Sets arrays: {ex.Message}");
+                _log?.Error($"[TileRuntime.TileTypeExtension] Error resizing TileID.Sets arrays: {ex.Message}");
             }
+
             return count;
         }
 
@@ -185,11 +192,12 @@ namespace TerrariaModder.Core.Assets
                 var texType = typeof(Terraria.GameContent.TextureAssets);
                 foreach (var field in texType.GetFields(BindingFlags.Public | BindingFlags.Static))
                 {
-                    if (!field.FieldType.IsArray) continue;
-                    if (!field.Name.StartsWith("Tile", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!field.FieldType.IsArray || !field.Name.StartsWith("Tile", StringComparison.OrdinalIgnoreCase))
+                        continue;
 
                     var arr = field.GetValue(null) as Array;
-                    if (arr == null || arr.Length != oldSize) continue;
+                    if (arr == null || arr.Length != oldSize)
+                        continue;
 
                     if (!TryResizeArrayField(field, null, arr, oldSize, newSize, fillWithFirstEntry: true))
                         continue;
@@ -200,8 +208,9 @@ namespace TerrariaModder.Core.Assets
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileTypeExtension] Error resizing TextureAssets.Tile arrays: {ex.Message}");
+                _log?.Error($"[TileRuntime.TileTypeExtension] Error resizing TextureAssets.Tile arrays: {ex.Message}");
             }
+
             return count;
         }
 
@@ -213,9 +222,12 @@ namespace TerrariaModder.Core.Assets
                 var mainType = typeof(Terraria.Main);
                 foreach (var field in mainType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
                 {
-                    if (!field.FieldType.IsArray) continue;
+                    if (!field.FieldType.IsArray)
+                        continue;
+
                     var arr = field.GetValue(null) as Array;
-                    if (arr == null || arr.Length != oldSize) continue;
+                    if (arr == null || arr.Length != oldSize)
+                        continue;
 
                     if (!TryResizeArrayField(field, null, arr, oldSize, newSize))
                         continue;
@@ -226,8 +238,9 @@ namespace TerrariaModder.Core.Assets
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileTypeExtension] Error resizing Main tile arrays: {ex.Message}");
+                _log?.Error($"[TileRuntime.TileTypeExtension] Error resizing Main tile arrays: {ex.Message}");
             }
+
             return count;
         }
 
@@ -239,9 +252,12 @@ namespace TerrariaModder.Core.Assets
                 var langType = typeof(Terraria.Lang);
                 foreach (var field in langType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
                 {
-                    if (!field.FieldType.IsArray) continue;
+                    if (!field.FieldType.IsArray)
+                        continue;
+
                     var arr = field.GetValue(null) as Array;
-                    if (arr == null || arr.Length != oldSize) continue;
+                    if (arr == null || arr.Length != oldSize)
+                        continue;
 
                     if (!TryResizeArrayField(field, null, arr, oldSize, newSize, fillWithFirstEntry: true))
                         continue;
@@ -252,8 +268,9 @@ namespace TerrariaModder.Core.Assets
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileTypeExtension] Error resizing Lang tile arrays: {ex.Message}");
+                _log?.Error($"[TileRuntime.TileTypeExtension] Error resizing Lang tile arrays: {ex.Message}");
             }
+
             return count;
         }
 
@@ -277,13 +294,15 @@ namespace TerrariaModder.Core.Assets
 
                     foreach (var field in fields)
                     {
-                        if (!field.FieldType.IsArray) continue;
+                        if (!field.FieldType.IsArray)
+                            continue;
 
                         Array arr;
                         try { arr = field.GetValue(null) as Array; }
                         catch { continue; }
 
-                        if (arr == null || arr.Length != oldSize) continue;
+                        if (arr == null || arr.Length != oldSize)
+                            continue;
 
                         if (!TryResizeArrayField(field, null, arr, oldSize, newSize))
                             continue;
@@ -295,15 +314,12 @@ namespace TerrariaModder.Core.Assets
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileTypeExtension] Assembly scan error: {ex.Message}");
+                _log?.Error($"[TileRuntime.TileTypeExtension] Assembly scan error: {ex.Message}");
             }
+
             return count;
         }
 
-        /// <summary>
-        /// SceneMetrics holds tile-indexed arrays as instance fields (_tileCounts).
-        /// These objects are created before our extension pass, so we must resize them explicitly.
-        /// </summary>
         private static int ResizeSceneMetricsInstances(int oldSize, int newSize)
         {
             int count = 0;
@@ -313,7 +329,7 @@ namespace TerrariaModder.Core.Assets
                 var sceneMetricsType = asm.GetType("Terraria.SceneMetrics");
                 if (sceneMetricsType == null)
                 {
-                    _log?.Warn("[TileTypeExtension] Terraria.SceneMetrics type not found");
+                    _log?.Warn("[TileRuntime.TileTypeExtension] Terraria.SceneMetrics type not found");
                     return 0;
                 }
 
@@ -353,7 +369,7 @@ namespace TerrariaModder.Core.Assets
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileTypeExtension] Error resizing SceneMetrics instances: {ex.Message}");
+                _log?.Error($"[TileRuntime.TileTypeExtension] Error resizing SceneMetrics instances: {ex.Message}");
             }
 
             return count;
@@ -362,9 +378,6 @@ namespace TerrariaModder.Core.Assets
         private static int ResizeInstanceArrayFields(object instance, int oldSize, int newSize, string ownerLabel)
         {
             int count = 0;
-            if (instance == null)
-                return 0;
-
             var instanceType = instance.GetType();
             foreach (var field in instanceType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
             {
@@ -397,7 +410,7 @@ namespace TerrariaModder.Core.Assets
                 }
                 catch (Exception ex)
                 {
-                    _log?.Debug($"[TileTypeExtension] Failed to resize instance array {ownerLabel}.{field.Name}: {ex.Message}");
+                    _log?.Debug($"[TileRuntime.TileTypeExtension] Failed to resize instance array {ownerLabel}.{field.Name}: {ex.Message}");
                 }
             }
 
@@ -431,14 +444,15 @@ namespace TerrariaModder.Core.Assets
             }
             catch (Exception ex)
             {
-                _log?.Debug($"[TileTypeExtension] Failed to resize {field.DeclaringType?.Name}.{field.Name}: {ex.Message}");
+                _log?.Debug($"[TileRuntime.TileTypeExtension] Failed to resize {field.DeclaringType?.Name}.{field.Name}: {ex.Message}");
                 return false;
             }
         }
 
         private static void FillNewEntries(Array newArr, Array oldArr, int oldSize, int newSize, Type elemType)
         {
-            if (oldSize >= newSize) return;
+            if (oldSize >= newSize)
+                return;
 
             if (elemType == typeof(int))
             {
@@ -477,37 +491,43 @@ namespace TerrariaModder.Core.Assets
 
         private static int DetectIntDefault(int[] arr)
         {
-            int countNeg1 = 0, countZero = 0;
+            int countNeg1 = 0;
+            int countZero = 0;
             int start = Math.Max(0, arr.Length - 128);
             for (int i = start; i < arr.Length; i++)
             {
                 if (arr[i] == -1) countNeg1++;
                 else if (arr[i] == 0) countZero++;
             }
+
             return countNeg1 > countZero ? -1 : 0;
         }
 
         private static short DetectShortDefault(short[] arr)
         {
-            int countNeg1 = 0, countZero = 0;
+            int countNeg1 = 0;
+            int countZero = 0;
             int start = Math.Max(0, arr.Length - 128);
             for (int i = start; i < arr.Length; i++)
             {
                 if (arr[i] == -1) countNeg1++;
                 else if (arr[i] == 0) countZero++;
             }
+
             return countNeg1 > countZero ? (short)-1 : (short)0;
         }
 
         private static float DetectFloatDefault(float[] arr)
         {
-            int countOne = 0, countZero = 0;
+            int countOne = 0;
+            int countZero = 0;
             int start = Math.Max(0, arr.Length - 128);
             for (int i = start; i < arr.Length; i++)
             {
                 if (Math.Abs(arr[i] - 1f) < 0.0001f) countOne++;
                 else if (Math.Abs(arr[i]) < 0.0001f) countZero++;
             }
+
             return countOne > countZero ? 1f : 0f;
         }
 

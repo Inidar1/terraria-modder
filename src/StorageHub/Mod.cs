@@ -11,6 +11,8 @@ using TerrariaModder.Core.Logging;
 using TerrariaModder.Core.Input;
 using TerrariaModder.Core.UI;
 using TerrariaModder.Core.UI.Widgets;
+using TerrariaModder.TileRuntime;
+using RuntimeTileContainers = TerrariaModder.TileRuntime.CustomTileContainers;
 using StorageHub.Config;
 using StorageHub.Storage;
 using StorageHub.Patches;
@@ -80,6 +82,7 @@ namespace StorageHub
 
         // UI
         private StorageHubUI _ui;
+        private RecipeBrowserUI _recipeUi;
 
         // Debug
         private DebugDumper _debugDumper;
@@ -158,7 +161,7 @@ namespace StorageHub
             _modFolder = context.ModFolder;
 
             // Register keybind
-            context.RegisterKeybind("toggle", "Toggle Storage Hub", "Open/close the Storage Hub UI", "F5", OnToggleUI);
+            context.RegisterKeybind("recipes", "Open Recipe Browser", "Open/close the recipe-only browser UI", "F5", OnToggleRecipesUI);
 
             // Register dedicated custom tiles/items (Storage Core + Storage Unit)
             DedicatedBlocksManager.Register(
@@ -179,13 +182,14 @@ namespace StorageHub
             // Subscribe to frame events (world load/unload handled via IMod interface)
             FrameEvents.OnPreUpdate += OnUpdate;
             UIRenderer.RegisterPanelDraw("storage-hub", OnDraw);
+            UIRenderer.RegisterPanelDraw(RecipeBrowserUI.PanelId, OnDrawRecipeBrowser);
             UIRenderer.RegisterPanelDraw(DiskUpgraderPanelId, OnDrawDiskUpgraderUi);
 
             _dedicatedBlocksOnly = _context.Config.Get("dedicatedBlocksOnly", true);
 
             _log.Info(_dedicatedBlocksOnly
-                ? "StorageHub initialized - use Storage Core/Access to open"
-                : "StorageHub initialized - Press F5 to open");
+                ? "StorageHub initialized - use Storage Core/Access for main UI, F5 for recipes"
+                : "StorageHub initialized - main UI via access blocks, F5 for recipes");
         }
 
         private void LoadConfig()
@@ -301,23 +305,15 @@ namespace StorageHub
             }
         }
 
-        private void OnToggleUI()
+        private void OnToggleRecipesUI()
         {
-            if (_ui == null) return;
-
-            if (_ui.IsOpen)
-            {
-                _ui.Toggle();
+            if (_recipeUi == null)
                 return;
-            }
 
-            if (_dedicatedBlocksOnly)
-            {
-                GameText.Show("Use a Storage Core or Storage Access to open Storage Hub.");
-                return;
-            }
+            if (_ui != null && _ui.IsOpen)
+                _ui.Close();
 
-            _ui.Toggle();
+            _recipeUi.Toggle();
         }
 
         private void OnUpdate()
@@ -329,6 +325,7 @@ namespace StorageHub
 
             // Update UI
             _ui?.Update();
+            _recipeUi?.Update();
         }
 
         private void OnDraw()
@@ -337,6 +334,13 @@ namespace StorageHub
 
             // Draw UI (handles its own visibility check)
             _ui?.Draw();
+        }
+
+        private void OnDrawRecipeBrowser()
+        {
+            if (!_enabled) return;
+
+            _recipeUi?.Draw();
         }
 
         public void OnWorldLoad()
@@ -371,6 +375,8 @@ namespace StorageHub
                 _registry.OnRegistrationChanged = () => _hubConfig.Save();
 
                 EnsureDedicatedTileTypesResolved();
+                DedicatedBlocksManager.ResolvePlaceableItemTiles(_log);
+                RefreshPlaceableItemInstances();
 
                 // Initialize storage provider
                 _storageProvider = new SingleplayerProvider(_log, _registry, _hubConfig, _driveStorage, _dedicatedBlocksOnly);
@@ -402,6 +408,7 @@ namespace StorageHub
 
                 // Initialize UI
                 _ui = new StorageHubUI(_log, _storageProvider, _hubConfig, _recipeIndex, _craftChecker, _recursiveCrafter, _rangeCalc, _context.Config);
+                _recipeUi = new RecipeBrowserUI(_log, _recipeIndex, _craftChecker, _hubConfig);
                 InventoryQuickDepositPatch.SetCallbacks(
                     () => _ui != null && _ui.IsOpen,
                     TryQuickDepositInventorySlot);
@@ -452,6 +459,7 @@ namespace StorageHub
             {
                 // Close UI
                 _ui?.Close();
+                _recipeUi?.Close();
                 CloseDiskUpgraderUi(forceClose: true);
 
                 // Save config
@@ -475,6 +483,7 @@ namespace StorageHub
                 // Clear singleton and null out references to prevent stale polling between worlds
                 ChestRegistry.ClearInstance();
                 _ui = null;
+                _recipeUi = null;
                 _hubConfig = null;
                 _registry = null;
                 _storageProvider = null;
@@ -508,12 +517,15 @@ namespace StorageHub
         {
             FrameEvents.OnPreUpdate -= OnUpdate;
             UIRenderer.UnregisterPanelDraw("storage-hub");
+            UIRenderer.UnregisterPanelDraw(RecipeBrowserUI.PanelId);
             UIRenderer.UnregisterPanelDraw(DiskUpgraderPanelId);
 
             // Clean up UI
             _ui?.Close();
+            _recipeUi?.Close();
             CloseDiskUpgraderUi(forceClose: true);
             _ui = null;
+            _recipeUi = null;
             InventoryQuickDepositPatch.Unload();
             VanillaQuickStackPatch.Unload();
             DriveVisualPatch.Unload();
@@ -1164,6 +1176,8 @@ namespace StorageHub
             if (!_enabled) return false;
             if (_ui == null || _registry == null) return false;
 
+            _recipeUi?.Close();
+
             if (!_dedicatedBlocksOnly)
             {
                 if (preferCraftingTab) _ui.OpenCrafting();
@@ -1206,6 +1220,7 @@ namespace StorageHub
             int deposited = _storageProvider.DepositFromInventorySlot(inventorySlot, singleItem: false);
             if (deposited > 0)
             {
+                TryPlayItemTransferSound();
                 _ui.MarkDirty();
                 return true;
             }
@@ -1296,7 +1311,7 @@ namespace StorageHub
             {
                 for (int y = startY; y <= endY; y++)
                 {
-                    if (!CustomTileContainers.TryGetTileDefinition(x, y, out var def, out int tileType))
+                    if (!RuntimeTileContainers.TryGetTileDefinition(x, y, out var def, out int tileType))
                         continue;
 
                     if (!IsQuickStackAccessTileType(tileType))
@@ -1304,7 +1319,7 @@ namespace StorageHub
 
                     int topX = x;
                     int topY = y;
-                    if (def != null && CustomTileContainers.TryGetTopLeft(x, y, def, out int resolvedTopX, out int resolvedTopY))
+                    if (def != null && RuntimeTileContainers.TryGetTopLeft(x, y, def, out int resolvedTopX, out int resolvedTopY))
                     {
                         topX = resolvedTopX;
                         topY = resolvedTopY;
@@ -1883,6 +1898,11 @@ namespace StorageHub
 
         private void TryPlayQuickStackSound()
         {
+            TryPlayItemTransferSound();
+        }
+
+        internal static void TryPlayItemTransferSound()
+        {
             try
             {
                 if (_soundPlayMethod == null)
@@ -1966,13 +1986,13 @@ namespace StorageHub
                 if (_storageUnitTileType < 0)
                     EnsureDedicatedTileTypesResolved();
 
-                if (!CustomTileContainers.TryGetTileDefinition(tileX, tileY, out var definition, out int tileType))
+                if (!RuntimeTileContainers.TryGetTileDefinition(tileX, tileY, out var definition, out int tileType))
                     return false;
 
                 if (tileType != _storageUnitTileType)
                     return false;
 
-                if (definition != null && CustomTileContainers.TryGetTopLeft(tileX, tileY, definition, out int resolvedX, out int resolvedY))
+                if (definition != null && RuntimeTileContainers.TryGetTopLeft(tileX, tileY, definition, out int resolvedX, out int resolvedY))
                 {
                     topX = resolvedX;
                     topY = resolvedY;
@@ -2169,6 +2189,56 @@ namespace StorageHub
             }
         }
 
+        private void RefreshPlaceableItemInstances()
+        {
+            try
+            {
+                var player = GetLocalPlayer();
+                var inventory = _playerInventoryField?.GetValue(player) as Array;
+                if (inventory == null || _itemTypeField == null || _itemStackField == null)
+                    return;
+
+                var placeableTypes = new HashSet<int>();
+                foreach (string itemId in DedicatedBlocksManager.GetPlaceableItemIds())
+                {
+                    int type = ItemRegistry.ResolveItemType(itemId);
+                    if (type > 0)
+                        placeableTypes.Add(type);
+                }
+
+                if (placeableTypes.Count == 0)
+                    return;
+
+                int refreshed = 0;
+                for (int i = 0; i < inventory.Length; i++)
+                {
+                    var item = inventory.GetValue(i);
+                    if (item == null)
+                        continue;
+
+                    int type = GetSafeInt(_itemTypeField, item, 0);
+                    if (!placeableTypes.Contains(type))
+                        continue;
+
+                    int stack = GetSafeInt(_itemStackField, item, 0);
+                    int prefix = GetSafeInt(_itemPrefixField, item, 0);
+                    if (!InvokeItemSetDefaults(item, type))
+                        continue;
+
+                    _itemStackField?.SetValue(item, stack);
+                    SetItemPrefix(item, prefix);
+                    refreshed++;
+                }
+
+                if (refreshed > 0)
+                    _log?.Info($"[StorageHub] Refreshed {refreshed} placeable item instances after tile runtime resolution");
+            }
+            catch (Exception ex)
+            {
+                _log?.Warn($"[StorageHub] Failed to refresh placeable item instances: {ex.Message}");
+            }
+        }
+
         private int GetSafeInt(FieldInfo field, object obj, int defaultValue)
         {
             if (field == null || obj == null)
@@ -2187,7 +2257,7 @@ namespace StorageHub
             }
         }
 
-        private int GetSafeStaticInt(FieldInfo field, int defaultValue)
+        private static int GetSafeStaticInt(FieldInfo field, int defaultValue)
         {
             if (field == null)
                 return defaultValue;

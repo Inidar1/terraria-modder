@@ -53,12 +53,6 @@ namespace TerrariaModder.Core.Config
         public string GameFolder { get; private set; }
 
         /// <summary>
-        /// Enables experimental custom tile runtime IDs and related patches.
-        /// Disabled by default due deep world/render/save hooks.
-        /// </summary>
-        public bool ExperimentalCustomTiles { get; private set; } = false;
-
-        /// <summary>
         /// Absolute path to the root folder (e.g., Terraria/TerrariaModder/).
         /// </summary>
         public string RootPath { get; private set; }
@@ -192,12 +186,6 @@ namespace TerrariaModder.Core.Config
                     case "error": config.GlobalLogLevel = LogLevel.Error; break;
                     default: config.GlobalLogLevel = LogLevel.Info; break;
                 }
-            }
-
-            var experimentalTilesMatch = Regex.Match(json, @"""experimental_custom_tiles""\s*:\s*(true|false)", RegexOptions.IgnoreCase);
-            if (experimentalTilesMatch.Success)
-            {
-                config.ExperimentalCustomTiles = experimentalTilesMatch.Groups[1].Value.Equals("true", StringComparison.OrdinalIgnoreCase);
             }
         }
 

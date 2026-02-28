@@ -5,12 +5,10 @@ using Terraria;
 using Terraria.ID;
 using TerrariaModder.Core.Logging;
 
-namespace TerrariaModder.Core.Assets
+namespace TerrariaModder.TileRuntime
 {
     /// <summary>
     /// Guards Player adjacency tile bookkeeping from custom tile type overflows.
-    /// This primarily protects SetAdjTile/UpdateNearbyCraftingTiles when TileID.Count
-    /// has been extended after Player instances were created.
     /// </summary>
     internal static class PlayerAdjTileSafetyPatches
     {
@@ -26,7 +24,7 @@ namespace TerrariaModder.Core.Assets
         public static void Initialize(ILogger logger)
         {
             _log = logger;
-            _harmony = new Harmony("com.terrariamodder.assets.player-adjtile-safety");
+            _harmony = new Harmony("com.terrariamodder.tileruntime.player-adjtile-safety");
 
             var playerType = typeof(Player);
             _adjTileField = playerType.GetField("adjTile", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
@@ -64,11 +62,11 @@ namespace TerrariaModder.Core.Assets
                 }
 
                 _applied = true;
-                _log?.Info($"[PlayerAdjTileSafetyPatches] Applied {patched} patches");
+                _log?.Info($"[TileRuntime.PlayerAdjTileSafetyPatches] Applied {patched} patches");
             }
             catch (Exception ex)
             {
-                _log?.Warn($"[PlayerAdjTileSafetyPatches] Failed to apply: {ex.Message}");
+                _log?.Warn($"[TileRuntime.PlayerAdjTileSafetyPatches] Failed to apply: {ex.Message}");
             }
         }
 
@@ -82,20 +80,15 @@ namespace TerrariaModder.Core.Assets
 
         private static bool SetAdjTile_Prefix(Player __instance, int tileType)
         {
-            if (__instance == null)
-                return false;
-
-            if (tileType < 0)
+            if (__instance == null || tileType < 0)
                 return false;
 
             int tileCount = GetTileCount();
             EnsureAdjTileArrays(__instance, tileCount);
 
-            // Skip tile types that vanilla adjacency arrays cannot represent.
             if (tileType >= tileCount)
                 return false;
 
-            // Final defensive check for runtime mismatch.
             if (_adjTileField != null)
             {
                 var adj = _adjTileField.GetValue(__instance) as bool[];
@@ -116,7 +109,7 @@ namespace TerrariaModder.Core.Assets
                 if (!_loggedMissingFields)
                 {
                     _loggedMissingFields = true;
-                    _log?.Warn("[PlayerAdjTileSafetyPatches] Player.adjTile field not found");
+                    _log?.Warn("[TileRuntime.PlayerAdjTileSafetyPatches] Player.adjTile field not found");
                 }
                 return;
             }
@@ -149,11 +142,11 @@ namespace TerrariaModder.Core.Assets
                 }
 
                 if (resizedAny)
-                    _log?.Info($"[PlayerAdjTileSafetyPatches] Resized player adjTile arrays to {requiredLength}");
+                    _log?.Info($"[TileRuntime.PlayerAdjTileSafetyPatches] Resized player adjTile arrays to {requiredLength}");
             }
             catch (Exception ex)
             {
-                _log?.Debug($"[PlayerAdjTileSafetyPatches] Resize error: {ex.Message}");
+                _log?.Debug($"[TileRuntime.PlayerAdjTileSafetyPatches] Resize error: {ex.Message}");
             }
         }
 
@@ -171,10 +164,8 @@ namespace TerrariaModder.Core.Assets
             }
             catch
             {
-                // ignore and use fallback
             }
 
-            // Safe fallback for 1.4.5 plus custom types.
             return Math.Max(700, TileTypeExtension.ExtendedCount);
         }
     }

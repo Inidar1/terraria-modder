@@ -4,6 +4,8 @@ using StorageHub.Storage;
 using TerrariaModder.Core;
 using TerrariaModder.Core.Assets;
 using TerrariaModder.Core.Logging;
+using TerrariaModder.TileRuntime;
+using RuntimeTileDefinition = TerrariaModder.TileRuntime.TileDefinition;
 
 namespace StorageHub.DedicatedBlocks
 {
@@ -40,6 +42,8 @@ namespace StorageHub.DedicatedBlocks
         private static int _improvedDiskItemType = -1;
         private static int _advancedDiskItemType = -1;
         private static int _quantumDiskItemType = -1;
+        private static readonly List<(ItemDefinition Definition, string TileId)> _placeableItemDefinitions
+            = new List<(ItemDefinition Definition, string TileId)>();
 
         public static void Register(
             ModContext context,
@@ -51,11 +55,12 @@ namespace StorageHub.DedicatedBlocks
             Func<int, int, bool> onDiskUpgraderRightClick)
         {
             if (context == null) return;
+            var tiles = context.UseTileRuntime();
 
-            context.RegisterTile("storage-component", new TileDefinition
+            tiles.RegisterTile("storage-component", new RuntimeTileDefinition
             {
                 DisplayName = "Storage Component",
-                Texture = "assets/tiles/storage-component.png",
+                TexturePath = "assets/tiles/storage-component.png",
                 Width = 2,
                 Height = 2,
                 OriginX = 1,
@@ -76,10 +81,10 @@ namespace StorageHub.DedicatedBlocks
                 DropItemId = ItemComponentId
             });
 
-            context.RegisterTile("storage-connector", new TileDefinition
+            tiles.RegisterTile("storage-connector", new RuntimeTileDefinition
             {
                 DisplayName = "Storage Connector",
-                Texture = "assets/tiles/storage-connector.png",
+                TexturePath = "assets/tiles/storage-connector.png",
                 Width = 1,
                 Height = 1,
                 OriginX = 0,
@@ -98,10 +103,10 @@ namespace StorageHub.DedicatedBlocks
                 DropItemId = ItemConnectorId
             });
 
-            context.RegisterTile("storage-heart", new TileDefinition
+            tiles.RegisterTile("storage-heart", new RuntimeTileDefinition
             {
                 DisplayName = "Storage Core",
-                Texture = "assets/tiles/storage-heart.png",
+                TexturePath = "assets/tiles/storage-heart.png",
                 Width = 2,
                 Height = 2,
                 OriginX = 1,
@@ -121,7 +126,7 @@ namespace StorageHub.DedicatedBlocks
                 MapColorG = 190,
                 MapColorB = 216,
                 DropItemId = ItemHeartId,
-                OnRightClick = (x, y, player) =>
+                OnRightClick = (player, x, y) =>
                 {
                     try
                     {
@@ -135,10 +140,10 @@ namespace StorageHub.DedicatedBlocks
                 }
             });
 
-            context.RegisterTile("storage-unit", new TileDefinition
+            tiles.RegisterTile("storage-unit", new RuntimeTileDefinition
             {
                 DisplayName = "Storage Drive",
-                Texture = "assets/tiles/storage-unit.png",
+                TexturePath = "assets/tiles/storage-unit.png",
                 Width = 2,
                 Height = 2,
                 OriginX = 1,
@@ -162,7 +167,7 @@ namespace StorageHub.DedicatedBlocks
                 ContainerInteractable = true,
                 ContainerName = "Storage Drive",
                 DropItemId = ItemUnitId,
-                OnRightClick = (x, y, player) =>
+                OnRightClick = (player, x, y) =>
                 {
                     try
                     {
@@ -176,10 +181,10 @@ namespace StorageHub.DedicatedBlocks
                 }
             });
 
-            context.RegisterTile("storage-access", new TileDefinition
+            tiles.RegisterTile("storage-access", new RuntimeTileDefinition
             {
                 DisplayName = "Storage Access",
-                Texture = "assets/tiles/storage-access.png",
+                TexturePath = "assets/tiles/storage-access.png",
                 Width = 2,
                 Height = 2,
                 OriginX = 1,
@@ -199,7 +204,7 @@ namespace StorageHub.DedicatedBlocks
                 MapColorG = 190,
                 MapColorB = 216,
                 DropItemId = ItemAccessId,
-                OnRightClick = (x, y, player) =>
+                OnRightClick = (player, x, y) =>
                 {
                     try
                     {
@@ -215,10 +220,10 @@ namespace StorageHub.DedicatedBlocks
 
             if (EnableStorageCraftingInterface)
             {
-                context.RegisterTile("storage-crafting-access", new TileDefinition
+                tiles.RegisterTile("storage-crafting-access", new RuntimeTileDefinition
                 {
                     DisplayName = "Storage Crafting Interface",
-                    Texture = "assets/tiles/storage-crafting-access.png",
+                    TexturePath = "assets/tiles/storage-crafting-access.png",
                     Width = 2,
                     Height = 2,
                     OriginX = 1,
@@ -238,7 +243,7 @@ namespace StorageHub.DedicatedBlocks
                     MapColorG = 194,
                     MapColorB = 97,
                     DropItemId = ItemCraftingAccessId,
-                    OnRightClick = (x, y, player) =>
+                    OnRightClick = (player, x, y) =>
                     {
                         try
                         {
@@ -253,10 +258,10 @@ namespace StorageHub.DedicatedBlocks
                 });
             }
 
-            context.RegisterTile("disk-upgrader", new TileDefinition
+            tiles.RegisterTile("disk-upgrader", new RuntimeTileDefinition
             {
                 DisplayName = "Disk Upgrader",
-                Texture = "assets/tiles/disk-upgrader.png",
+                TexturePath = "assets/tiles/disk-upgrader.png",
                 Width = 2,
                 Height = 2,
                 OriginX = 1,
@@ -276,7 +281,7 @@ namespace StorageHub.DedicatedBlocks
                 MapColorG = 170,
                 MapColorB = 90,
                 DropItemId = ItemDiskUpgraderId,
-                OnRightClick = (x, y, player) =>
+                OnRightClick = (player, x, y) =>
                 {
                     try
                     {
@@ -290,85 +295,81 @@ namespace StorageHub.DedicatedBlocks
                 }
             });
 
-            context.RegisterItem("storage-component-item", new ItemDefinition
+            RegisterPlaceableItem(context, "storage-component-item", new ItemDefinition
             {
                 DisplayName = "Storage Component",
                 Tooltip = new[] { "Basic structural piece for Storage Hub networks" },
                 Texture = "assets/items/storage-component.png",
-                CreateTileId = TileComponentId,
+                CreateTile = -1,
                 PlaceStyle = 0,
                 Width = 24,
                 Height = 24,
                 MaxStack = 999,
                 Consumable = true,
                 UseStyle = 1,
-                UseTurn = true,
                 UseTime = 10,
                 UseAnimation = 15,
                 AutoReuse = true,
                 Rarity = 1,
                 Value = 1000
-            });
+            }, TileComponentId);
 
-            context.RegisterItem("storage-connector-item", new ItemDefinition
+            RegisterPlaceableItem(context, "storage-connector-item", new ItemDefinition
             {
                 DisplayName = "Storage Connector",
                 Tooltip = new[] { "Connects Storage Hub components across distance" },
                 Texture = "assets/items/storage-connector.png",
-                CreateTileId = TileConnectorId,
+                CreateTile = -1,
                 PlaceStyle = 0,
                 Width = 20,
                 Height = 20,
                 MaxStack = 999,
                 Consumable = true,
                 UseStyle = 1,
-                UseTurn = true,
                 UseTime = 10,
                 UseAnimation = 15,
                 AutoReuse = true,
                 Rarity = 1,
                 Value = 500
-            });
+            }, TileConnectorId);
 
-            context.RegisterItem("storage-heart-item", new ItemDefinition
+            RegisterPlaceableItem(context, "storage-heart-item", new ItemDefinition
             {
                 DisplayName = "Storage Core",
                 Tooltip = new[] { "Core of your storage network", "Right click the placed block to open Storage Hub" },
                 Texture = "assets/items/storage-heart.png",
-                CreateTileId = TileHeartId,
+                CreateTile = -1,
                 PlaceStyle = 0,
                 Width = 24,
                 Height = 24,
                 MaxStack = 99,
                 Consumable = true,
                 UseStyle = 1,
-                UseTurn = true,
                 UseTime = 10,
                 UseAnimation = 15,
                 AutoReuse = true,
                 Rarity = 2,
                 Value = 50000
-            });
+            }, TileHeartId);
 
-            context.RegisterItem("storage-unit-item", new ItemDefinition
+            RegisterPlaceableItem(context, "storage-unit-item", new ItemDefinition
             {
                 DisplayName = "Storage Drive",
                 Tooltip = new[] { "Holds up to 8 storage disks", "Disk contents move with the disk item" },
                 Texture = "assets/items/storage-unit.png",
-                CreateTileId = TileUnitId,
+                CreateTile = -1,
                 PlaceStyle = 0,
                 Width = 24,
                 Height = 24,
                 MaxStack = 999,
                 Consumable = true,
                 UseStyle = 1,
-                UseTurn = true,
                 UseTime = 10,
                 UseAnimation = 15,
                 AutoReuse = true,
                 Rarity = 1,
                 Value = 2500
-            });
+            }, TileUnitId);
 
             context.RegisterItem("storage-disk-basic-item", new ItemDefinition
             {
@@ -380,7 +381,6 @@ namespace StorageHub.DedicatedBlocks
                 MaxStack = 1,
                 Consumable = false,
                 UseStyle = 1,
-                UseTurn = true,
                 UseTime = 10,
                 UseAnimation = 15,
                 AutoReuse = false,
@@ -398,7 +398,6 @@ namespace StorageHub.DedicatedBlocks
                 MaxStack = 1,
                 Consumable = false,
                 UseStyle = 1,
-                UseTurn = true,
                 UseTime = 10,
                 UseAnimation = 15,
                 AutoReuse = false,
@@ -416,7 +415,6 @@ namespace StorageHub.DedicatedBlocks
                 MaxStack = 1,
                 Consumable = false,
                 UseStyle = 1,
-                UseTurn = true,
                 UseTime = 10,
                 UseAnimation = 15,
                 AutoReuse = false,
@@ -434,7 +432,6 @@ namespace StorageHub.DedicatedBlocks
                 MaxStack = 1,
                 Consumable = false,
                 UseStyle = 1,
-                UseTurn = true,
                 UseTime = 10,
                 UseAnimation = 15,
                 AutoReuse = false,
@@ -442,67 +439,64 @@ namespace StorageHub.DedicatedBlocks
                 Value = 30000
             });
 
-            context.RegisterItem("disk-upgrader-item", new ItemDefinition
+            RegisterPlaceableItem(context, "disk-upgrader-item", new ItemDefinition
             {
                 DisplayName = "Disk Upgrader",
                 Tooltip = new[] { "Open the upgrader UI to upgrade storage disks while keeping contents" },
                 Texture = "assets/items/disk-upgrader.png",
-                CreateTileId = TileDiskUpgraderId,
+                CreateTile = -1,
                 PlaceStyle = 0,
                 Width = 24,
                 Height = 24,
                 MaxStack = 99,
                 Consumable = true,
                 UseStyle = 1,
-                UseTurn = true,
                 UseTime = 10,
                 UseAnimation = 15,
                 AutoReuse = true,
                 Rarity = 2,
                 Value = 15000
-            });
+            }, TileDiskUpgraderId);
 
-            context.RegisterItem("storage-access-item", new ItemDefinition
+            RegisterPlaceableItem(context, "storage-access-item", new ItemDefinition
             {
                 DisplayName = "Storage Access",
                 Tooltip = new[] { "Extra access point for your Storage Hub network" },
                 Texture = "assets/items/storage-access.png",
-                CreateTileId = TileAccessId,
+                CreateTile = -1,
                 PlaceStyle = 0,
                 Width = 24,
                 Height = 24,
                 MaxStack = 99,
                 Consumable = true,
                 UseStyle = 1,
-                UseTurn = true,
                 UseTime = 10,
                 UseAnimation = 15,
                 AutoReuse = true,
                 Rarity = 2,
                 Value = 15000
-            });
+            }, TileAccessId);
 
             if (EnableStorageCraftingInterface)
             {
-                context.RegisterItem("storage-crafting-access-item", new ItemDefinition
+                RegisterPlaceableItem(context, "storage-crafting-access-item", new ItemDefinition
                 {
                     DisplayName = "Storage Crafting Interface",
                     Tooltip = new[] { "Access storage and crafting from one terminal" },
                     Texture = "assets/items/storage-crafting-access.png",
-                    CreateTileId = TileCraftingAccessId,
+                    CreateTile = -1,
                     PlaceStyle = 0,
                     Width = 24,
                     Height = 24,
                     MaxStack = 99,
                     Consumable = true,
                     UseStyle = 1,
-                    UseTurn = true,
                     UseTime = 10,
                     UseAnimation = 15,
                     AutoReuse = true,
                     Rarity = 3,
                     Value = 30000
-                });
+                }, TileCraftingAccessId);
             }
 
             // Starter placeholder recipes.
@@ -596,37 +590,64 @@ namespace StorageHub.DedicatedBlocks
 
         public static int ResolveStorageComponentTileType()
         {
-            return AssetSystem.GetTileRuntimeType(TileComponentId);
+            return TileRuntimeApi.ResolveTile(TileComponentId);
         }
 
         public static int ResolveStorageConnectorTileType()
         {
-            return AssetSystem.GetTileRuntimeType(TileConnectorId);
+            return TileRuntimeApi.ResolveTile(TileConnectorId);
         }
 
         public static int ResolveStorageHeartTileType()
         {
-            return AssetSystem.GetTileRuntimeType(TileHeartId);
+            return TileRuntimeApi.ResolveTile(TileHeartId);
         }
 
         public static int ResolveStorageAccessTileType()
         {
-            return AssetSystem.GetTileRuntimeType(TileAccessId);
+            return TileRuntimeApi.ResolveTile(TileAccessId);
         }
 
         public static int ResolveStorageCraftingAccessTileType()
         {
-            return AssetSystem.GetTileRuntimeType(TileCraftingAccessId);
+            return TileRuntimeApi.ResolveTile(TileCraftingAccessId);
         }
 
         public static int ResolveDiskUpgraderTileType()
         {
-            return AssetSystem.GetTileRuntimeType(TileDiskUpgraderId);
+            return TileRuntimeApi.ResolveTile(TileDiskUpgraderId);
         }
 
         public static int ResolveStorageUnitTileType()
         {
-            return AssetSystem.GetTileRuntimeType(TileUnitId);
+            return TileRuntimeApi.ResolveTile(TileUnitId);
+        }
+
+        public static IReadOnlyList<string> GetPlaceableItemIds()
+        {
+            return new[]
+            {
+                ItemComponentId,
+                ItemConnectorId,
+                ItemHeartId,
+                ItemUnitId,
+                ItemDiskUpgraderId,
+                ItemAccessId,
+                ItemCraftingAccessId
+            };
+        }
+
+        public static void ResolvePlaceableItemTiles(ILogger log)
+        {
+            for (int i = 0; i < _placeableItemDefinitions.Count; i++)
+            {
+                var entry = _placeableItemDefinitions[i];
+                int tileType = TileRuntimeApi.ResolveTile(entry.TileId);
+                entry.Definition.CreateTile = tileType;
+
+                if (tileType < 0)
+                    log?.Warn($"[StorageHub] Failed to resolve tile placement target {entry.TileId}");
+            }
         }
 
         public static bool TryGetDiskTierForItemType(int itemType, out int tier)
@@ -684,6 +705,17 @@ namespace StorageHub.DedicatedBlocks
             _advancedDiskItemType = ItemRegistry.ResolveItemType(ItemDiskAdvancedId);
             _quantumDiskItemType = ItemRegistry.ResolveItemType(ItemDiskQuantumId);
             _diskItemTypesCached = true;
+        }
+
+        private static bool RegisterPlaceableItem(ModContext context, string itemName, ItemDefinition definition, string tileId)
+        {
+            if (context.RegisterItem(itemName, definition))
+            {
+                _placeableItemDefinitions.Add((definition, tileId));
+                return true;
+            }
+
+            return false;
         }
     }
 }

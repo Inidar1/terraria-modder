@@ -1,0 +1,9 @@
+{
+  "id": "tile-runtime",
+  "name": "Tile Runtime",
+  "version": "0.1.0",
+  "author": "Aiden",
+  "description": "Shared runtime/bootstrap for experimental custom tile support.",
+  "entry_dll": "TileRuntimeBootstrap.dll",
+  "framework_version": ">=1.0.0"
+}
