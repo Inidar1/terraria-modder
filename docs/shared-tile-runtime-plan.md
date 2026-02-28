@@ -351,47 +351,35 @@ The safest first implementation is:
 3. Decide the assembly-loading model before moving API types like `TileDefinition`.
 4. Prototype registration and one patch path end-to-end before migrating save/load.
 
-## Scaffold Status
+## Implementation Status
 
-Initial scaffolding has been added on `feature/shared-tile-runtime-plan`:
+The runtime split is now implemented on this branch:
 
 - `src/TileRuntime/`
 - `src/TileRuntimeBootstrap/`
-- `src/Core/Runtime/TileRuntimeBridge.cs`
-- `src/Core/Runtime/ITileRuntimeBridge.cs`
 
 Current status:
 
-- the shared runtime owns a minimal registration API and lifecycle entry points
+- the shared runtime owns tile registration, ID assignment, type extension, textures, metadata, behavior hooks, and tile save/load
 - the bootstrap mod owns injector-visible lifecycle hooks
-- Core now has an optional bridge contract for future forwarding
+- `StorageHub` registers tiles directly through `TerrariaModder.TileRuntime`
+- `src/Core` no longer carries tile-runtime bridge code on this branch
 
-Deliberate limitations of the scaffold:
+Remaining limitations:
 
-- no loader-level shared assembly resolution yet
-- no migration of the existing tile implementation yet
-- no compatibility adapter from `TerrariaModder.Core.Assets.TileDefinition` yet
-- placeholder runtime tile IDs are used only to prove API flow
+- assembly loading is still based on the runtime mod packaging model, not a generalized shared-library resolver
+- validation has been done against the migrated `StorageHub` path; other tile mods still need migration
 
 ## Zero-Core Audit
 
 Current state on this branch:
 
-- tile-global runtime behavior has been moved into `TerrariaModder.TileRuntime`
-- the only Core changes introduced by this branch are optional bridge helpers in:
-  - `src/Core/Assets/AssetSystem.cs`
-  - `src/Core/ModContext.cs`
+- tile-global runtime behavior lives in `TerrariaModder.TileRuntime`
+- `StorageHub` uses the runtime API directly
+- `src/Core` is clean again
 
-That means the remaining path to a fresh upstream Core is now primarily a mod API migration problem, not a runtime ownership problem.
+Remaining blockers before claiming broad zero-Core support:
 
-To remove the last Core deltas:
-
-1. register tiles through `TerrariaModder.TileRuntime` directly
-2. stop calling `ModContext.RegisterTile(...)`
-3. remove the temporary Core bridge changes
-
-Remaining blockers before claiming full zero-Core support:
-
-- validate runtime save/load ordering against a fresh upstream Core install
-- confirm no tile mod still depends on Core-side tile APIs or tile definitions
-- test a real multi-tile/container mod end-to-end against the runtime mod only
+- migrate any other tile mods that still depend on fork-only Core tile APIs
+- validate more than one runtime-dependent tile mod in the same process
+- decide whether a future shared-library resolver is worth adding beyond the runtime-mod packaging model

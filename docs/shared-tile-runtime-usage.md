@@ -6,6 +6,8 @@ Use `TerrariaModder.TileRuntime` directly from a mod so custom tile registration
 
 This is the path intended for running against a fresh upstream `TerrariaModder.Core`.
 
+For a short migration checklist, see [tile-runtime-migration.md](tile-runtime-migration.md).
+
 ## Runtime dependency
 
 Your tile mod should depend on the runtime mod:
@@ -63,10 +65,4 @@ public class Mod : IMod
 
 ## Zero-Core target
 
-Once mods use this API directly, the temporary Core bridge added on this branch is no longer required.
-
-The intended cleanup path is:
-
-1. update tile mods to register through `TerrariaModder.TileRuntime`
-2. switch back to a fresh upstream Core checkout
-3. keep `tile-runtime` installed as a dependency mod
+This runtime API is the supported path for running custom tiles on a fresh upstream Core checkout.

@@ -5,8 +5,7 @@ using TerrariaModder.Core.Logging;
 namespace TerrariaModder.TileRuntime
 {
     /// <summary>
-    /// Shared tile runtime entry point.
-    /// This is currently a skeleton for proving the bootstrap and bridge flow.
+    /// Shared tile runtime entry point owned by the tile-runtime dependency mod.
     /// </summary>
     public static class TileRuntimeApi
     {
