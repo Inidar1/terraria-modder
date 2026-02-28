@@ -134,18 +134,19 @@ namespace StorageHub.Patches
             return true;
         }
 
-        private static bool Prefix_Prefix(object __instance, int pre)
+        private static bool Prefix_Prefix(object __instance, int __0)
         {
             if (!IsDiskItem(__instance))
                 return true;
 
-            if (pre == 0)
+            int prefixWeWant = __0;
+            if (prefixWeWant == 0)
             {
                 SetPrefix(__instance, 0);
             }
-            else if (pre > 0)
+            else if (prefixWeWant > 0)
             {
-                int clamped = Math.Min(byte.MaxValue, pre);
+                int clamped = Math.Min(byte.MaxValue, prefixWeWant);
                 SetPrefix(__instance, clamped);
             }
 

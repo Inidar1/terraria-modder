@@ -1,17 +1,16 @@
 using System;
 
-namespace TerrariaModder.Core.Assets
+namespace TerrariaModder.TileRuntime
 {
     /// <summary>
-    /// Definition for a custom tile type registered via ModContext.RegisterTile.
+    /// Runtime-owned tile definition contract.
+    /// This starts intentionally small so the runtime boundary can be proven first.
     /// </summary>
     public class TileDefinition
     {
-        // Identity / assets
         public string DisplayName { get; set; }
-        public string Texture { get; set; } // relative path within mod folder
+        public string TexturePath { get; set; }
 
-        // Tile flags (mirrors common Main.tile* / TileID.Sets flags)
         public bool Solid { get; set; }
         public bool SolidTop { get; set; }
         public bool Brick { get; set; }
@@ -25,16 +24,13 @@ namespace TerrariaModder.Core.Assets
         public bool MergeDirt { get; set; }
         public bool DisableSmartCursor { get; set; }
 
-        // Map entry
         public byte MapColorR { get; set; } = 180;
         public byte MapColorG { get; set; } = 180;
         public byte MapColorB { get; set; } = 180;
 
-        // Dust / hit sound hints (best effort; dependent arrays may differ by Terraria build)
         public int DustType { get; set; } = -1;
         public int HitSoundStyle { get; set; } = -1;
 
-        // Framing / object data
         public int Width { get; set; } = 1;
         public int Height { get; set; } = 1;
         public int OriginX { get; set; }
@@ -46,48 +42,37 @@ namespace TerrariaModder.Core.Assets
         public int StyleWrapLimit { get; set; }
         public int StyleMultiplier { get; set; } = 1;
 
-        // Container behavior hints
         public bool IsContainer { get; set; }
         public bool RegisterAsBasicChest { get; set; } = true;
         public bool ContainerInteractable { get; set; } = true;
         public bool ContainerRequiresEmptyToBreak { get; set; } = true;
         public int ContainerCapacity { get; set; } = 40;
         public string ContainerName { get; set; }
+        public string DropItemId { get; set; }
 
-        // Drop behavior
-        public string DropItemId { get; set; } // "modid:item-name" or vanilla name/id
+        public Func<object, int, int, bool> OnRightClick { get; set; }
+        public Action<int, int> OnPlace { get; set; }
+        public Action<int, int> OnBreak { get; set; }
 
-        // Runtime hooks
-        public Func<int, int, object, bool> OnRightClick { get; set; } // tileX, tileY, player -> handled?
-        public Action<int, int> OnPlace { get; set; } // top-left tile
-        public Action<int, int> OnBreak { get; set; } // top-left tile
-
-        /// <summary>
-        /// Validate this definition. Returns null if valid, otherwise a message.
-        /// </summary>
         public string Validate()
         {
             if (string.IsNullOrWhiteSpace(DisplayName))
                 return "DisplayName is required";
+
             if (Width <= 0 || Height <= 0)
                 return "Width and Height must be positive";
+
             if (CoordinateWidth <= 0)
                 return "CoordinateWidth must be positive";
+
             if (CoordinatePadding < 0)
                 return "CoordinatePadding must be non-negative";
+
             if (StyleMultiplier <= 0)
                 return "StyleMultiplier must be positive";
+
             if (ContainerCapacity < 1)
                 return "ContainerCapacity must be >= 1";
-
-            if (CoordinateHeights != null && CoordinateHeights.Length > 0)
-            {
-                for (int i = 0; i < CoordinateHeights.Length; i++)
-                {
-                    if (CoordinateHeights[i] <= 0)
-                        return "CoordinateHeights entries must be positive";
-                }
-            }
 
             return null;
         }

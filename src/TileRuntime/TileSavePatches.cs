@@ -6,14 +6,15 @@ using System.Text;
 using System.Text.RegularExpressions;
 using HarmonyLib;
 using Terraria;
+using TerrariaModder.Core.Assets;
 using TerrariaModder.Core.Logging;
 
-namespace TerrariaModder.Core.Assets
+namespace TerrariaModder.TileRuntime
 {
     /// <summary>
-    /// Save/load interception for custom tiles.
+    /// Save/load interception for runtime-owned custom tiles.
     /// Strategy: extract custom tiles to sidecar moddata on save, restore on load.
-    /// This keeps worlds safe when custom tile mods are missing.
+    /// Prefix priority is set high so custom tile chests are removed before Core world-item save logic scans chests.
     /// </summary>
     internal static class TileSavePatches
     {
@@ -64,24 +65,17 @@ namespace TerrariaModder.Core.Assets
         public static void Initialize(ILogger logger)
         {
             _log = logger;
-            _harmony = new Harmony("com.terrariamodder.assets.tiles.save");
+            _harmony = new Harmony("com.terrariamodder.tileruntime.tiles.save");
         }
 
         public static void ApplyPatches()
         {
             if (_applied) return;
 
-            try
-            {
-                PatchSaveWorld();
-                PatchLoadWorld();
-                _applied = true;
-                _log?.Info("[TileSavePatches] Applied successfully");
-            }
-            catch (Exception ex)
-            {
-                _log?.Error($"[TileSavePatches] Failed: {ex.Message}");
-            }
+            PatchSaveWorld();
+            PatchLoadWorld();
+            _applied = true;
+            _log?.Info("[TileRuntime.TileSavePatches] Applied successfully");
         }
 
         private static void PatchSaveWorld()
@@ -96,13 +90,20 @@ namespace TerrariaModder.Core.Assets
 
             if (saveMethod == null)
             {
-                _log?.Warn("[TileSavePatches] WorldFile.SaveWorld not found");
+                _log?.Warn("[TileRuntime.TileSavePatches] WorldFile.SaveWorld not found");
                 return;
             }
 
-            _harmony.Patch(saveMethod,
-                prefix: new HarmonyMethod(typeof(TileSavePatches), nameof(SaveWorld_Prefix)),
-                postfix: new HarmonyMethod(typeof(TileSavePatches), nameof(SaveWorld_Postfix)));
+            var prefix = new HarmonyMethod(typeof(TileSavePatches), nameof(SaveWorld_Prefix))
+            {
+                priority = Priority.First
+            };
+            var postfix = new HarmonyMethod(typeof(TileSavePatches), nameof(SaveWorld_Postfix))
+            {
+                priority = Priority.Last
+            };
+
+            _harmony.Patch(saveMethod, prefix: prefix, postfix: postfix);
         }
 
         private static void PatchLoadWorld()
@@ -112,13 +113,20 @@ namespace TerrariaModder.Core.Assets
                 BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
             if (loadMethod == null)
             {
-                _log?.Warn("[TileSavePatches] WorldFile.LoadWorld() not found");
+                _log?.Warn("[TileRuntime.TileSavePatches] WorldFile.LoadWorld() not found");
                 return;
             }
 
-            _harmony.Patch(loadMethod,
-                prefix: new HarmonyMethod(typeof(TileSavePatches), nameof(LoadWorld_Prefix)),
-                postfix: new HarmonyMethod(typeof(TileSavePatches), nameof(LoadWorld_Postfix)));
+            var prefix = new HarmonyMethod(typeof(TileSavePatches), nameof(LoadWorld_Prefix))
+            {
+                priority = Priority.First
+            };
+            var postfix = new HarmonyMethod(typeof(TileSavePatches), nameof(LoadWorld_Postfix))
+            {
+                priority = Priority.Last
+            };
+
+            _harmony.Patch(loadMethod, prefix: prefix, postfix: postfix);
         }
 
         private static void SaveWorld_Prefix()
@@ -136,23 +144,21 @@ namespace TerrariaModder.Core.Assets
                 var entries = new List<TileEntry>();
                 var containerItems = new List<ModdataFile.ItemEntry>();
                 var extractedContainers = new HashSet<int>();
-                int extracted = 0;
 
-                int width = Main.maxTilesX;
-                int height = Main.maxTilesY;
-
-                for (int x = 0; x < width; x++)
+                for (int x = 0; x < Main.maxTilesX; x++)
                 {
-                    for (int y = 0; y < height; y++)
+                    for (int y = 0; y < Main.maxTilesY; y++)
                     {
                         var tile = Main.tile[x, y];
-                        if (tile == null || !tile.active()) continue;
+                        if (tile == null || !tile.active())
+                            continue;
 
                         int tileType = tile.type;
-                        if (!TileRegistry.IsCustomTile(tileType)) continue;
-                        var definition = TileRegistry.GetDefinition(tileType);
+                        if (!TileRegistry.IsCustomTile(tileType))
+                            continue;
 
                         string fullId = TileRegistry.GetFullId(tileType);
+                        var definition = TileRegistry.GetDefinition(tileType);
                         if (string.IsNullOrEmpty(fullId))
                             continue;
 
@@ -206,7 +212,6 @@ namespace TerrariaModder.Core.Assets
                                 ExtractContainerChest(topX, topY, definition, containerItems);
                         }
 
-                        // Clear to safe vanilla air tile for world save
                         tile.active(false);
                         tile.type = 0;
                         tile.frameX = 0;
@@ -214,7 +219,6 @@ namespace TerrariaModder.Core.Assets
                         tile.liquid = 0;
                         tile.actuator(false);
                         tile.inActive(false);
-                        extracted++;
                     }
                 }
 
@@ -229,7 +233,6 @@ namespace TerrariaModder.Core.Assets
 
                 if (!WriteEntries(path, entries))
                 {
-                    _log?.Error("[TileSavePatches] Failed to write tile moddata; restoring tiles before vanilla save");
                     RestoreAllSnapshots();
                     RestoreExtractedContainerChests();
                     return;
@@ -241,17 +244,14 @@ namespace TerrariaModder.Core.Assets
                 }
                 else if (!ModdataFile.Write(containerPath, containerItems))
                 {
-                    _log?.Error("[TileSavePatches] Failed to write custom container moddata; restoring before vanilla save");
                     RestoreAllSnapshots();
                     RestoreExtractedContainerChests();
                     return;
                 }
-
-                _log?.Info($"[TileSavePatches] Extracted {extracted} custom tiles into moddata (container items: {containerItems.Count})");
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileSavePatches] Save prefix error: {ex.Message}");
+                _log?.Error($"[TileRuntime.TileSavePatches] Save prefix error: {ex.Message}");
                 RestoreAllSnapshots();
                 RestoreExtractedContainerChests();
             }
@@ -259,16 +259,13 @@ namespace TerrariaModder.Core.Assets
 
         private static void SaveWorld_Postfix()
         {
-            if (_extractedSnapshots.Count == 0 && _extractedContainerChests.Count == 0) return;
+            if (_extractedSnapshots.Count == 0 && _extractedContainerChests.Count == 0)
+                return;
 
             try
             {
                 RestoreAllSnapshots();
                 RestoreExtractedContainerChests();
-            }
-            catch (Exception ex)
-            {
-                _log?.Error($"[TileSavePatches] Save postfix restore error: {ex.Message}");
             }
             finally
             {
@@ -279,68 +276,55 @@ namespace TerrariaModder.Core.Assets
 
         private static void LoadWorld_Prefix()
         {
-            if (!AssetSystem.ExperimentalCustomTiles || TileRegistry.Count == 0)
+            if (TileRegistry.Count == 0)
                 return;
 
             try
             {
                 string worldPath = GetCurrentWorldPath();
-                if (string.IsNullOrEmpty(worldPath)) return;
-                if (_worldBackupDone.Contains(worldPath)) return;
+                if (string.IsNullOrEmpty(worldPath) || _worldBackupDone.Contains(worldPath))
+                    return;
 
                 string backupPath = worldPath + ".before-custom-tiles.bak";
                 if (!File.Exists(backupPath) && File.Exists(worldPath))
-                {
                     File.Copy(worldPath, backupPath, overwrite: false);
-                    _log?.Info($"[TileSavePatches] World backup created: {backupPath}");
-                }
 
                 _worldBackupDone.Add(worldPath);
             }
             catch (Exception ex)
             {
-                _log?.Warn($"[TileSavePatches] World backup failed: {ex.Message}");
+                _log?.Warn($"[TileRuntime.TileSavePatches] World backup failed: {ex.Message}");
             }
         }
 
         private static void LoadWorld_Postfix()
         {
-            if (TileRegistry.Count == 0) return;
+            if (TileRegistry.Count == 0)
+                return;
 
             try
             {
                 string worldPath = GetCurrentWorldPath();
-                if (string.IsNullOrEmpty(worldPath)) return;
+                if (string.IsNullOrEmpty(worldPath))
+                    return;
 
-                string path = GetTileModdataPath(worldPath);
-                var entries = ReadEntries(path);
-                if (entries.Count == 0) return;
+                var entries = ReadEntries(GetTileModdataPath(worldPath));
+                if (entries.Count == 0)
+                    return;
 
-                int restored = 0;
-                int missing = 0;
+                var containerDefsByTopLeft = new Dictionary<int, TileDefinition>();
 
                 foreach (var entry in entries)
                 {
                     if (entry.X < 0 || entry.X >= Main.maxTilesX || entry.Y < 0 || entry.Y >= Main.maxTilesY)
-                    {
-                        missing++;
                         continue;
-                    }
 
                     int runtimeType = TileRegistry.GetRuntimeType(entry.TileId);
                     if (runtimeType < 0)
-                    {
-                        // Missing-mod case: keep air tile; sidecar remains for later recovery.
-                        missing++;
                         continue;
-                    }
 
-                    var tile = Main.tile[entry.X, entry.Y];
-                    if (tile == null)
-                    {
-                        tile = new Tile();
-                        Main.tile[entry.X, entry.Y] = tile;
-                    }
+                    var tile = Main.tile[entry.X, entry.Y] ?? new Tile();
+                    Main.tile[entry.X, entry.Y] = tile;
 
                     tile.active(true);
                     tile.type = (ushort)runtimeType;
@@ -356,47 +340,172 @@ namespace TerrariaModder.Core.Assets
                     tile.actuator(entry.Actuator);
                     tile.inActive(entry.InActive);
 
-                    restored++;
-                }
-
-                var containerDefsByTopLeft = new Dictionary<int, TileDefinition>();
-                foreach (var entry in entries)
-                {
-                    int runtimeType = TileRegistry.GetRuntimeType(entry.TileId);
-                    if (runtimeType < 0) continue;
-
                     var definition = TileRegistry.GetDefinition(runtimeType);
-                    if (definition == null || !definition.IsContainer) continue;
-
-                    int topX = entry.X;
-                    int topY = entry.Y;
-                    if (!CustomTileContainers.TryGetTopLeft(entry.X, entry.Y, definition, out topX, out topY))
+                    if (definition != null && definition.IsContainer)
                     {
-                        topX = entry.X;
-                        topY = entry.Y;
-                    }
+                        int topX = entry.X;
+                        int topY = entry.Y;
+                        if (!CustomTileContainers.TryGetTopLeft(entry.X, entry.Y, definition, out topX, out topY))
+                        {
+                            topX = entry.X;
+                            topY = entry.Y;
+                        }
 
-                    int key = ToKey(topX, topY);
-                    if (!containerDefsByTopLeft.ContainsKey(key))
-                        containerDefsByTopLeft[key] = definition;
+                        int key = ToKey(topX, topY);
+                        if (!containerDefsByTopLeft.ContainsKey(key))
+                            containerDefsByTopLeft[key] = definition;
+                    }
                 }
 
-                int ensuredContainers = 0;
                 foreach (var kvp in containerDefsByTopLeft)
                 {
                     FromKey(kvp.Key, out int topX, out int topY);
-                    if (CustomTileContainers.EnsureContainerChest(topX, topY, kvp.Value, out _))
-                        ensuredContainers++;
+                    CustomTileContainers.EnsureContainerChest(topX, topY, kvp.Value, out _);
                 }
 
-                int restoredContainerItems = RestoreContainerItems(worldPath, containerDefsByTopLeft, out int skippedContainerItems);
-
-                _log?.Info($"[TileSavePatches] Restored {restored} custom tiles from moddata, unresolved={missing}, containers={ensuredContainers}, containerItems={restoredContainerItems}, containerItemsSkipped={skippedContainerItems}");
+                RestoreContainerItems(worldPath, containerDefsByTopLeft);
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileSavePatches] Load postfix error: {ex.Message}");
+                _log?.Error($"[TileRuntime.TileSavePatches] Load postfix error: {ex.Message}");
             }
+        }
+
+        private static void ExtractContainerChest(int topX, int topY, TileDefinition definition, List<ModdataFile.ItemEntry> entries)
+        {
+            if (!CustomTileContainers.EnsureContainerChest(topX, topY, definition, out int chestIndex))
+                return;
+            if (chestIndex < 0 || chestIndex >= Main.maxChests)
+                return;
+
+            var chest = Main.chest[chestIndex];
+            if (chest?.item == null)
+                return;
+
+            string location = MakeContainerLocation(topX, topY);
+            int limit = chest.maxItems > 0 ? Math.Min(chest.maxItems, chest.item.Length) : chest.item.Length;
+            for (int slot = 0; slot < limit; slot++)
+            {
+                var item = chest.item[slot];
+                if (item == null || item.IsAir || item.stack <= 0)
+                    continue;
+
+                string token = EncodeStoredItemType(item.type);
+                if (string.IsNullOrEmpty(token))
+                    continue;
+
+                entries.Add(new ModdataFile.ItemEntry
+                {
+                    Location = location,
+                    Slot = slot,
+                    ItemId = token,
+                    Stack = item.stack,
+                    Prefix = item.prefix,
+                    Favorited = item.favorited
+                });
+            }
+
+            _extractedContainerChests[chestIndex] = chest;
+            Main.chest[chestIndex] = null;
+        }
+
+        private static void RestoreContainerItems(string worldPath, Dictionary<int, TileDefinition> containerDefsByTopLeft)
+        {
+            var entries = ModdataFile.Read(GetContainerModdataPath(worldPath));
+            if (entries.Count == 0)
+                return;
+
+            var preparedContainers = new HashSet<int>();
+            foreach (var entry in entries)
+            {
+                if (!TryParseContainerLocation(entry.Location, out int topX, out int topY))
+                    continue;
+
+                int key = ToKey(topX, topY);
+                if (!containerDefsByTopLeft.TryGetValue(key, out var definition))
+                    continue;
+
+                if (!CustomTileContainers.EnsureContainerChest(topX, topY, definition, out int chestIndex))
+                    continue;
+                if (chestIndex < 0 || chestIndex >= Main.maxChests)
+                    continue;
+
+                var chest = Main.chest[chestIndex];
+                if (chest?.item == null)
+                    continue;
+
+                if (preparedContainers.Add(key))
+                    ClearChestItems(chest);
+
+                if (!TryCreateItemFromEntry(entry, out var item))
+                    continue;
+
+                if (entry.Slot >= 0 && entry.Slot < chest.item.Length && (chest.item[entry.Slot] == null || chest.item[entry.Slot].IsAir))
+                {
+                    chest.item[entry.Slot] = item;
+                    continue;
+                }
+
+                for (int slot = 0; slot < chest.item.Length; slot++)
+                {
+                    if (chest.item[slot] == null || chest.item[slot].IsAir)
+                    {
+                        chest.item[slot] = item;
+                        break;
+                    }
+                }
+            }
+        }
+
+        private static bool TryCreateItemFromEntry(ModdataFile.ItemEntry entry, out Item item)
+        {
+            item = null;
+            int itemType = DecodeStoredItemType(entry.ItemId);
+            if (itemType <= 0)
+                return false;
+
+            item = new Item();
+            item.SetDefaults(itemType);
+            item.stack = Math.Max(1, entry.Stack);
+            if (entry.Prefix > 0)
+            {
+                try { item.Prefix(entry.Prefix); } catch { }
+                item.prefix = (byte)Math.Min(byte.MaxValue, Math.Max(0, entry.Prefix));
+            }
+
+            item.favorited = entry.Favorited;
+            return true;
+        }
+
+        private static void ClearChestItems(Chest chest)
+        {
+            if (chest?.item == null) return;
+            for (int i = 0; i < chest.item.Length; i++)
+                chest.item[i] = new Item();
+        }
+
+        private static string EncodeStoredItemType(int itemType)
+        {
+            if (itemType <= 0) return null;
+            if (itemType < ItemRegistry.VanillaItemCount) return "v:" + itemType;
+            string fullId = ItemRegistry.GetFullId(itemType);
+            if (!string.IsNullOrEmpty(fullId)) return fullId;
+            return "runtime:" + itemType;
+        }
+
+        private static int DecodeStoredItemType(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token)) return -1;
+            if (token.StartsWith("v:", StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(token.Substring(2), out int vanillaType))
+                return vanillaType > 0 ? vanillaType : -1;
+
+            if (token.StartsWith("runtime:", StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(token.Substring("runtime:".Length), out int runtimeType))
+                return runtimeType > 0 ? runtimeType : -1;
+
+            int registered = ItemRegistry.GetRuntimeType(token);
+            return registered > 0 ? registered : -1;
         }
 
         private static void RestoreAllSnapshots()
@@ -407,12 +516,8 @@ namespace TerrariaModder.Core.Assets
                 if (x < 0 || x >= Main.maxTilesX || y < 0 || y >= Main.maxTilesY)
                     continue;
 
-                var tile = Main.tile[x, y];
-                if (tile == null)
-                {
-                    tile = new Tile();
-                    Main.tile[x, y] = tile;
-                }
+                var tile = Main.tile[x, y] ?? new Tile();
+                Main.tile[x, y] = tile;
 
                 var snap = kvp.Value;
                 tile.active(snap.Active);
@@ -431,243 +536,13 @@ namespace TerrariaModder.Core.Assets
             }
         }
 
-        private static void ExtractContainerChest(int topX, int topY, TileDefinition definition, List<ModdataFile.ItemEntry> entries)
-        {
-            if (definition == null || !definition.IsContainer || entries == null)
-                return;
-
-            if (!CustomTileContainers.EnsureContainerChest(topX, topY, definition, out int chestIndex))
-                return;
-
-            if (chestIndex < 0 || chestIndex >= Main.maxChests)
-                return;
-
-            var chest = Main.chest[chestIndex];
-            if (chest?.item == null)
-                return;
-
-            string location = MakeContainerLocation(topX, topY);
-            int limit = chest.maxItems > 0 ? Math.Min(chest.maxItems, chest.item.Length) : chest.item.Length;
-            for (int slot = 0; slot < limit; slot++)
-            {
-                var item = chest.item[slot];
-                if (item == null || item.IsAir || item.stack <= 0)
-                    continue;
-
-                string itemToken = EncodeStoredItemType(item.type);
-                if (string.IsNullOrEmpty(itemToken))
-                    continue;
-
-                entries.Add(new ModdataFile.ItemEntry
-                {
-                    Location = location,
-                    Slot = slot,
-                    ItemId = itemToken,
-                    Stack = item.stack,
-                    Prefix = item.prefix,
-                    Favorited = item.favorited
-                });
-            }
-
-            _extractedContainerChests[chestIndex] = chest;
-            Main.chest[chestIndex] = null;
-        }
-
         private static void RestoreExtractedContainerChests()
         {
             foreach (var kvp in _extractedContainerChests)
             {
-                int chestIndex = kvp.Key;
-                if (chestIndex < 0 || chestIndex >= Main.maxChests)
-                    continue;
-
-                if (Main.chest[chestIndex] == null)
-                    Main.chest[chestIndex] = kvp.Value;
+                if (kvp.Key >= 0 && kvp.Key < Main.maxChests && Main.chest[kvp.Key] == null)
+                    Main.chest[kvp.Key] = kvp.Value;
             }
-        }
-
-        private static int RestoreContainerItems(string worldPath, Dictionary<int, TileDefinition> containerDefsByTopLeft, out int skipped)
-        {
-            skipped = 0;
-
-            if (string.IsNullOrEmpty(worldPath) || containerDefsByTopLeft == null || containerDefsByTopLeft.Count == 0)
-                return 0;
-
-            string containerPath = GetContainerModdataPath(worldPath);
-            var entries = ModdataFile.Read(containerPath);
-            if (entries.Count == 0)
-                return 0;
-
-            int restored = 0;
-            var preparedContainers = new HashSet<int>();
-
-            foreach (var entry in entries)
-            {
-                if (!TryParseContainerLocation(entry.Location, out int topX, out int topY))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                int containerKey = ToKey(topX, topY);
-                if (!containerDefsByTopLeft.TryGetValue(containerKey, out var definition))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                if (!CustomTileContainers.EnsureContainerChest(topX, topY, definition, out int chestIndex))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                if (chestIndex < 0 || chestIndex >= Main.maxChests)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                var chest = Main.chest[chestIndex];
-                if (chest?.item == null)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                if (preparedContainers.Add(containerKey))
-                    ClearChestItems(chest);
-
-                if (!TryCreateItemFromEntry(entry, out var item))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                if (entry.Slot >= 0 && entry.Slot < chest.item.Length && (chest.item[entry.Slot] == null || chest.item[entry.Slot].IsAir))
-                {
-                    chest.item[entry.Slot] = item;
-                    restored++;
-                    continue;
-                }
-
-                bool placed = false;
-                for (int slot = 0; slot < chest.item.Length; slot++)
-                {
-                    if (chest.item[slot] == null || chest.item[slot].IsAir)
-                    {
-                        chest.item[slot] = item;
-                        restored++;
-                        placed = true;
-                        break;
-                    }
-                }
-
-                if (!placed)
-                    skipped++;
-            }
-
-            return restored;
-        }
-
-        private static bool TryCreateItemFromEntry(ModdataFile.ItemEntry entry, out Item item)
-        {
-            item = null;
-            if (entry == null) return false;
-
-            int itemType = DecodeStoredItemType(entry.ItemId);
-            if (itemType <= 0) return false;
-
-            var created = new Item();
-            created.SetDefaults(itemType);
-            created.stack = Math.Max(1, entry.Stack);
-
-            int prefix = entry.Prefix;
-            if (prefix < 0) prefix = 0;
-            if (prefix > byte.MaxValue) prefix = byte.MaxValue;
-            if (prefix > 0)
-            {
-                try { created.Prefix(prefix); } catch { }
-                created.prefix = (byte)prefix;
-            }
-
-            created.favorited = entry.Favorited;
-            item = created;
-            return true;
-        }
-
-        private static void ClearChestItems(Chest chest)
-        {
-            if (chest?.item == null)
-                return;
-
-            for (int i = 0; i < chest.item.Length; i++)
-                chest.item[i] = new Item();
-        }
-
-        private static string EncodeStoredItemType(int itemType)
-        {
-            if (itemType <= 0)
-                return null;
-
-            if (itemType < ItemRegistry.VanillaItemCount)
-                return "v:" + itemType;
-
-            string fullId = ItemRegistry.GetFullId(itemType);
-            if (!string.IsNullOrEmpty(fullId))
-                return fullId;
-
-            return "runtime:" + itemType;
-        }
-
-        private static int DecodeStoredItemType(string token)
-        {
-            if (string.IsNullOrWhiteSpace(token))
-                return -1;
-
-            if (token.StartsWith("v:", StringComparison.OrdinalIgnoreCase) &&
-                int.TryParse(token.Substring(2), out int vanillaType))
-            {
-                return vanillaType > 0 ? vanillaType : -1;
-            }
-
-            if (token.StartsWith("runtime:", StringComparison.OrdinalIgnoreCase) &&
-                int.TryParse(token.Substring("runtime:".Length), out int runtimeFallbackType))
-            {
-                return runtimeFallbackType > 0 ? runtimeFallbackType : -1;
-            }
-
-            int runtimeType = ItemRegistry.GetRuntimeType(token);
-            if (runtimeType > 0)
-                return runtimeType;
-
-            return int.TryParse(token, out int legacyType) && legacyType > 0 ? legacyType : -1;
-        }
-
-        private static string MakeContainerLocation(int topX, int topY)
-        {
-            return $"{ContainerLocationPrefix}{topX}_{topY}";
-        }
-
-        private static bool TryParseContainerLocation(string location, out int topX, out int topY)
-        {
-            topX = 0;
-            topY = 0;
-
-            if (string.IsNullOrEmpty(location) || !location.StartsWith(ContainerLocationPrefix, StringComparison.Ordinal))
-                return false;
-
-            string rest = location.Substring(ContainerLocationPrefix.Length);
-            int sep = rest.IndexOf('_');
-            if (sep <= 0 || sep >= rest.Length - 1)
-                return false;
-
-            if (!int.TryParse(rest.Substring(0, sep), out topX))
-                return false;
-            if (!int.TryParse(rest.Substring(sep + 1), out topY))
-                return false;
-
-            return true;
         }
 
         private static string GetCurrentWorldPath()
@@ -693,13 +568,27 @@ namespace TerrariaModder.Core.Assets
 
         private static string GetTileModdataPath(string worldPath) => worldPath + ".tiles.moddata";
         private static string GetContainerModdataPath(string worldPath) => worldPath + ".tiles.containers.moddata";
-
+        private static string MakeContainerLocation(int topX, int topY) => $"{ContainerLocationPrefix}{topX}_{topY}";
         private static int ToKey(int x, int y) => (x << 16) ^ (y & 0xFFFF);
 
         private static void FromKey(int key, out int x, out int y)
         {
             x = (key >> 16) & 0xFFFF;
             y = key & 0xFFFF;
+        }
+
+        private static bool TryParseContainerLocation(string location, out int topX, out int topY)
+        {
+            topX = 0;
+            topY = 0;
+            if (string.IsNullOrEmpty(location) || !location.StartsWith(ContainerLocationPrefix, StringComparison.Ordinal))
+                return false;
+
+            string rest = location.Substring(ContainerLocationPrefix.Length);
+            int sep = rest.IndexOf('_');
+            return sep > 0 && sep < rest.Length - 1 &&
+                   int.TryParse(rest.Substring(0, sep), out topX) &&
+                   int.TryParse(rest.Substring(sep + 1), out topY);
         }
 
         private static bool WriteEntries(string path, List<TileEntry> entries)
@@ -710,186 +599,95 @@ namespace TerrariaModder.Core.Assets
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
-                string tmp = path + ".tmp";
                 var sb = new StringBuilder();
                 sb.AppendLine("{");
                 sb.AppendLine("  \"version\": 1,");
                 sb.AppendLine($"  \"count\": {entries.Count},");
                 sb.AppendLine("  \"tiles\": [");
-
                 for (int i = 0; i < entries.Count; i++)
                 {
                     var e = entries[i];
                     sb.Append("    { ");
-                    sb.Append($"\"x\": {e.X}, ");
-                    sb.Append($"\"y\": {e.Y}, ");
-                    sb.Append($"\"tile_id\": \"{Escape(e.TileId)}\", ");
-                    sb.Append($"\"fx\": {e.FrameX}, ");
-                    sb.Append($"\"fy\": {e.FrameY}, ");
-                    sb.Append($"\"slope\": {e.Slope}, ");
-                    sb.Append($"\"half\": {(e.HalfBrick ? "true" : "false")}, ");
-                    sb.Append($"\"wall\": {e.Wall}, ");
-                    sb.Append($"\"liquid\": {e.Liquid}, ");
-                    sb.Append($"\"liquid_type\": {e.LiquidType}, ");
-                    sb.Append($"\"color\": {e.Color}, ");
-                    sb.Append($"\"wall_color\": {e.WallColor}, ");
-                    sb.Append($"\"actuator\": {(e.Actuator ? "true" : "false")}, ");
-                    sb.Append($"\"inactive\": {(e.InActive ? "true" : "false")}");
+                    sb.Append($"\"x\": {e.X}, \"y\": {e.Y}, \"tile_id\": \"{Escape(e.TileId)}\", ");
+                    sb.Append($"\"fx\": {e.FrameX}, \"fy\": {e.FrameY}, \"slope\": {e.Slope}, ");
+                    sb.Append($"\"half\": {(e.HalfBrick ? "true" : "false")}, \"wall\": {e.Wall}, ");
+                    sb.Append($"\"liquid\": {e.Liquid}, \"liquid_type\": {e.LiquidType}, ");
+                    sb.Append($"\"color\": {e.Color}, \"wall_color\": {e.WallColor}, ");
+                    sb.Append($"\"actuator\": {(e.Actuator ? "true" : "false")}, \"inactive\": {(e.InActive ? "true" : "false")}");
                     sb.Append(" }");
                     if (i < entries.Count - 1) sb.Append(',');
                     sb.AppendLine();
                 }
-
                 sb.AppendLine("  ]");
                 sb.AppendLine("}");
 
-                File.WriteAllText(tmp, sb.ToString(), Encoding.UTF8);
-                if (File.Exists(path))
-                {
-                    try { File.Copy(path, path + ".bak", overwrite: true); }
-                    catch { }
-                    File.Delete(path);
-                }
-                File.Move(tmp, path);
+                File.WriteAllText(path, sb.ToString());
                 return true;
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileSavePatches] Failed writing moddata {path}: {ex.Message}");
+                _log?.Error($"[TileRuntime.TileSavePatches] WriteEntries failed: {ex.Message}");
                 return false;
             }
         }
 
         private static List<TileEntry> ReadEntries(string path)
         {
-            if (!File.Exists(path)) return new List<TileEntry>();
+            var result = new List<TileEntry>();
+            if (!File.Exists(path))
+                return result;
 
             try
             {
-                string json = File.ReadAllText(path, Encoding.UTF8);
-                return ParseEntries(json);
+                string json = File.ReadAllText(path);
+                var matches = Regex.Matches(json,
+                    "\\{\\s*\"x\"\\s*:\\s*(?<x>-?\\d+)\\s*,\\s*\"y\"\\s*:\\s*(?<y>-?\\d+)\\s*,\\s*\"tile_id\"\\s*:\\s*\"(?<id>(?:\\\\.|[^\"])*)\"\\s*,\\s*\"fx\"\\s*:\\s*(?<fx>-?\\d+)\\s*,\\s*\"fy\"\\s*:\\s*(?<fy>-?\\d+)\\s*,\\s*\"slope\"\\s*:\\s*(?<slope>-?\\d+)\\s*,\\s*\"half\"\\s*:\\s*(?<half>true|false)\\s*,\\s*\"wall\"\\s*:\\s*(?<wall>\\d+)\\s*,\\s*\"liquid\"\\s*:\\s*(?<liquid>\\d+)\\s*,\\s*\"liquid_type\"\\s*:\\s*(?<ltype>-?\\d+)\\s*,\\s*\"color\"\\s*:\\s*(?<color>\\d+)\\s*,\\s*\"wall_color\"\\s*:\\s*(?<wcolor>\\d+)\\s*,\\s*\"actuator\"\\s*:\\s*(?<act>true|false)\\s*,\\s*\"inactive\"\\s*:\\s*(?<inactive>true|false)\\s*\\}");
+
+                foreach (Match match in matches)
+                {
+                    result.Add(new TileEntry
+                    {
+                        X = int.Parse(match.Groups["x"].Value),
+                        Y = int.Parse(match.Groups["y"].Value),
+                        TileId = Unescape(match.Groups["id"].Value),
+                        FrameX = short.Parse(match.Groups["fx"].Value),
+                        FrameY = short.Parse(match.Groups["fy"].Value),
+                        Slope = int.Parse(match.Groups["slope"].Value),
+                        HalfBrick = string.Equals(match.Groups["half"].Value, "true", StringComparison.OrdinalIgnoreCase),
+                        Wall = ushort.Parse(match.Groups["wall"].Value),
+                        Liquid = byte.Parse(match.Groups["liquid"].Value),
+                        LiquidType = int.Parse(match.Groups["ltype"].Value),
+                        Color = byte.Parse(match.Groups["color"].Value),
+                        WallColor = byte.Parse(match.Groups["wcolor"].Value),
+                        Actuator = string.Equals(match.Groups["act"].Value, "true", StringComparison.OrdinalIgnoreCase),
+                        InActive = string.Equals(match.Groups["inactive"].Value, "true", StringComparison.OrdinalIgnoreCase)
+                    });
+                }
             }
             catch (Exception ex)
             {
-                _log?.Warn($"[TileSavePatches] Failed reading {path}: {ex.Message}");
-                string bak = path + ".bak";
-                if (File.Exists(bak))
-                {
-                    try
-                    {
-                        string json = File.ReadAllText(bak, Encoding.UTF8);
-                        return ParseEntries(json);
-                    }
-                    catch { }
-                }
-                return new List<TileEntry>();
-            }
-        }
-
-        private static List<TileEntry> ParseEntries(string json)
-        {
-            var list = new List<TileEntry>();
-
-            int arrStart = json.IndexOf("\"tiles\"", StringComparison.OrdinalIgnoreCase);
-            if (arrStart < 0) return list;
-            arrStart = json.IndexOf('[', arrStart);
-            if (arrStart < 0) return list;
-            int arrEnd = json.LastIndexOf(']');
-            if (arrEnd <= arrStart) return list;
-
-            string content = json.Substring(arrStart + 1, arrEnd - arrStart - 1);
-            int depth = 0;
-            int objStart = -1;
-            for (int i = 0; i < content.Length; i++)
-            {
-                if (content[i] == '{')
-                {
-                    if (depth == 0) objStart = i;
-                    depth++;
-                }
-                else if (content[i] == '}')
-                {
-                    depth--;
-                    if (depth == 0 && objStart >= 0)
-                    {
-                        string obj = content.Substring(objStart, i - objStart + 1);
-                        var entry = ParseEntry(obj);
-                        if (entry != null) list.Add(entry);
-                        objStart = -1;
-                    }
-                }
+                _log?.Error($"[TileRuntime.TileSavePatches] ReadEntries failed: {ex.Message}");
             }
 
-            return list;
-        }
-
-        private static TileEntry ParseEntry(string json)
-        {
-            try
-            {
-                var entry = new TileEntry
-                {
-                    X = ExtractInt(json, "x"),
-                    Y = ExtractInt(json, "y"),
-                    TileId = ExtractString(json, "tile_id"),
-                    FrameX = (short)ExtractInt(json, "fx"),
-                    FrameY = (short)ExtractInt(json, "fy"),
-                    Slope = ExtractInt(json, "slope"),
-                    HalfBrick = ExtractBool(json, "half"),
-                    Wall = (ushort)ExtractInt(json, "wall"),
-                    Liquid = (byte)ExtractInt(json, "liquid"),
-                    LiquidType = ExtractInt(json, "liquid_type"),
-                    Color = (byte)ExtractInt(json, "color"),
-                    WallColor = (byte)ExtractInt(json, "wall_color"),
-                    Actuator = ExtractBool(json, "actuator"),
-                    InActive = ExtractBool(json, "inactive")
-                };
-
-                return string.IsNullOrEmpty(entry.TileId) ? null : entry;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static string ExtractString(string json, string key)
-        {
-            var m = Regex.Match(json, $"\"{key}\"\\s*:\\s*\"([^\"]*)\"");
-            return m.Success ? Unescape(m.Groups[1].Value) : null;
-        }
-
-        private static int ExtractInt(string json, string key, int defaultValue = 0)
-        {
-            var m = Regex.Match(json, $"\"{key}\"\\s*:\\s*(-?\\d+)");
-            return m.Success && int.TryParse(m.Groups[1].Value, out int val) ? val : defaultValue;
-        }
-
-        private static bool ExtractBool(string json, string key, bool defaultValue = false)
-        {
-            var m = Regex.Match(json, $"\"{key}\"\\s*:\\s*(true|false)");
-            return m.Success ? m.Groups[1].Value == "true" : defaultValue;
+            return result;
         }
 
         private static string Escape(string value)
         {
-            if (value == null) return string.Empty;
-            return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+            return (value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"");
         }
 
         private static string Unescape(string value)
         {
-            if (value == null) return string.Empty;
-            return value.Replace("\\\"", "\"").Replace("\\\\", "\\");
+            return (value ?? string.Empty).Replace("\\\"", "\"").Replace("\\\\", "\\");
         }
 
         private static void TryDelete(string path)
         {
             try
             {
-                if (File.Exists(path)) File.Delete(path);
-                if (File.Exists(path + ".bak")) File.Delete(path + ".bak");
-                if (File.Exists(path + ".tmp")) File.Delete(path + ".tmp");
+                if (File.Exists(path))
+                    File.Delete(path);
             }
             catch { }
         }

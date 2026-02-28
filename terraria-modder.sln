@@ -1,0 +1,48 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "templates", "templates", "{808186BE-9BD0-DD1D-D574-36EEAD1E7F8F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Core", "Core", "{8D626EA8-CB54-BC41-363A-217881BEBA6E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TerrariaModder.Core", "src\Core\TerrariaModder.Core.csproj", "{8B8728F9-BDF0-D152-E153-CA0F0BEB85F9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StorageHub", "src\StorageHub\StorageHub.csproj", "{8679D938-035C-E448-01F7-A8C9A00CB428}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ModTemplate", "templates\ModTemplate\ModTemplate.csproj", "{8FD3D54A-DE5A-C25B-D240-DA9F00567FF8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8B8728F9-BDF0-D152-E153-CA0F0BEB85F9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8B8728F9-BDF0-D152-E153-CA0F0BEB85F9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8B8728F9-BDF0-D152-E153-CA0F0BEB85F9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8B8728F9-BDF0-D152-E153-CA0F0BEB85F9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8679D938-035C-E448-01F7-A8C9A00CB428}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8679D938-035C-E448-01F7-A8C9A00CB428}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8679D938-035C-E448-01F7-A8C9A00CB428}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8679D938-035C-E448-01F7-A8C9A00CB428}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8FD3D54A-DE5A-C25B-D240-DA9F00567FF8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8FD3D54A-DE5A-C25B-D240-DA9F00567FF8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8FD3D54A-DE5A-C25B-D240-DA9F00567FF8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8FD3D54A-DE5A-C25B-D240-DA9F00567FF8}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{8D626EA8-CB54-BC41-363A-217881BEBA6E} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{8B8728F9-BDF0-D152-E153-CA0F0BEB85F9} = {8D626EA8-CB54-BC41-363A-217881BEBA6E}
+		{8679D938-035C-E448-01F7-A8C9A00CB428} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{8FD3D54A-DE5A-C25B-D240-DA9F00567FF8} = {808186BE-9BD0-DD1D-D574-36EEAD1E7F8F}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {9CB537BC-E6A4-4EC8-A8AF-BB68F8A76F69}
+	EndGlobalSection
+EndGlobal

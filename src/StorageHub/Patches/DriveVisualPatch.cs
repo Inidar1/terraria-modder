@@ -8,6 +8,8 @@ using StorageHub.DedicatedBlocks;
 using StorageHub.Storage;
 using TerrariaModder.Core.Assets;
 using TerrariaModder.Core.Logging;
+using TerrariaModder.TileRuntime;
+using RuntimeTileContainers = TerrariaModder.TileRuntime.CustomTileContainers;
 
 namespace StorageHub.Patches
 {
@@ -616,10 +618,10 @@ namespace StorageHub.Patches
             topX = tileX;
             topY = tileY;
 
-            if (CustomTileContainers.TryGetTileDefinition(tileX, tileY, out var definition, out int tileType) &&
+            if (RuntimeTileContainers.TryGetTileDefinition(tileX, tileY, out var definition, out int tileType) &&
                 tileType == _storageDriveTileType &&
                 definition != null &&
-                CustomTileContainers.TryGetTopLeft(tileX, tileY, definition, out int resolvedX, out int resolvedY))
+                RuntimeTileContainers.TryGetTopLeft(tileX, tileY, definition, out int resolvedX, out int resolvedY))
             {
                 topX = resolvedX;
                 topY = resolvedY;

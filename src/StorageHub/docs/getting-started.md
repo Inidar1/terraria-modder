@@ -9,7 +9,7 @@ This guide gets a minimal Storage Hub network running quickly.
 
 Default keybind:
 
-- `F5` = toggle UI (only relevant when `dedicatedBlocksOnly=false`).
+- `F5` = open recipe browser.
 
 ## 2. Know Your Mode
 

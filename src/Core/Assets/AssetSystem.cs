@@ -1,40 +1,47 @@
 using System;
 using System.Reflection;
-using TerrariaModder.Core.Config;
 using TerrariaModder.Core.Logging;
 
 namespace TerrariaModder.Core.Assets
 {
     /// <summary>
-    /// Main orchestrator for custom item + tile asset pipelines.
+    /// Main orchestrator for the v3 asset system.
+    ///
+    /// Initialization order:
+    ///   1. Initialize(logger) — called early during PluginLoader startup
+    ///   2. Mods register items/recipes/drops/shops during their Initialize()
+    ///   3. ApplyPatches() — after all mods loaded:
+    ///      a. AssignRuntimeTypes (deterministic type IDs)
+    ///      b. TypeExtension (resize arrays)
+    ///      c. SetDefaultsPatch (intercept Item.SetDefaults for custom types)
+    ///      d. PlayerSavePatches + WorldSavePatches (save interception)
+    ///      e. RecipeRegistrar (inject recipes after SetupRecipes)
+    ///      f. ContentPatches (drops + shops)
+    ///   4. OnContentLoaded() — called from OnGameReady lifecycle hook:
+    ///      - Texture injection (GraphicsDevice ready, patches applied)
     /// </summary>
     public static class AssetSystem
     {
         private static ILogger _log;
         private static bool _initialized;
         private static bool _patchesApplied;
-        private static bool _itemTexturesLoaded;
-        private static bool _tileTexturesLoaded;
+        private static bool _texturesLoaded;
         private static int _textureRetryCount;
-        private const int MAX_TEXTURE_RETRIES = 300; // ~5s at 60fps
+        private const int MAX_TEXTURE_RETRIES = 300; // ~5 seconds at 60fps
 
-        private static bool _hasCustomItems;
-        private static bool _hasCustomTiles;
-        private static bool _experimentalCustomTiles;
+        /// <summary>Whether texture injection is complete (async loader finished).</summary>
+        public static bool TexturesStable => _texturesLoaded;
 
-        /// <summary>Whether all texture injection is complete (items + tiles).</summary>
-        public static bool TexturesStable => _itemTexturesLoaded && _tileTexturesLoaded;
-
-        /// <summary>Whether experimental custom tile support is enabled in core config.</summary>
-        public static bool ExperimentalCustomTiles => _experimentalCustomTiles;
-
+        /// <summary>
+        /// Initialize the asset system. Called early during startup.
+        /// </summary>
         public static void Initialize(ILogger logger)
         {
             if (_initialized) return;
 
             _log = logger;
-            _experimentalCustomTiles = CoreConfig.Instance.ExperimentalCustomTiles;
 
+            // Install unhandled exception handler for crash diagnostics
             AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
             {
                 var ex = args.ExceptionObject as Exception;
@@ -44,114 +51,80 @@ namespace TerrariaModder.Core.Assets
                     _log?.Error($"[AssetSystem] Inner: {ex.InnerException.Message}\n{ex.InnerException.StackTrace}");
             };
 
-            int vanillaItemCount = ReadVanillaItemCount();
-            int vanillaTileCount = ReadVanillaTileCount();
-            _log?.Info($"[AssetSystem] Vanilla ItemID.Count={vanillaItemCount}, TileID.Count={vanillaTileCount}");
-            _log?.Info($"[AssetSystem] experimental_custom_tiles={_experimentalCustomTiles}");
+            // Read vanilla ItemID.Count before anything modifies it
+            int vanillaCount = ReadVanillaItemCount();
+            _log?.Info($"[AssetSystem] Vanilla ItemID.Count = {vanillaCount}");
 
-            ItemRegistry.Initialize(logger, vanillaItemCount);
-            TileRegistry.Initialize(logger, vanillaTileCount);
-
+            // Initialize subsystems
+            ItemRegistry.Initialize(logger, vanillaCount);
             ModdataFile.Initialize(logger);
             TextureLoader.Initialize(logger);
-            TileTextureLoader.Initialize(logger);
-
             SetDefaultsPatch.Initialize(logger);
             LangPatches.Initialize(logger);
             TooltipPatches.Initialize(logger);
             PlayerSavePatches.Initialize(logger);
             WorldSavePatches.Initialize(logger);
-            TileSavePatches.Initialize(logger);
             RecipeRegistrar.Initialize(logger);
             ContentPatches.Initialize(logger);
             ItemBehaviorPatches.Initialize(logger);
             ItemProtectionPatches.Initialize(logger);
             DrawPatches.Initialize(logger);
-            TileObjectRegistrar.Initialize(logger);
-            TileBehaviorPatches.Initialize(logger);
-            PlayerAdjTileSafetyPatches.Initialize(logger);
             PendingItemsUI.Initialize(logger);
 
             _initialized = true;
             _log?.Info("[AssetSystem] Initialized");
         }
 
+        /// <summary>
+        /// Apply all Harmony patches after mods have registered their content.
+        /// </summary>
         public static void ApplyPatches()
         {
             if (_patchesApplied || !_initialized) return;
 
             try
             {
-                // Step 1: assign deterministic runtime IDs
+                // Step 1: Assign deterministic runtime types
                 ItemRegistry.AssignRuntimeTypes();
-                if (_experimentalCustomTiles)
-                    TileRegistry.AssignRuntimeTypes();
 
-                _hasCustomItems = ItemRegistry.Count > 0;
-                _hasCustomTiles = _experimentalCustomTiles && TileRegistry.Count > 0;
-
-                // Item protection patches are safe to apply unconditionally.
+                // Apply protection patches unconditionally — protect even if 0 custom
+                // items are registered now, since items may exist from a previous session
                 ItemProtectionPatches.ApplyPatches();
 
-                if (!_hasCustomItems && !_hasCustomTiles)
+                if (ItemRegistry.Count == 0)
                 {
-                    _itemTexturesLoaded = true;
-                    _tileTexturesLoaded = true;
+                    _log?.Info("[AssetSystem] No custom items registered, skipping remaining patches");
                     _patchesApplied = true;
-                    _log?.Info("[AssetSystem] No custom items/tiles registered");
                     return;
                 }
 
-                // Save/load interception before array extension.
-                if (_hasCustomItems)
-                {
-                    PlayerSavePatches.ApplyPatches();
-                    WorldSavePatches.ApplyPatches();
-                }
-                if (_hasCustomTiles)
-                    TileSavePatches.ApplyPatches();
+                // Step 1: Patch save methods BEFORE TypeExtension resizes arrays
+                // (Harmony can't rewrite SavePlayer/LoadPlayer IL after array modifications)
+                PlayerSavePatches.ApplyPatches();
+                WorldSavePatches.ApplyPatches();
 
-                // Extend item arrays.
-                if (_hasCustomItems)
-                {
-                    int newItemCount = ItemRegistry.VanillaItemCount + ItemRegistry.Count + 64;
-                    TypeExtension.Apply(_log, newItemCount);
-                }
+                // Step 2: Extend type system (resize arrays, NOT ItemID.Count)
+                int newCount = ItemRegistry.VanillaItemCount + ItemRegistry.Count + 64;
+                TypeExtension.Apply(_log, newCount);
 
-                // Extend tile arrays + register tile metadata.
-                if (_hasCustomTiles)
-                {
-                    int newTileCount = TileRegistry.VanillaTileCount + TileRegistry.Count + 256;
-                    int result = TileTypeExtension.Apply(_log, newTileCount, failFast: true);
-                    if (result < 0)
-                        throw new InvalidOperationException("TileTypeExtension failed");
+                // Step 3: Apply remaining patches
+                SetDefaultsPatch.ApplyPatches();
+                LangPatches.ApplyPatches();
+                TooltipPatches.ApplyPatches();
+                DrawPatches.ApplyPatches();
 
-                    TileTextureLoader.ApplyPatches();
-                    TileObjectRegistrar.ApplyDefinitions();
-                    TileBehaviorPatches.ApplyPatches();
-                    PlayerAdjTileSafetyPatches.ApplyPatches();
-                }
+                // Step 4: Populate ContentSamples.ItemsByType with custom items
+                // MUST happen after SetDefaultsPatch so SetDefaults works for custom types.
+                // Item.OriginalRarity/OriginalDamage/OriginalDefense access this dictionary
+                // and crash with KeyNotFoundException if our types aren't present.
+                PopulateContentSamples();
 
-                // Item runtime behavior patches.
-                if (_hasCustomItems)
-                {
-                    SetDefaultsPatch.ApplyPatches();
-                    LangPatches.ApplyPatches();
-                    TooltipPatches.ApplyPatches();
-                    DrawPatches.ApplyPatches();
-
-                    // Required for item tooltip properties that read ContentSamples.
-                    PopulateContentSamples();
-
-                    ContentPatches.ApplyPatches();
-                    ItemBehaviorPatches.ApplyPatches();
-                }
-
-                // Recipes can reference custom items and/or custom tiles.
                 RecipeRegistrar.ApplyPatches();
+                ContentPatches.ApplyPatches();
+                ItemBehaviorPatches.ApplyPatches();
 
                 _patchesApplied = true;
-                _log?.Info($"[AssetSystem] All patches applied (items={ItemRegistry.Count}, tiles={TileRegistry.Count})");
+                _log?.Info($"[AssetSystem] All patches applied ({ItemRegistry.Count} custom items)");
             }
             catch (Exception ex)
             {
@@ -159,37 +132,26 @@ namespace TerrariaModder.Core.Assets
             }
         }
 
+        /// <summary>
+        /// Called by lifecycle hook when Main.LoadContent() completes.
+        /// GraphicsDevice and SpriteBatch are guaranteed ready.
+        /// </summary>
         public static void OnContentLoaded()
         {
-            if (!_patchesApplied) return;
-            if (TexturesStable) return;
+            if (_texturesLoaded || !_patchesApplied) return;
 
             try
             {
-                if (!_hasCustomItems)
+                int loaded = TextureLoader.InjectAllTextures();
+                // Don't set _texturesLoaded here — OnUpdate() re-injects periodically
+                // to survive the async texture loader (AssetInitializer.LoadTextures)
+                // which iterates TextureAssets.Item.Length and overwrites our entries.
+                if (loaded > 0)
+                    _log?.Info($"[AssetSystem] Initial texture injection ({loaded} textures)");
+                else
                 {
-                    _itemTexturesLoaded = true;
-                }
-                else if (!_itemTexturesLoaded)
-                {
-                    int loadedItems = TextureLoader.InjectAllTextures();
-                    if (loadedItems > 0)
-                        _log?.Info($"[AssetSystem] Initial item texture injection ({loadedItems})");
-                    else
-                        _itemTexturesLoaded = true; // nothing to inject
-                }
-
-                if (!_hasCustomTiles)
-                {
-                    _tileTexturesLoaded = true;
-                }
-                else if (!_tileTexturesLoaded)
-                {
-                    int loadedTiles = TileTextureLoader.InjectAllTextures();
-                    if (loadedTiles > 0)
-                        _log?.Info($"[AssetSystem] Initial tile texture injection ({loadedTiles})");
-                    else
-                        _tileTexturesLoaded = true; // nothing to inject
+                    _texturesLoaded = true; // Nothing to inject, no retry needed
+                    _log?.Info("[AssetSystem] No textures to inject");
                 }
             }
             catch (Exception ex)
@@ -198,45 +160,44 @@ namespace TerrariaModder.Core.Assets
             }
         }
 
+        /// <summary>
+        /// Called each frame via FrameEvents.OnPostUpdate.
+        /// Re-injects cached textures periodically to survive the async texture loader
+        /// (AssetInitializer.LoadTextures) which iterates TextureAssets.Item.Length
+        /// and overwrites our custom entries with null/failed Assets.
+        /// </summary>
         public static void OnUpdate()
         {
-            if (!_patchesApplied) return;
-
-            // TileObjectData can become available later in startup (during splash init).
-            // Retry failed custom tile metadata registration until it succeeds.
-            if (_hasCustomTiles)
-                TileObjectRegistrar.ApplyDefinitions();
-
-            if (TexturesStable) return;
+            if (!_patchesApplied || _texturesLoaded) return;
+            if (ItemRegistry.Count == 0)
+            {
+                _texturesLoaded = true;
+                return;
+            }
 
             _textureRetryCount++;
 
+            // Re-inject cached textures every 10 frames (~167ms)
             if (_textureRetryCount % 10 == 0)
-            {
-                if (_hasCustomItems && !_itemTexturesLoaded)
-                    TextureLoader.ReinjectCachedTextures();
-                if (_hasCustomTiles && !_tileTexturesLoaded)
-                    TileTextureLoader.ReinjectCachedTextures();
-            }
+                TextureLoader.ReinjectCachedTextures();
 
             if (_textureRetryCount >= MAX_TEXTURE_RETRIES)
             {
-                if (_hasCustomItems && !_itemTexturesLoaded)
-                    TextureLoader.ReinjectCachedTextures();
-                if (_hasCustomTiles && !_tileTexturesLoaded)
-                    TileTextureLoader.ReinjectCachedTextures();
-
-                _itemTexturesLoaded = true;
-                _tileTexturesLoaded = true;
+                TextureLoader.ReinjectCachedTextures();
+                _texturesLoaded = true;
                 _log?.Info("[AssetSystem] Texture re-injection complete");
             }
         }
 
+        /// <summary>
+        /// Read the original ItemID.Count before any modifications.
+        /// </summary>
         private static int ReadVanillaItemCount()
         {
             try
             {
-                var countField = typeof(Terraria.ID.ItemID).GetField("Count", BindingFlags.Public | BindingFlags.Static);
+                var countField = typeof(Terraria.ID.ItemID).GetField("Count",
+                    BindingFlags.Public | BindingFlags.Static);
                 if (countField != null)
                 {
                     object val = countField.GetValue(null);
@@ -249,45 +210,28 @@ namespace TerrariaModder.Core.Assets
                 _log?.Error($"[AssetSystem] Failed to read ItemID.Count: {ex.Message}");
             }
 
-            return 6145; // Terraria 1.4.5
-        }
-
-        private static int ReadVanillaTileCount()
-        {
-            try
-            {
-                var countField = typeof(Terraria.ID.TileID).GetField("Count", BindingFlags.Public | BindingFlags.Static);
-                if (countField != null)
-                {
-                    object val = countField.GetValue(null);
-                    if (val is ushort us) return us;
-                    if (val is short s) return s;
-                    if (val is int i) return i;
-                }
-            }
-            catch (Exception ex)
-            {
-                _log?.Error($"[AssetSystem] Failed to read TileID.Count: {ex.Message}");
-            }
-
-            return 700; // safe fallback
+            return 6145; // Known Terraria 1.4.5 value
         }
 
         /// <summary>
         /// Add custom items to ContentSamples.ItemsByType dictionary.
+        /// Vanilla tooltip code accesses item.OriginalRarity/OriginalDamage/OriginalDefense
+        /// which read from this dictionary. Without entries, hovering crashes.
         /// </summary>
         private static void PopulateContentSamples()
         {
             try
             {
-                var samplesType = typeof(Terraria.Main).Assembly.GetType("Terraria.ID.ContentSamples");
+                var samplesType = typeof(Terraria.Main).Assembly
+                    .GetType("Terraria.ID.ContentSamples");
                 if (samplesType == null)
                 {
                     _log?.Warn("[AssetSystem] ContentSamples type not found");
                     return;
                 }
 
-                var dictField = samplesType.GetField("ItemsByType", BindingFlags.Public | BindingFlags.Static);
+                var dictField = samplesType.GetField("ItemsByType",
+                    BindingFlags.Public | BindingFlags.Static);
                 if (dictField == null)
                 {
                     _log?.Warn("[AssetSystem] ContentSamples.ItemsByType not found");
@@ -301,9 +245,10 @@ namespace TerrariaModder.Core.Assets
                     return;
                 }
 
+                // Dictionary<int, Item> — use reflection to call Add/indexer
                 var dictType = dict.GetType();
                 var containsKey = dictType.GetMethod("ContainsKey");
-                var itemProp = dictType.GetProperty("Item");
+                var itemProp = dictType.GetProperty("Item"); // indexer
 
                 int added = 0;
                 foreach (var fullId in ItemRegistry.AllIds)
@@ -311,12 +256,15 @@ namespace TerrariaModder.Core.Assets
                     int runtimeType = ItemRegistry.GetRuntimeType(fullId);
                     if (runtimeType < 0) continue;
 
+                    // Check if already present
                     if (containsKey != null && (bool)containsKey.Invoke(dict, new object[] { runtimeType }))
                         continue;
 
+                    // Create a sample item via SetDefaults (our patch handles custom types)
                     var item = new Terraria.Item();
                     item.SetDefaults(runtimeType);
 
+                    // Add to dictionary via indexer
                     if (itemProp != null)
                     {
                         itemProp.SetValue(dict, item, new object[] { runtimeType });
@@ -332,57 +280,76 @@ namespace TerrariaModder.Core.Assets
             }
         }
 
-        // ---- Public registration API (called by ModContext) ----
+        // ── Public registration API (called by ModContext) ──
 
+        /// <summary>
+        /// Register a custom item. Called by mods during Initialize().
+        /// </summary>
         public static bool RegisterItem(string modId, string itemName, ItemDefinition definition)
         {
             return ItemRegistry.Register(modId, itemName, definition);
         }
 
-        public static bool RegisterTile(string modId, string tileName, TileDefinition definition)
-        {
-            if (!_experimentalCustomTiles)
-            {
-                _log?.Warn($"[AssetSystem] Ignoring tile registration {modId}:{tileName} because experimental_custom_tiles=false");
-                return false;
-            }
-
-            return TileRegistry.Register(modId, tileName, definition);
-        }
-
+        /// <summary>
+        /// Register a mod's folder path for texture loading.
+        /// </summary>
         public static void RegisterModFolder(string modId, string folderPath)
         {
             ItemRegistry.RegisterModFolder(modId, folderPath);
-            TileRegistry.RegisterModFolder(modId, folderPath);
         }
 
+        /// <summary>
+        /// Register a recipe.
+        /// </summary>
         public static void RegisterRecipe(RecipeDefinition recipe)
         {
             RecipeRegistrar.RegisterRecipe(recipe);
         }
 
+        /// <summary>
+        /// Register an NPC drop.
+        /// </summary>
         public static void RegisterDrop(DropDefinition drop)
         {
             ContentPatches.RegisterDrop(drop);
         }
 
+        /// <summary>
+        /// Register a shop item.
+        /// </summary>
         public static void RegisterShopItem(ShopDefinition shop)
         {
             ContentPatches.RegisterShopItem(shop);
         }
 
+        /// <summary>
+        /// Check if a runtime type is a custom item.
+        /// </summary>
         public static bool IsCustomItem(int type) => ItemRegistry.IsCustomItem(type);
+
+        /// <summary>
+        /// Get the full ID ("modid:itemname") for a runtime type.
+        /// </summary>
         public static string GetFullId(int runtimeType) => ItemRegistry.GetFullId(runtimeType);
+
+        /// <summary>
+        /// Get the runtime type for a full ID.
+        /// </summary>
         public static int GetRuntimeType(string fullId) => ItemRegistry.GetRuntimeType(fullId);
+
+        /// <summary>
+        /// Get definition for a runtime type.
+        /// </summary>
         public static ItemDefinition GetDefinition(int runtimeType) => ItemRegistry.GetDefinition(runtimeType);
 
-        public static bool IsCustomTile(int tileType) => TileRegistry.IsCustomTile(tileType);
-        public static string GetTileFullId(int runtimeTileType) => TileRegistry.GetFullId(runtimeTileType);
-        public static int GetTileRuntimeType(string fullId) => TileRegistry.GetRuntimeType(fullId);
-        public static TileDefinition GetTileDefinition(int runtimeTileType) => TileRegistry.GetDefinition(runtimeTileType);
-        public static int ResolveTileType(string tileRef) => TileRegistry.ResolveTileType(tileRef);
-
+        /// <summary>
+        /// Number of pending items (overflow from load).
+        /// </summary>
         public static int PendingItemCount => PendingItemStore.TotalCount;
+
+        /// <summary>
+        /// Toggle the pending items UI panel.
+        /// </summary>
         public static void TogglePendingItemsUI() => PendingItemsUI.Toggle();
     }
 }

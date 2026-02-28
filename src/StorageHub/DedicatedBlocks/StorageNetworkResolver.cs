@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using TerrariaModder.Core.Assets;
 using TerrariaModder.Core.Logging;
+using TerrariaModder.TileRuntime;
 
 namespace StorageHub.DedicatedBlocks
 {
@@ -241,8 +241,8 @@ namespace StorageHub.DedicatedBlocks
 
             int topX = tileX;
             int topY = tileY;
-            var definition = AssetSystem.GetTileDefinition(tileType);
-            if (definition != null &&
+            if (CustomTileContainers.TryGetTileDefinition(tileX, tileY, out var definition, out _) &&
+                definition != null &&
                 CustomTileContainers.TryGetTopLeft(tileX, tileY, definition, out int resolvedTopX, out int resolvedTopY))
             {
                 topX = resolvedTopX;

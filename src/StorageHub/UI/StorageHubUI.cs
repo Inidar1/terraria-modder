@@ -750,7 +750,10 @@ namespace StorageHub.UI
             {
                 int deposited = _storage.DepositFromCursor(singleItem: isRightClick);
                 if (deposited > 0)
+                {
+                    Mod.TryPlayItemTransferSound();
                     MarkDirty();
+                }
                 return;
             }
 
@@ -758,19 +761,28 @@ namespace StorageHub.UI
             {
                 // Shift-click: Move to inventory
                 if (_storage.MoveToInventory(item.SourceChestIndex, item.SourceSlot, item.Stack))
+                {
+                    Mod.TryPlayItemTransferSound();
                     MarkDirty();
+                }
             }
             else if (isRightClick)
             {
                 // Right-click: Take 1 and place on cursor
                 if (_storage.TakeItemToCursor(item.SourceChestIndex, item.SourceSlot, 1))
+                {
+                    Mod.TryPlayItemTransferSound();
                     MarkDirty();
+                }
             }
             else
             {
                 // Left-click: Take stack and place on cursor
                 if (_storage.TakeItemToCursor(item.SourceChestIndex, item.SourceSlot, item.Stack))
+                {
+                    Mod.TryPlayItemTransferSound();
                     MarkDirty();
+                }
             }
         }
 
@@ -785,6 +797,7 @@ namespace StorageHub.UI
                 int deposited = _storage.DepositFromCursor(singleItem: false);
                 if (deposited > 0)
                 {
+                    Mod.TryPlayItemTransferSound();
                     MarkDirty();
                 }
                 WidgetInput.ConsumeClick();
@@ -794,6 +807,7 @@ namespace StorageHub.UI
                 int deposited = _storage.DepositFromCursor(singleItem: true);
                 if (deposited > 0)
                 {
+                    Mod.TryPlayItemTransferSound();
                     MarkDirty();
                 }
                 WidgetInput.ConsumeRightClick();

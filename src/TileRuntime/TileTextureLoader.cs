@@ -5,15 +5,14 @@ using System.Reflection;
 using HarmonyLib;
 using TerrariaModder.Core.Logging;
 
-namespace TerrariaModder.Core.Assets
+namespace TerrariaModder.TileRuntime
 {
     /// <summary>
-    /// Loads and injects custom tile textures into TextureAssets.Tile[runtimeTileId].
+    /// Loads and injects runtime-owned custom tile textures into TextureAssets.Tile[runtimeTileId].
     /// </summary>
-    public static class TileTextureLoader
+    internal static class TileTextureLoader
     {
         private static ILogger _log;
-
         private static Type _texture2dType;
         private static MethodInfo _fromStreamMethod;
         private static object _graphicsDevice;
@@ -27,10 +26,8 @@ namespace TerrariaModder.Core.Assets
         public static void Initialize(ILogger logger)
         {
             _log = logger;
-            _harmony = new Harmony("com.terrariamodder.assets.tiletextures");
+            _harmony = new Harmony("com.terrariamodder.tileruntime.tiletextures");
         }
-
-        public static bool IsReflectionReady => _reflectionReady;
 
         public static void ApplyPatches()
         {
@@ -46,20 +43,19 @@ namespace TerrariaModder.Core.Assets
 
                 if (loadTiles == null)
                 {
-                    _log?.Warn("[TileTextureLoader] Main.LoadTiles(int) not found");
+                    _log?.Warn("[TileRuntime.TileTextureLoader] Main.LoadTiles(int) not found");
                     return;
                 }
 
-                var prefix = typeof(TileTextureLoader).GetMethod(nameof(LoadTiles_Prefix),
-                    BindingFlags.NonPublic | BindingFlags.Static);
+                var prefix = typeof(TileTextureLoader).GetMethod(nameof(LoadTiles_Prefix), BindingFlags.NonPublic | BindingFlags.Static);
                 _harmony.Patch(loadTiles, prefix: new HarmonyMethod(prefix));
 
                 _patchesApplied = true;
-                _log?.Info("[TileTextureLoader] Patched Main.LoadTiles(int) for custom tile IDs");
+                _log?.Info("[TileRuntime.TileTextureLoader] Patched Main.LoadTiles(int) for custom tile IDs");
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileTextureLoader] Failed to patch Main.LoadTiles: {ex.Message}");
+                _log?.Error($"[TileRuntime.TileTextureLoader] Failed to patch Main.LoadTiles: {ex.Message}");
             }
         }
 
@@ -67,7 +63,7 @@ namespace TerrariaModder.Core.Assets
         {
             if (!InitializeReflection())
             {
-                _log?.Warn("[TileTextureLoader] Cannot inject textures - XNA reflection not ready");
+                _log?.Warn("[TileRuntime.TileTextureLoader] Cannot inject textures - XNA reflection not ready");
                 return 0;
             }
 
@@ -83,16 +79,20 @@ namespace TerrariaModder.Core.Assets
                 if (def == null) continue;
 
                 bool hasTexture = false;
-                if (!string.IsNullOrEmpty(def.Texture))
+                if (!string.IsNullOrEmpty(def.TexturePath))
                 {
                     int colon = fullId.IndexOf(':');
                     if (colon > 0)
                     {
                         string modId = fullId.Substring(0, colon);
                         string modFolder = TileRegistry.GetModFolder(modId);
-                        if (!string.IsNullOrEmpty(modFolder))
+                        if (string.IsNullOrEmpty(modFolder))
                         {
-                            string path = Path.Combine(modFolder, def.Texture.Replace('/', Path.DirectorySeparatorChar));
+                            _log?.Warn($"[TileRuntime.TileTextureLoader] No mod folder registered for {modId} while loading {fullId}");
+                        }
+                        else
+                        {
+                            string path = Path.Combine(modFolder, def.TexturePath.Replace('/', Path.DirectorySeparatorChar));
                             if (File.Exists(path))
                             {
                                 if (InjectTexture(runtimeType, path))
@@ -103,20 +103,17 @@ namespace TerrariaModder.Core.Assets
                             }
                             else
                             {
-                                _log?.Warn($"[TileTextureLoader] Texture not found: {path} for {fullId}");
+                                _log?.Warn($"[TileRuntime.TileTextureLoader] Texture not found: {path} for {fullId}");
                             }
                         }
                     }
                 }
 
-                if (!hasTexture)
-                {
-                    if (InjectPlaceholder(runtimeType))
-                        placeholders++;
-                }
+                if (!hasTexture && InjectPlaceholder(runtimeType))
+                    placeholders++;
             }
 
-            _log?.Info($"[TileTextureLoader] Injected {injected} textures, {placeholders} placeholders");
+            _log?.Info($"[TileRuntime.TileTextureLoader] Injected {injected} textures, {placeholders} placeholders");
             return injected + placeholders;
         }
 
@@ -171,17 +168,16 @@ namespace TerrariaModder.Core.Assets
 
                 arr.SetValue(asset, runtimeType);
                 _assetCache[runtimeType] = asset;
-                _log?.Debug($"[TileTextureLoader] Injected texture for tile {runtimeType}: {Path.GetFileName(pngPath)}");
                 return true;
             }
             catch (TargetInvocationException tie) when (tie.InnerException != null)
             {
-                _log?.Warn($"[TileTextureLoader] Failed to load {pngPath}: {tie.InnerException.Message}");
+                _log?.Warn($"[TileRuntime.TileTextureLoader] Failed to load {pngPath}: {tie.InnerException.Message}");
                 return false;
             }
             catch (Exception ex)
             {
-                _log?.Warn($"[TileTextureLoader] Failed to load {pngPath}: {ex.Message}");
+                _log?.Warn($"[TileRuntime.TileTextureLoader] Failed to load {pngPath}: {ex.Message}");
                 return false;
             }
         }
@@ -192,10 +188,18 @@ namespace TerrariaModder.Core.Assets
             {
                 var field = typeof(Terraria.GameContent.TextureAssets).GetField("Tile", BindingFlags.Public | BindingFlags.Static);
                 var arr = field?.GetValue(null) as Array;
-                if (arr == null || runtimeType < 0 || runtimeType >= arr.Length) return false;
+                if (arr == null || runtimeType < 0 || runtimeType >= arr.Length)
+                {
+                    _log?.Warn($"[TileRuntime.TileTextureLoader] Placeholder injection unavailable for tile {runtimeType}: TextureAssets.Tile not ready");
+                    return false;
+                }
 
                 object placeholder = arr.GetValue(0);
-                if (placeholder == null) return false;
+                if (placeholder == null)
+                {
+                    _log?.Warn($"[TileRuntime.TileTextureLoader] Placeholder texture slot 0 is null for tile {runtimeType}");
+                    return false;
+                }
 
                 arr.SetValue(placeholder, runtimeType);
                 _assetCache[runtimeType] = placeholder;
@@ -207,8 +211,6 @@ namespace TerrariaModder.Core.Assets
             }
         }
 
-        // Terraria calls Main.LoadTiles(i) during startup and expects Images/Tiles_i for every i < TileID.Count.
-        // Custom tile IDs have no vanilla content path; skip those loads and keep placeholder/cached assets instead.
         private static bool LoadTiles_Prefix(int i)
         {
             try
@@ -221,7 +223,6 @@ namespace TerrariaModder.Core.Assets
             }
             catch
             {
-                // If fallback fails, still skip vanilla load to avoid asset popup/crash.
                 return false;
             }
         }
@@ -323,7 +324,7 @@ namespace TerrariaModder.Core.Assets
                     return false;
                 }
 
-                var graphicsProp = mainType.GetProperty("graphics", BindingFlags.Public | BindingFlags.Static);
+                var graphicsProp = typeof(Terraria.Main).GetProperty("graphics", BindingFlags.Public | BindingFlags.Static);
                 if (graphicsProp != null)
                 {
                     var gm = graphicsProp.GetValue(null);
@@ -333,22 +334,22 @@ namespace TerrariaModder.Core.Assets
 
                 if (_graphicsDevice == null)
                 {
-                    var instField = mainType.GetField("instance", BindingFlags.Public | BindingFlags.Static);
+                    var instField = typeof(Terraria.Main).GetField("instance", BindingFlags.Public | BindingFlags.Static);
                     var inst = instField?.GetValue(null);
                     var gdProp = inst?.GetType().GetProperty("GraphicsDevice");
                     _graphicsDevice = gdProp?.GetValue(inst);
                 }
 
                 if (_graphicsDevice == null)
-                    return false; // not ready yet
+                    return false;
 
                 _reflectionReady = true;
-                _log?.Info("[TileTextureLoader] XNA reflection initialized");
+                _log?.Info("[TileRuntime.TileTextureLoader] XNA reflection initialized");
                 return true;
             }
             catch (Exception ex)
             {
-                _log?.Error($"[TileTextureLoader] Reflection init failed: {ex.Message}");
+                _log?.Error($"[TileRuntime.TileTextureLoader] Reflection init failed: {ex.Message}");
                 _reflectionFailed = true;
                 return false;
             }

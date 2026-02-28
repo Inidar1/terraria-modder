@@ -26,8 +26,6 @@ namespace TerrariaModder.Core.Assets
         public int UseTime { get; set; } = 20;
         public int UseAnimation { get; set; } = 20;
         public int UseStyle { get; set; }
-        public bool UseTurn { get; set; }
-        public int UseSoundStyle { get; set; } = -1;
         public int Crit { get; set; } = 4;
         public int Mana { get; set; }
         public bool AutoReuse { get; set; }
@@ -65,11 +63,6 @@ namespace TerrariaModder.Core.Assets
 
         // Placement
         public int CreateTile { get; set; } = -1;
-        /// <summary>
-        /// Optional symbolic tile reference for placement, e.g. "modid:storage-unit".
-        /// If set, this overrides CreateTile during SetDefaults.
-        /// </summary>
-        public string CreateTileId { get; set; }
         public int CreateWall { get; set; } = -1;
         public int PlaceStyle { get; set; }
 
