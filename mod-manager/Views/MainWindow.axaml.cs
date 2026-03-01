@@ -11,7 +11,6 @@ public partial class MainWindow : Window
         try
         {
             InitializeComponent();
-            DataContext = new MainViewModel();
         }
         catch (Exception ex)
         {

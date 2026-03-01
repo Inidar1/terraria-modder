@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="TerrariaModManager.Views.InstalledModsView">
-    <Grid Margin="24,24,24,36" RowDefinitions="Auto,Auto,*,Auto">
+    <Grid Margin="24,24,24,36" RowDefinitions="Auto,Auto,Auto,*,Auto">
 
         <Grid Grid.Row="0" Margin="0,0,0,12">
             <TextBlock Text="Installed Mods" Classes="section-header"/>
@@ -19,8 +19,17 @@
                    VerticalAlignment="Bottom"
                    IsVisible="{Binding IsCheckingUpdates}"/>
 
+        <!-- Core missing warning -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10"
+                    IsVisible="{Binding IsCoreMissing}">
+            <TextBlock Text="Core framework not installed" FontSize="12"
+                       Foreground="#FFE05252" VerticalAlignment="Center"/>
+            <Button Content="Install Core..." Classes="primary" Padding="10,4" FontSize="11"
+                    Command="{Binding InstallCoreCommand}"/>
+        </StackPanel>
+
         <!-- Updates Available section -->
-        <Border Grid.Row="1" Classes="card" Margin="0,0,0,12"
+        <Border Grid.Row="2" Classes="card" Margin="0,0,0,12"
                 IsVisible="{Binding HasUpdates}"
                 BorderBrush="#FF3D2E00">
             <StackPanel>
@@ -61,7 +70,7 @@
             </StackPanel>
         </Border>
 
-        <Border Grid.Row="2" Classes="card">
+        <Border Grid.Row="3" Classes="card">
             <Grid>
                 <TextBlock Text="No mods installed yet.&#x0a;Use the Browse tab or click 'Download with Manager' on Nexus Mods."
                            Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Center"
@@ -114,27 +123,22 @@
         </Border>
 
         <!-- Action buttons -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0"
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0"
                     IsVisible="{Binding HasSelection}">
-            <TextBlock Text="{Binding SelectionSummary}" VerticalAlignment="Center"
-                       Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
-                       Margin="0,0,12,0"/>
-            <Button Content="Toggle Enable/Disable" Classes="secondary"
-                    Command="{Binding ToggleEnabledCommand}" Margin="0,0,8,0"/>
+            <Button Content="Update" Classes="primary"
+                    Command="{Binding UpdateModCommand}" Margin="0,0,8,0"
+                    IsVisible="{Binding AnySelectedHasUpdate}"/>
             <Button Content="Open Folder" Classes="secondary"
                     Command="{Binding OpenModFolderCommand}" Margin="0,0,8,0"
                     IsVisible="{Binding HasSingleSelection}"/>
             <Button Content="Open on Nexus" Classes="secondary"
                     Command="{Binding OpenOnNexusCommand}" Margin="0,0,8,0"
                     IsVisible="{Binding HasSingleSelection}"/>
-            <Button Content="Update" Classes="primary"
-                    Command="{Binding UpdateModCommand}" Margin="0,0,8,0"
-                    IsVisible="{Binding AnySelectedHasUpdate}"/>
-            <Button Content="Uninstall" Classes="danger"
-                    Command="{Binding UninstallKeepSettingsCommand}" Margin="0,0,4,0"/>
-            <Button Content="Uninstall + Delete Settings" Classes="danger"
-                    Command="{Binding UninstallCleanCommand}" FontSize="11"
-                    IsVisible="{Binding AnySelectedHasSettings}"/>
+            <Button Content="{Binding ToggleButtonText}" Classes="secondary"
+                    Command="{Binding ToggleEnabledCommand}" Margin="0,0,8,0"
+                    IsVisible="{Binding AnySelectedNonCore}"/>
+            <Button Content="Delete" Classes="danger"
+                    Command="{Binding UninstallCommand}"/>
         </StackPanel>
     </Grid>
 </UserControl>

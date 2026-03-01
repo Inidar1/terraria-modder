@@ -39,7 +39,7 @@ public class NexusApiService : IDisposable
     public NexusApiService()
     {
         _http = new HttpClient();
-        _http.DefaultRequestHeaders.Add("Application-Name", "TerrariaModder Manager");
+        _http.DefaultRequestHeaders.Add("Application-Name", "TerrariaModder Vault");
         _http.DefaultRequestHeaders.Add("Application-Version", "0.1.0");
     }
 

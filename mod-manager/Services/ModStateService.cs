@@ -6,6 +6,15 @@ namespace TerrariaModManager.Services;
 
 public class ModStateService
 {
+    private readonly UpdateTracker _updateTracker;
+    private readonly Logger _logger;
+
+    public ModStateService(UpdateTracker updateTracker, Logger logger)
+    {
+        _updateTracker = updateTracker;
+        _logger = logger;
+    }
+
     public List<InstalledMod> ScanInstalledMods(string terrariaPath)
     {
         var mods = new List<InstalledMod>();
@@ -50,11 +59,16 @@ public class ModStateService
         var coreInfo = GetCoreInfo(terrariaPath);
         if (coreInfo.IsInstalled)
         {
+            // Prefer tracked Nexus version (stamped after download) over DLL version
+            // to avoid format mismatches (e.g. DLL "1.2.0.0" vs Nexus "1.2.0")
+            var coreVersion = _updateTracker.GetTrackedVersion("core")
+                              ?? coreInfo.CoreVersion ?? "unknown";
+
             mods.Insert(0, new InstalledMod
             {
                 Id = "core",
                 Name = "TerrariaModder Core",
-                Version = coreInfo.CoreVersion ?? "unknown",
+                Version = coreVersion,
                 Author = "SixteenthBit",
                 Description = "Core framework — required for all mods to work",
                 FolderPath = Path.Combine(terrariaPath, "TerrariaModder", "core"),
@@ -119,13 +133,25 @@ public class ModStateService
 
     public void UninstallMod(string modId, string terrariaPath, bool deleteSettings = true)
     {
-        var modsDir = Path.Combine(terrariaPath, "TerrariaModder", "mods");
+        string? modDir;
 
-        // Try both enabled and disabled paths
-        var enabled = Path.Combine(modsDir, modId);
-        var disabled = Path.Combine(modsDir, "." + modId);
+        if (modId == "core")
+        {
+            // Core lives at TerrariaModder/core/, not in the mods/ folder
+            var coreDir = Path.Combine(terrariaPath, "TerrariaModder", "core");
+            modDir = Directory.Exists(coreDir) ? coreDir : null;
+        }
+        else
+        {
+            var modsDir = Path.Combine(terrariaPath, "TerrariaModder", "mods");
 
-        var modDir = Directory.Exists(enabled) ? enabled : Directory.Exists(disabled) ? disabled : null;
+            // Try both enabled and disabled paths
+            var enabled = Path.Combine(modsDir, modId);
+            var disabled = Path.Combine(modsDir, "." + modId);
+
+            modDir = Directory.Exists(enabled) ? enabled : Directory.Exists(disabled) ? disabled : null;
+        }
+
         if (modDir == null) return;
 
         if (deleteSettings)
@@ -160,7 +186,7 @@ public class ModStateService
 
     private static readonly string[] AlwaysDeleteFiles = { "manifest.json" };
 
-    private static void DeleteNonConfigFiles(string dir)
+    private void DeleteNonConfigFiles(string dir)
     {
         foreach (var file in Directory.GetFiles(dir))
         {
