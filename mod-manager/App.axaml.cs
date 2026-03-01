@@ -176,21 +176,6 @@ public partial class App : Application
         var exeDir = AppDomain.CurrentDomain.BaseDirectory;
         var envPath = Path.Combine(exeDir, ".env");
 
-        if (!File.Exists(envPath))
-        {
-            var dir = new DirectoryInfo(exeDir);
-            while (dir?.Parent != null)
-            {
-                var candidate = Path.Combine(dir.Parent.FullName, ".env");
-                if (File.Exists(candidate))
-                {
-                    envPath = candidate;
-                    break;
-                }
-                dir = dir.Parent;
-            }
-        }
-
         if (!File.Exists(envPath)) return;
 
         foreach (var line in File.ReadAllLines(envPath))
