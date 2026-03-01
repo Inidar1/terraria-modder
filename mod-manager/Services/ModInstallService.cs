@@ -17,7 +17,15 @@ public enum ConfigAction { Keep, Delete }
 
 public class ModInstallService
 {
+    private readonly Logger _logger;
+    private readonly SettingsService _settings;
     private string? _terrariaPath;
+
+    public ModInstallService(Logger logger, SettingsService settings)
+    {
+        _logger = logger;
+        _settings = settings;
+    }
 
     /// <summary>
     /// Called when existing config files are found during install.
@@ -31,34 +39,50 @@ public class ModInstallService
         _terrariaPath = path;
     }
 
+    /// <summary>
+    /// Returns the Terraria path, preferring fresh settings over cached value.
+    /// </summary>
+    private string? GetTerrariaPath()
+    {
+        // Always read fresh from settings to avoid stale cached path
+        var fresh = _settings.Load().TerrariaPath;
+        if (!string.IsNullOrWhiteSpace(fresh))
+        {
+            _terrariaPath = fresh;
+            return fresh;
+        }
+        return _terrariaPath;
+    }
+
     public async Task<InstallResult> InstallModAsync(string archivePath, bool forceKeepSettings = false)
     {
-        Logger.Info($"Install: opening archive {Path.GetFileName(archivePath)}");
+        _logger.Info($"Install: opening archive {Path.GetFileName(archivePath)}");
 
-        if (_terrariaPath == null)
+        var terrariaPath = GetTerrariaPath();
+        if (terrariaPath == null)
         {
-            Logger.Error("Install: Terraria path not configured");
+            _logger.Error("Install: Terraria path not configured");
             return new InstallResult { Error = "Terraria path not configured", DownloadedFilePath = archivePath };
         }
 
-        var modsDir = Path.Combine(_terrariaPath, "TerrariaModder", "mods");
+        var modsDir = Path.Combine(terrariaPath, "TerrariaModder", "mods");
 
         try
         {
             using var archive = ArchiveFactory.OpenArchive(archivePath);
             var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
-            Logger.Info($"Install: archive has {entries.Count} file entries");
+            _logger.Info($"Install: archive has {entries.Count} file entries");
 
             // Strategy 1: Look for manifest.json to determine mod structure
             var manifest = FindManifestInArchive(entries);
             if (manifest != null)
             {
                 var modId = manifest.Manifest.Id;
-                Logger.Info($"Install: found manifest, id='{modId}', version='{manifest.Manifest.Version}', prefix='{manifest.PathPrefix}'");
+                _logger.Info($"Install: found manifest, id='{modId}', version='{manifest.Manifest.Version}', prefix='{manifest.PathPrefix}'");
 
                 if (string.IsNullOrWhiteSpace(modId))
                 {
-                    Logger.Error("Install: manifest has no id field");
+                    _logger.Error("Install: manifest has no id field");
                     return new InstallResult { Error = "Manifest has no id field", DownloadedFilePath = archivePath };
                 }
 
@@ -68,10 +92,10 @@ public class ModInstallService
                 // Check for existing config files to preserve
                 var existingDir = Directory.Exists(targetDir) ? targetDir
                     : Directory.Exists(disabledDir) ? disabledDir : null;
-                Logger.Info($"Install: existing dir = {(existingDir != null ? Path.GetFileName(existingDir) : "none")}");
+                _logger.Info($"Install: existing dir = {(existingDir != null ? Path.GetFileName(existingDir) : "none")}");
 
                 var preservedConfigs = await PreserveConfigsAsync(existingDir, modId, forceKeepSettings);
-                Logger.Info($"Install: preserved {preservedConfigs.Count} config file(s)");
+                _logger.Info($"Install: preserved {preservedConfigs.Count} config file(s)");
 
                 // Clean up both path variants
                 if (Directory.Exists(targetDir)) Directory.Delete(targetDir, true);
@@ -86,17 +110,36 @@ public class ModInstallService
 
                 // Verify files were extracted
                 var extractedFiles = Directory.GetFiles(targetDir, "*", SearchOption.AllDirectories);
-                Logger.Info($"Install: extracted {extractedFiles.Length} files to {modId}/");
+                _logger.Info($"Install: extracted {extractedFiles.Length} files to {modId}/");
 
                 return new InstallResult { Success = true, InstalledModId = modId };
             }
 
-            // Strategy 2: Look for TerrariaModder/ folder structure
+            // Strategy 2: Look for TerrariaModder/ folder structure (core install)
             var tmPrefix = FindTerrariaModderPrefix(entries);
             if (tmPrefix != null)
             {
-                Logger.Info($"Install: TerrariaModder folder structure detected, prefix='{tmPrefix}'");
-                ExtractEntries(entries, _terrariaPath, tmPrefix);
+                _logger.Info($"Install: TerrariaModder folder structure detected, prefix='{tmPrefix}'");
+
+                var coreDir = Path.Combine(terrariaPath, "TerrariaModder", "core");
+
+                // Preserve config files in core/ if they exist
+                var preservedConfigs = await PreserveConfigsAsync(coreDir, "core", forceKeepSettings);
+                _logger.Info($"Install: preserved {preservedConfigs.Count} core config file(s)");
+
+                // Delete old core/ directory but NEVER touch mods/
+                if (Directory.Exists(coreDir))
+                {
+                    Directory.Delete(coreDir, true);
+                    _logger.Info("Install: deleted old core/ directory");
+                }
+
+                // Extract only — this creates files without deleting anything
+                ExtractEntries(entries, terrariaPath, tmPrefix);
+
+                // Restore preserved configs
+                RestoreConfigs(preservedConfigs, coreDir);
+
                 return new InstallResult { Success = true, InstalledModId = "core" };
             }
 
@@ -112,11 +155,18 @@ public class ModInstallService
             {
                 var dllName = Path.GetFileNameWithoutExtension(Path.GetFileName(dll.Key!));
                 var modId = ToKebabCase(dllName);
-                Logger.Info($"Install: flat archive, DLL='{dllName}.dll', mod-id='{modId}'");
+                _logger.Info($"Install: flat archive, DLL='{dllName}.dll', mod-id='{modId}'");
                 var targetDir = Path.Combine(modsDir, modId);
+                var disabledDir = Path.Combine(modsDir, "." + modId);
 
-                if (Directory.Exists(targetDir))
-                    Directory.Delete(targetDir, true);
+                // Preserve config files before deleting
+                var existingDir = Directory.Exists(targetDir) ? targetDir
+                    : Directory.Exists(disabledDir) ? disabledDir : null;
+                var preservedConfigs = await PreserveConfigsAsync(existingDir, modId, forceKeepSettings);
+                _logger.Info($"Install: preserved {preservedConfigs.Count} config file(s)");
+
+                if (Directory.Exists(targetDir)) Directory.Delete(targetDir, true);
+                if (Directory.Exists(disabledDir)) Directory.Delete(disabledDir, true);
 
                 Directory.CreateDirectory(targetDir);
 
@@ -124,13 +174,18 @@ public class ModInstallService
                 var prefix = FindCommonPrefix(entries);
                 ExtractEntries(entries, targetDir, prefix);
 
+                RestoreConfigs(preservedConfigs, targetDir);
+
+                // Generate manifest.json so the mod is visible in ScanInstalledMods
+                GenerateManifestIfMissing(targetDir, modId, dllName);
+
                 var extractedFiles = Directory.GetFiles(targetDir, "*", SearchOption.AllDirectories);
-                Logger.Info($"Install: extracted {extractedFiles.Length} files to {modId}/");
+                _logger.Info($"Install: extracted {extractedFiles.Length} files to {modId}/");
 
                 return new InstallResult { Success = true, InstalledModId = modId };
             }
 
-            Logger.Warn($"Install: no manifest, no TerrariaModder folder, no DLL found. Archive entries: {string.Join(", ", entries.Take(10).Select(e => e.Key))}");
+            _logger.Warn($"Install: no manifest, no TerrariaModder folder, no DLL found. Archive entries: {string.Join(", ", entries.Take(10).Select(e => e.Key))}");
             return new InstallResult
             {
                 Error = "Mod is not in a recognized format. Please contact the mod author.",
@@ -139,7 +194,7 @@ public class ModInstallService
         }
         catch (Exception ex)
         {
-            Logger.Error("Install failed", ex);
+            _logger.Error("Install failed", ex);
             return new InstallResult { Error = ex.Message, DownloadedFilePath = archivePath };
         }
     }
@@ -151,9 +206,10 @@ public class ModInstallService
     /// </summary>
     public void StampManifestVersion(string modId, string version)
     {
-        if (_terrariaPath == null) return;
+        var terrariaPath = GetTerrariaPath();
+        if (terrariaPath == null) return;
 
-        var manifestPath = Path.Combine(_terrariaPath, "TerrariaModder", "mods", modId, "manifest.json");
+        var manifestPath = Path.Combine(terrariaPath, "TerrariaModder", "mods", modId, "manifest.json");
         if (!File.Exists(manifestPath)) return;
 
         try
@@ -181,11 +237,11 @@ public class ModInstallService
             }
 
             File.WriteAllText(manifestPath, System.Text.Encoding.UTF8.GetString(ms.ToArray()));
-            Logger.Info($"Install: stamped manifest version '{version}' for '{modId}'");
+            _logger.Info($"Install: stamped manifest version '{version}' for '{modId}'");
         }
         catch (Exception ex)
         {
-            Logger.Warn($"Install: failed to stamp manifest version for '{modId}': {ex.Message}");
+            _logger.Warn($"Install: failed to stamp manifest version for '{modId}': {ex.Message}");
         }
     }
 
@@ -321,8 +377,7 @@ public class ModInstallService
         {
             var configPath = Path.Combine(targetDir, name);
             Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
-            if (!File.Exists(configPath))
-                File.WriteAllBytes(configPath, data);
+            File.WriteAllBytes(configPath, data);
         }
     }
 
@@ -353,6 +408,31 @@ public class ModInstallService
         return null;
     }
 
+    private void GenerateManifestIfMissing(string targetDir, string modId, string dllName)
+    {
+        var manifestPath = Path.Combine(targetDir, "manifest.json");
+        if (File.Exists(manifestPath)) return;
+
+        var manifest = new ModManifest
+        {
+            Id = modId,
+            Name = dllName,
+            Version = "0.0.0",
+            EntryDll = $"{dllName}.dll"
+        };
+
+        try
+        {
+            var json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(manifestPath, json);
+            _logger.Info($"Install: generated manifest.json for '{modId}'");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Install: failed to generate manifest for '{modId}': {ex.Message}");
+        }
+    }
+
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 
     private static string ToKebabCase(string input)
@@ -370,10 +450,11 @@ public class ModInstallService
 
     public async Task<InstallResult> InstallFromFolderAsync(string sourceFolder)
     {
-        if (_terrariaPath == null)
+        var terrariaPath = GetTerrariaPath();
+        if (terrariaPath == null)
             return new InstallResult { Error = "Terraria path not configured" };
 
-        var modsDir = Path.Combine(_terrariaPath, "TerrariaModder", "mods");
+        var modsDir = Path.Combine(terrariaPath, "TerrariaModder", "mods");
 
         try
         {

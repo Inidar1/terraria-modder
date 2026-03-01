@@ -106,7 +106,7 @@ public class NxmProtocolRegistrar
         var content = $"""
             [Desktop Entry]
             Type=Application
-            Name=TerrariaModder Manager
+            Name=TerrariaModder Vault
             Exec={exePath} %u
             MimeType=x-scheme-handler/nxm;
             NoDisplay=true

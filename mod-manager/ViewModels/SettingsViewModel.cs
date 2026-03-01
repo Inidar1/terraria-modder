@@ -8,6 +8,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using MsBox.Avalonia.Enums;
 using TerrariaModManager.Helpers;
+using TerrariaModManager.Models;
 using TerrariaModManager.Services;
 
 namespace TerrariaModManager.ViewModels;
@@ -28,6 +29,15 @@ public class SettingsViewModel : ViewModelBase
     private string _logText = "";
 
     private NexusSsoService? _ssoService;
+    private readonly SettingsService _settings;
+    private readonly ModInstallService _installer;
+    private readonly ModStateService _modState;
+    private readonly UpdateTracker _updateTracker;
+    private readonly NexusApiService _nexusApi;
+    private readonly TerrariaDetector _detector;
+    private readonly NxmProtocolRegistrar _nxmRegistrar;
+    private readonly Logger _logger;
+    private AppSettings _appSettings = null!;
 
     public string TerrariaPath
     {
@@ -36,9 +46,9 @@ public class SettingsViewModel : ViewModelBase
         {
             if (SetProperty(ref _terrariaPath, value))
             {
-                App.AppSettings.TerrariaPath = value;
-                App.Installer.SetTerrariaPath(value);
-                App.Settings.Save(App.AppSettings);
+                _appSettings.TerrariaPath = value;
+                _installer.SetTerrariaPath(value);
+                _settings.Save(_appSettings);
                 RefreshCoreInfo();
             }
         }
@@ -138,7 +148,7 @@ public class SettingsViewModel : ViewModelBase
         ? new SolidColorBrush(Color.Parse("#FF58EB1C"))
         : new SolidColorBrush(Color.Parse("#FFE05252"));
 
-    public string NxmButtonText => IsNxmRegistered ? "Re-register" : "Register as nxm:// handler";
+    public string NxmButtonText => IsNxmRegistered ? "Re-register Links" : "Register Nexus Links";
     public string NxmStatusText => IsNxmRegistered ? "Registered" : "Not registered";
     public IBrush NxmStatusColor => IsNxmRegistered
         ? new SolidColorBrush(Color.Parse("#FF58EB1C"))
@@ -156,8 +166,25 @@ public class SettingsViewModel : ViewModelBase
     public ICommand CopyLogsCommand { get; }
     public ICommand SaveLogsCommand { get; }
 
-    public SettingsViewModel()
+    public SettingsViewModel(
+        SettingsService settings,
+        ModInstallService installer,
+        ModStateService modState,
+        UpdateTracker updateTracker,
+        NexusApiService nexusApi,
+        TerrariaDetector detector,
+        NxmProtocolRegistrar nxmRegistrar,
+        Logger logger)
     {
+        _settings = settings;
+        _installer = installer;
+        _modState = modState;
+        _updateTracker = updateTracker;
+        _nexusApi = nexusApi;
+        _detector = detector;
+        _nxmRegistrar = nxmRegistrar;
+        _logger = logger;
+
         BrowsePathCommand = new AsyncRelayCommand(BrowsePath);
         AutoDetectCommand = new RelayCommand(AutoDetect);
         LoginWithNexusCommand = new AsyncRelayCommand(LoginWithNexus);
@@ -173,12 +200,13 @@ public class SettingsViewModel : ViewModelBase
 
     public void LoadFromSettings()
     {
-        var s = App.AppSettings;
-        _terrariaPath = s.TerrariaPath ?? "";
-        _apiKey = s.NexusApiKey ?? "";
-        _isPremium = s.IsPremium;
-        _isNxmRegistered = App.NxmRegistrar.IsRegistered();
+        _appSettings = _settings.Load();
+        _terrariaPath = _appSettings.TerrariaPath ?? "";
+        _apiKey = _appSettings.NexusApiKey ?? "";
+        _isPremium = _appSettings.IsPremium;
+        _isNxmRegistered = _nxmRegistrar.IsRegistered();
 
+        // Note: App.EnvApiKey is still static for now as it's a startup artifact
         if (string.IsNullOrWhiteSpace(_apiKey) && !string.IsNullOrWhiteSpace(App.EnvApiKey))
             _apiKey = App.EnvApiKey;
 
@@ -196,14 +224,17 @@ public class SettingsViewModel : ViewModelBase
 
     private async Task ValidateExistingKey()
     {
-        App.NexusApi.SetApiKey(_apiKey);
-        var user = await App.NexusApi.ValidateApiKeyAsync();
+        _nexusApi.SetApiKey(_apiKey);
+        var user = await _nexusApi.ValidateApiKeyAsync();
         if (user != null)
         {
             IsLoggedIn = true;
             UserName = user.Name;
             IsPremium = user.IsPremium;
             LoginStatus = "";
+
+            _appSettings.IsPremium = user.IsPremium;
+            _settings.Save(_appSettings);
         }
         else
         {
@@ -212,7 +243,7 @@ public class SettingsViewModel : ViewModelBase
         }
     }
 
-    private void RefreshCoreInfo()
+    public void RefreshCoreInfo()
     {
         if (string.IsNullOrWhiteSpace(_terrariaPath))
         {
@@ -221,9 +252,12 @@ public class SettingsViewModel : ViewModelBase
             return;
         }
 
-        var info = App.ModState.GetCoreInfo(_terrariaPath);
+        var info = _modState.GetCoreInfo(_terrariaPath);
         IsCoreInstalled = info.IsInstalled;
-        CoreVersion = info.CoreVersion ?? "";
+        // Prefer tracked Nexus version (stamped after download) over DLL version
+        // to avoid format mismatches (e.g. DLL "1.2.0.0" vs Nexus "1.2.0")
+        CoreVersion = _updateTracker.GetTrackedVersion("core")
+                      ?? info.CoreVersion ?? "";
     }
 
     private async Task BrowsePath()
@@ -252,7 +286,7 @@ public class SettingsViewModel : ViewModelBase
 
     private void AutoDetect()
     {
-        var installs = App.Detector.FindAllInstalls();
+        var installs = _detector.FindAllInstalls();
         DetectedInstalls = installs;
 
         if (installs.Count > 0)
@@ -279,9 +313,9 @@ public class SettingsViewModel : ViewModelBase
             Dispatcher.UIThread.InvokeAsync(async () =>
             {
                 ApiKey = apiKey;
-                App.NexusApi.SetApiKey(apiKey);
+                _nexusApi.SetApiKey(apiKey);
 
-                var user = await App.NexusApi.ValidateApiKeyAsync();
+                var user = await _nexusApi.ValidateApiKeyAsync();
                 if (user != null)
                 {
                     IsLoggedIn = true;
@@ -289,9 +323,9 @@ public class SettingsViewModel : ViewModelBase
                     IsPremium = user.IsPremium;
                     LoginStatus = "";
 
-                    App.AppSettings.NexusApiKey = apiKey;
-                    App.AppSettings.IsPremium = user.IsPremium;
-                    App.Settings.Save(App.AppSettings);
+                    _appSettings.NexusApiKey = apiKey;
+                    _appSettings.IsPremium = user.IsPremium;
+                    _settings.Save(_appSettings);
                 }
 
                 IsLoggingIn = false;
@@ -330,10 +364,10 @@ public class SettingsViewModel : ViewModelBase
         IsPremium = false;
         LoginStatus = "";
 
-        App.NexusApi.SetApiKey("");
-        App.AppSettings.NexusApiKey = "";
-        App.AppSettings.IsPremium = false;
-        App.Settings.Save(App.AppSettings);
+        _nexusApi.SetApiKey("");
+        _appSettings.NexusApiKey = "";
+        _appSettings.IsPremium = false;
+        _settings.Save(_appSettings);
     }
 
     private async Task SaveManualKey()
@@ -345,9 +379,9 @@ public class SettingsViewModel : ViewModelBase
         }
 
         LoginStatus = "Validating...";
-        App.NexusApi.SetApiKey(ApiKey);
+        _nexusApi.SetApiKey(ApiKey);
 
-        var user = await App.NexusApi.ValidateApiKeyAsync();
+        var user = await _nexusApi.ValidateApiKeyAsync();
         if (user != null)
         {
             IsLoggedIn = true;
@@ -355,14 +389,14 @@ public class SettingsViewModel : ViewModelBase
             IsPremium = user.IsPremium;
             LoginStatus = "";
 
-            App.AppSettings.NexusApiKey = ApiKey;
-            App.AppSettings.IsPremium = user.IsPremium;
-            App.Settings.Save(App.AppSettings);
+            _appSettings.NexusApiKey = ApiKey;
+            _appSettings.IsPremium = user.IsPremium;
+            _settings.Save(_appSettings);
         }
         else
         {
             LoginStatus = "Invalid API key";
-            App.NexusApi.SetApiKey("");
+            _nexusApi.SetApiKey("");
         }
     }
 
@@ -370,10 +404,10 @@ public class SettingsViewModel : ViewModelBase
     {
         try
         {
-            App.NxmRegistrar.Register();
+            _nxmRegistrar.Register();
             IsNxmRegistered = true;
-            App.AppSettings.NxmRegistered = true;
-            App.Settings.Save(App.AppSettings);
+            _appSettings.NxmRegistered = true;
+            _settings.Save(_appSettings);
         }
         catch (Exception ex)
         {
@@ -385,20 +419,20 @@ public class SettingsViewModel : ViewModelBase
 
     private void UnregisterNxm()
     {
-        App.NxmRegistrar.Unregister();
+        _nxmRegistrar.Unregister();
         IsNxmRegistered = false;
-        App.AppSettings.NxmRegistered = false;
-        App.Settings.Save(App.AppSettings);
+        _appSettings.NxmRegistered = false;
+        _settings.Save(_appSettings);
     }
 
     private void RefreshLogs()
     {
-        LogText = Logger.ReadTail(200);
+        LogText = _logger.ReadTail(200);
     }
 
     private void ClearLogs()
     {
-        Logger.Clear();
+        _logger.Clear();
         LogText = "(log cleared)";
     }
 
@@ -417,7 +451,7 @@ public class SettingsViewModel : ViewModelBase
         var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Save Logs",
-            SuggestedFileName = $"terraria-mod-manager-logs-{DateTime.Now:yyyyMMdd-HHmmss}.txt",
+            SuggestedFileName = $"terraria-modder-vault-logs-{DateTime.Now:yyyyMMdd-HHmmss}.txt",
             FileTypeChoices = new[]
             {
                 new FilePickerFileType("Text Files") { Patterns = new[] { "*.txt" } }

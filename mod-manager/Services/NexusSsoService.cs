@@ -21,7 +21,7 @@ public class NexusSsoService : IDisposable
 {
     private const string SsoWebSocketUrl = "wss://sso.nexusmods.com";
 
-    private const string ApplicationSlug = "terraria-modder-manager";
+    private const string ApplicationSlug = "terraria-modder-vault";
 
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
@@ -32,6 +32,7 @@ public class NexusSsoService : IDisposable
 
     public async Task<string> StartLoginAsync()
     {
+        _connectionToken = null;
         var uuid = Guid.NewGuid().ToString();
 
         _cts = new CancellationTokenSource();

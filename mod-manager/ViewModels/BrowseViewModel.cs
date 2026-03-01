@@ -21,13 +21,23 @@ public class BrowseViewModel : ViewModelBase
     private string _sortBy = "Name";
     private string _searchText = "";
     private List<NexusMod> _allMods = new();
+    private readonly object _allModsLock = new();
+    private Dictionary<int, InstalledMod> _installStateCache = new();
     private bool _isDetailOpen;
     private NexusMod? _detailMod;
     private string _detailDescription = "";
     private bool _isDetailLoading;
     private string _toastMessage = "";
     private bool _isToastVisible;
-    private bool _hideInstalled;
+    private bool _hideInstalled = true;
+    private CancellationTokenSource? _toastCts;
+
+    private readonly NexusApiService _nexusApi;
+    private readonly SettingsService _settings;
+    private readonly ModStateService _modState;
+    private readonly UpdateTracker _updateTracker;
+    private readonly DownloadManager _downloadManager;
+    private readonly Logger _logger;
 
     public ObservableCollection<NexusMod> Mods { get; } = new();
 
@@ -163,15 +173,28 @@ public class BrowseViewModel : ViewModelBase
         set => SetProperty(ref _isToastVisible, value);
     }
 
-    public BrowseViewModel()
+    public BrowseViewModel(
+        NexusApiService nexusApi,
+        SettingsService settings,
+        ModStateService modState,
+        UpdateTracker updateTracker,
+        DownloadManager downloadManager,
+        Logger logger)
     {
+        _nexusApi = nexusApi;
+        _settings = settings;
+        _modState = modState;
+        _updateTracker = updateTracker;
+        _downloadManager = downloadManager;
+        _logger = logger;
+
         DownloadModCommand = new RelayCommand(param => _ = DownloadMod(param as NexusMod));
         OpenNexusPageCommand = new RelayCommand(param =>
         {
             if (param is NexusMod mod)
                 Process.Start(new ProcessStartInfo($"https://www.nexusmods.com/terraria/mods/{mod.ModId}") { UseShellExecute = true });
         });
-        HasApiKey = App.NexusApi.HasApiKey;
+        HasApiKey = _nexusApi.HasApiKey;
 
         LoadAllCommand = new RelayCommand(() => SelectedFeed = "All");
         LoadLatestCommand = new RelayCommand(() => SelectedFeed = "Latest");
@@ -210,7 +233,7 @@ public class BrowseViewModel : ViewModelBase
             IsDetailLoading = true;
             try
             {
-                var full = await App.NexusApi.GetModInfoAsync(mod.ModId);
+                var full = await _nexusApi.GetModInfoAsync(mod.ModId);
                 if (full?.Description != null)
                     mod.Description = full.Description;
             }
@@ -240,18 +263,29 @@ public class BrowseViewModel : ViewModelBase
         result = Regex.Replace(result, @"\[color=([^\]]*)\](.*?)\[/color\]", "<span style=\"color:$1\">$2</span>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         result = Regex.Replace(result, @"\[font=([^\]]*)\](.*?)\[/font\]", "<span style=\"font-family:$1\">$2</span>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-        // Links
-        result = Regex.Replace(result, @"\[url=([^\]]*)\](.*?)\[/url\]", "<a href=\"$1\">$2</a>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        result = Regex.Replace(result, @"\[url\](.*?)\[/url\]", "<a href=\"$1\">$1</a>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        // Links (sanitize javascript: scheme)
+        result = Regex.Replace(result, @"\[url=([^\]]*)\](.*?)\[/url\]", m =>
+        {
+            var href = m.Groups[1].Value;
+            if (href.TrimStart().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
+                return m.Groups[2].Value;
+            return $"<a href=\"{href}\">{m.Groups[2].Value}</a>";
+        }, RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        result = Regex.Replace(result, @"\[url\](.*?)\[/url\]", m =>
+        {
+            var href = m.Groups[1].Value;
+            if (href.TrimStart().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
+                return href;
+            return $"<a href=\"{href}\">{href}</a>";
+        }, RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
         // Images — skip (too heavy for sidebar)
         result = Regex.Replace(result, @"\[img\].*?\[/img\]", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-        // Lists
-        result = Regex.Replace(result, @"\[list\]", "<ul>", RegexOptions.IgnoreCase);
-        result = Regex.Replace(result, @"\[list=1\]", "<ol>", RegexOptions.IgnoreCase);
-        result = Regex.Replace(result, @"\[/list\]", "</ul>", RegexOptions.IgnoreCase);
+        // Lists — process [*] items first, then wrap with correct list tags
         result = Regex.Replace(result, @"\[\*\](.*?)(?=\[\*\]|\[/list\]|$)", "<li>$1</li>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        result = Regex.Replace(result, @"\[list=1\](.*?)\[/list\]", "<ol>$1</ol>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        result = Regex.Replace(result, @"\[list\](.*?)\[/list\]", "<ul>$1</ul>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
         // Quote
         result = Regex.Replace(result, @"\[quote[^\]]*\](.*?)\[/quote\]", "<blockquote>$1</blockquote>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
@@ -281,14 +315,15 @@ public class BrowseViewModel : ViewModelBase
 
     public async Task LoadFeedAsync()
     {
-        HasApiKey = App.NexusApi.HasApiKey;
+        HasApiKey = _nexusApi.HasApiKey;
         if (!HasApiKey) return;
         if (_isLoadingFeed) return;
         _isLoadingFeed = true;
 
         IsLoading = true;
+        RebuildInstallStateCache();
         Mods.Clear();
-        _allMods.Clear();
+        lock (_allModsLock) { _allMods.Clear(); }
 
         try
         {
@@ -300,9 +335,9 @@ public class BrowseViewModel : ViewModelBase
             {
                 var mods = SelectedFeed switch
                 {
-                    "Trending" => await App.NexusApi.GetTrendingAsync(),
-                    "Updated" => await App.NexusApi.GetLatestUpdatedAsync(),
-                    _ => await App.NexusApi.GetLatestAddedAsync()
+                    "Trending" => await _nexusApi.GetTrendingAsync(),
+                    "Updated" => await _nexusApi.GetLatestUpdatedAsync(),
+                    _ => await _nexusApi.GetLatestAddedAsync()
                 };
                 var candidates = (mods ?? new List<NexusMod>()).Where(m => m.Available).ToList();
 
@@ -312,7 +347,7 @@ public class BrowseViewModel : ViewModelBase
                     if (IsTerrariaModder(mod.Name, mod.Summary))
                     {
                         mod.IsTerrariaModder = true;
-                        _allMods.Add(mod);
+                        lock (_allModsLock) { _allMods.Add(mod); }
                     }
                 }
                 ApplySort();
@@ -324,7 +359,7 @@ public class BrowseViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to load feed", ex);
+            _logger.Error("Failed to load feed", ex);
         }
         finally
         {
@@ -337,10 +372,10 @@ public class BrowseViewModel : ViewModelBase
     {
         // Phase 1: Fetch feeds + updated mod IDs in parallel
         var feedTask = Task.WhenAll(
-            App.NexusApi.GetLatestAddedAsync(),
-            App.NexusApi.GetTrendingAsync(),
-            App.NexusApi.GetLatestUpdatedAsync());
-        var updatedTask = App.NexusApi.GetUpdatedModIdsAsync("1m");
+            _nexusApi.GetLatestAddedAsync(),
+            _nexusApi.GetTrendingAsync(),
+            _nexusApi.GetLatestUpdatedAsync());
+        var updatedTask = _nexusApi.GetUpdatedModIdsAsync("1m");
 
         await Task.WhenAll(feedTask, updatedTask);
 
@@ -365,7 +400,7 @@ public class BrowseViewModel : ViewModelBase
             if (IsTerrariaModder(mod.Name, mod.Summary))
             {
                 mod.IsTerrariaModder = true;
-                _allMods.Add(mod);
+                lock (_allModsLock) { _allMods.Add(mod); }
             }
         }
         ApplySort();
@@ -389,12 +424,12 @@ public class BrowseViewModel : ViewModelBase
                 await semaphore.WaitAsync();
                 try
                 {
-                    var mod = await App.NexusApi.GetModInfoAsync(modId);
+                    var mod = await _nexusApi.GetModInfoAsync(modId);
                     if (mod != null && mod.Available &&
                         IsTerrariaModder(mod.Name, mod.Summary ?? mod.Description))
                     {
                         mod.IsTerrariaModder = true;
-                        lock (_allMods) _allMods.Add(mod);
+                        lock (_allModsLock) _allMods.Add(mod);
                     }
                 }
                 catch { }
@@ -415,11 +450,11 @@ public class BrowseViewModel : ViewModelBase
             await semaphore.WaitAsync();
             try
             {
-                var full = await App.NexusApi.GetModInfoAsync(mod.ModId);
+                var full = await _nexusApi.GetModInfoAsync(mod.ModId);
                 if (full?.Description != null && IsTerrariaModder(full.Name, full.Description))
                 {
                     mod.IsTerrariaModder = true;
-                    lock (_allMods) _allMods.Add(mod);
+                    lock (_allModsLock) _allMods.Add(mod);
                 }
             }
             catch { }
@@ -431,7 +466,7 @@ public class BrowseViewModel : ViewModelBase
     private async Task SearchMod()
     {
         if (string.IsNullOrWhiteSpace(SearchText)) return;
-        HasApiKey = App.NexusApi.HasApiKey;
+        HasApiKey = _nexusApi.HasApiKey;
         if (!HasApiKey) return;
 
         int modId = 0;
@@ -454,20 +489,25 @@ public class BrowseViewModel : ViewModelBase
         IsLoading = true;
         try
         {
-            var mod = await App.NexusApi.GetModInfoAsync(modId);
+            var mod = await _nexusApi.GetModInfoAsync(modId);
             if (mod != null && mod.Available)
             {
-                if (!_allMods.Any(m => m.ModId == mod.ModId))
+                bool added;
+                lock (_allModsLock)
                 {
-                    mod.IsTerrariaModder = IsTerrariaModder(mod.Name, mod.Description);
-                    _allMods.Add(mod);
-                    ApplySort();
+                    added = !_allMods.Any(m => m.ModId == mod.ModId);
+                    if (added)
+                    {
+                        mod.IsTerrariaModder = IsTerrariaModder(mod.Name, mod.Description);
+                        _allMods.Add(mod);
+                    }
                 }
+                if (added) ApplySort();
             }
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to search mod", ex);
+            _logger.Error("Failed to search mod", ex);
         }
         finally
         {
@@ -492,15 +532,18 @@ public class BrowseViewModel : ViewModelBase
 
     private void ApplySort()
     {
-        // Update install states on _allMods first so filtering works correctly
-        UpdateInstallStates(_allMods);
+        List<NexusMod> snapshot;
+        lock (_allModsLock) { snapshot = _allMods.ToList(); }
+
+        // Apply cached install states so filtering works correctly
+        ApplyInstallStates(snapshot);
 
         var filter = SearchText?.Trim();
         var isTextFilter = !string.IsNullOrEmpty(filter)
             && !int.TryParse(filter, out _)
             && !filter.Contains("nexusmods.com");
 
-        IEnumerable<NexusMod> source = _allMods;
+        IEnumerable<NexusMod> source = snapshot;
 
         if (isTextFilter)
             source = source.Where(m => m.Name.Contains(filter!, StringComparison.OrdinalIgnoreCase)
@@ -524,28 +567,35 @@ public class BrowseViewModel : ViewModelBase
 
     public void RefreshInstallStates()
     {
-        UpdateInstallStates(Mods);
+        RebuildInstallStateCache();
+        ApplyInstallStates(Mods);
     }
 
-    private static void UpdateInstallStates(IEnumerable<NexusMod> mods)
+    private void RebuildInstallStateCache()
     {
-        var path = App.AppSettings.TerrariaPath;
-        if (string.IsNullOrWhiteSpace(path)) return;
-
-        var installed = App.ModState.ScanInstalledMods(path);
-
-        // Build reverse map: nexus mod ID → installed mod
-        var nexusToInstalled = new Dictionary<int, InstalledMod>();
-        foreach (var mod in installed)
+        var path = _settings.Load().TerrariaPath;
+        if (string.IsNullOrWhiteSpace(path))
         {
-            var nexusId = App.UpdateTracker.GetNexusModId(mod);
-            if (nexusId > 0)
-                nexusToInstalled[nexusId] = mod;
+            _installStateCache = new();
+            return;
         }
 
+        var installed = _modState.ScanInstalledMods(path);
+        var cache = new Dictionary<int, InstalledMod>();
+        foreach (var mod in installed)
+        {
+            var nexusId = _updateTracker.GetNexusModId(mod);
+            if (nexusId > 0)
+                cache[nexusId] = mod;
+        }
+        _installStateCache = cache;
+    }
+
+    private void ApplyInstallStates(IEnumerable<NexusMod> mods)
+    {
         foreach (var mod in mods)
         {
-            if (nexusToInstalled.TryGetValue(mod.ModId, out var localMod))
+            if (_installStateCache.TryGetValue(mod.ModId, out var localMod))
             {
                 mod.IsInstalled = true;
                 mod.InstalledVersion = localMod.Version;
@@ -584,7 +634,7 @@ public class BrowseViewModel : ViewModelBase
             if (answer != ButtonResult.Yes) return;
         }
 
-        var files = await App.NexusApi.GetModFilesAsync(mod.ModId);
+        var files = await _nexusApi.GetModFilesAsync(mod.ModId);
         if (files.Count == 0)
         {
             Process.Start(new ProcessStartInfo($"https://www.nexusmods.com/terraria/mods/{mod.ModId}?tab=files") { UseShellExecute = true });
@@ -594,11 +644,11 @@ public class BrowseViewModel : ViewModelBase
         var mainFile = files.FirstOrDefault(f => f.IsPrimary)
             ?? files.OrderByDescending(f => f.UploadedTimestamp).First();
 
-        if (App.NexusApi.IsPremium)
+        if (_nexusApi.IsPremium)
         {
             var keepSettings = mod.IsInstalled && mod.HasNewerVersion;
             _ = ShowToastAsync($"Downloading {mod.Name}...");
-            await App.Downloads.EnqueueAsync(mod.ModId, mainFile.FileId, forceKeepSettings: keepSettings);
+            await _downloadManager.EnqueueAsync(mod.ModId, mainFile.FileId, forceKeepSettings: keepSettings);
         }
         else
         {
@@ -608,9 +658,14 @@ public class BrowseViewModel : ViewModelBase
 
     private async Task ShowToastAsync(string message, int durationMs = 3000)
     {
+        _toastCts?.Cancel();
+        _toastCts = new CancellationTokenSource();
+        var token = _toastCts.Token;
+
         ToastMessage = message;
         IsToastVisible = true;
-        await Task.Delay(durationMs);
+        try { await Task.Delay(durationMs, token); }
+        catch (OperationCanceledException) { return; }
         IsToastVisible = false;
     }
 
