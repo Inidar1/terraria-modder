@@ -4,7 +4,7 @@ All-in-one debug and remote control suite for TerrariaModder. Provides an HTTP A
 
 ## Features
 
-- **HTTP Debug Server**:REST API on `localhost:7878` exposing game state, input control, menu navigation, and command execution. Used by the MCP bridge (`tools/mcp-server/`) to connect Claude Code to the running game.
+- **HTTP Debug Server**:REST API on `localhost:7878` exposing game state, input control, menu navigation, and command execution. 
 - **In-Game Console**:Toggle with Ctrl+` (tilde). Supports command history (Up/Down), tab completion, scrollable output, and all registered debug commands.
 - **Virtual Input**:Inject movement, actions, key presses, and mouse events into Terraria's input pipeline via trigger injection (Harmony postfix on `PlayerInput.UpdateInput`).
 - **Game State API**:Read player stats, inventory, nearby entities, tile grids, UI state, and world info via HTTP endpoints.
@@ -32,7 +32,7 @@ Config file: `mods/debug-tools/config.json`
 
 ## HTTP API Quick Reference
 
-All endpoints on `http://localhost:7878`. See `CLAUDE.md` or `docs/API.md` for the full endpoint list.
+All endpoints on `http://localhost:7878`. See `docs/API.md` for the full endpoint list.
 
 **Status & Commands:**
 - `GET /api/status`:Server uptime
