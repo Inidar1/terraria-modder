@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using TerrariaModder.Core.Logging;
 using StorageHub.Storage;
 using StorageHub.Config;
+using StorageHub.Relay;
 
 namespace StorageHub.Crafting
 {
@@ -21,6 +22,7 @@ namespace StorageHub.Crafting
         private readonly IStorageProvider _storage;
         private readonly StorageHubConfig _config;
         private readonly StationDetector _stationDetector;
+        private readonly RangeCalculator _rangeCalc;
 
         // Cached material counts for performance
         private Dictionary<int, int> _materialCounts = new Dictionary<int, int>();
@@ -56,12 +58,13 @@ namespace StorageHub.Crafting
             }
         }
 
-        public CraftabilityChecker(ILogger log, RecipeIndex recipeIndex, IStorageProvider storage, StorageHubConfig config)
+        public CraftabilityChecker(ILogger log, RecipeIndex recipeIndex, IStorageProvider storage, StorageHubConfig config, RangeCalculator rangeCalc)
         {
             _log = log;
             _recipeIndex = recipeIndex;
             _storage = storage;
             _config = config;
+            _rangeCalc = rangeCalc;
             _stationDetector = new StationDetector(log, config);
         }
 
@@ -83,7 +86,9 @@ namespace StorageHub.Crafting
         {
             _materialCounts.Clear();
 
-            var items = _storage.GetAllItems();
+            var items = _rangeCalc != null
+                ? _rangeCalc.FilterItemsByRange(_storage.GetAllItems())
+                : _storage.GetAllItems();
             foreach (var item in items)
             {
                 if (item.IsEmpty) continue;

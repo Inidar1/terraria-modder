@@ -12,30 +12,58 @@ public class DownloadManager : IDisposable
     private readonly HttpClient _http = new();
     private readonly NexusApiService _nexusApi;
     private readonly ModInstallService _installer;
+    private readonly UpdateTracker _updateTracker;
+    private readonly Logger _logger;
     private readonly string _downloadDir;
+    private readonly HashSet<(int modId, int fileId)> _activeDownloads = new();
 
     public ObservableCollection<DownloadItem> Downloads { get; } = new();
 
     public event Action<DownloadItem>? DownloadCompleted;
     public event Action<DownloadItem, string>? DownloadFailed;
 
-    public DownloadManager(NexusApiService nexusApi, ModInstallService installer)
+    public DownloadManager(
+        NexusApiService nexusApi, 
+        ModInstallService installer, 
+        SettingsService settings,
+        UpdateTracker updateTracker,
+        Logger logger)
     {
         _nexusApi = nexusApi;
         _installer = installer;
-        _downloadDir = SettingsService.DownloadsDir;
+        _updateTracker = updateTracker;
+        _logger = logger;
+        _downloadDir = settings.DownloadsDir;
         Directory.CreateDirectory(_downloadDir);
 
         try
         {
+            // Cleanup old downloads (> 24 hours)
             foreach (var file in Directory.GetFiles(_downloadDir))
-                try { File.Delete(file); } catch { }
+            {
+                try 
+                { 
+                    if (File.GetCreationTimeUtc(file) < DateTime.UtcNow.AddHours(-24))
+                        File.Delete(file); 
+                } 
+                catch { }
+            }
         }
         catch { }
     }
 
     public async Task EnqueueAsync(int modId, int fileId, string? key = null, long? expires = null, bool forceKeepSettings = false)
     {
+        var downloadKey = (modId, fileId);
+        lock (_activeDownloads)
+        {
+            if (!_activeDownloads.Add(downloadKey))
+            {
+                _logger.Info($"Download {modId}/{fileId}: already in progress, skipping duplicate");
+                return;
+            }
+        }
+
         var item = new DownloadItem
         {
             ModId = modId,
@@ -46,6 +74,7 @@ public class DownloadManager : IDisposable
 
         await SafeDispatch(() => Downloads.Insert(0, item));
 
+        string? filePath = null;
         try
         {
             var modInfo = await _nexusApi.GetModInfoAsync(modId);
@@ -56,7 +85,11 @@ public class DownloadManager : IDisposable
             var links = await _nexusApi.GetDownloadLinksAsync(modId, fileId, key, expires);
             if (links.Count == 0)
             {
-                await SafeDispatch(() => item.Status = "Failed: No download links");
+                await SafeDispatch(() => {
+                    item.Status = "Failed";
+                    item.ErrorMessage = "No download links returned from Nexus API";
+                    item.HasError = true;
+                });
                 DownloadFailed?.Invoke(item, "No download links returned from Nexus API");
                 return;
             }
@@ -68,13 +101,13 @@ public class DownloadManager : IDisposable
             var fileName = fileInfo?.FileName ?? $"mod_{modId}_{fileId}.zip";
 
             await SafeDispatch(() => item.Status = "Downloading...");
-            var filePath = Path.Combine(_downloadDir, $"{Guid.NewGuid():N}_{fileName}");
+            filePath = Path.Combine(_downloadDir, $"{Guid.NewGuid():N}_{fileName}");
 
             using var response = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
 
             var contentType = response.Content.Headers.ContentType?.MediaType ?? "unknown";
-            Logger.Info($"Download {modId}/{fileId}: content-type={contentType}, url={downloadUrl}");
+            _logger.Info($"Download {modId}/{fileId}: content-type={contentType}, url={downloadUrl}");
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1;
             await SafeDispatch(() => item.TotalBytes = totalBytes);
@@ -93,7 +126,6 @@ public class DownloadManager : IDisposable
                     await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
                     downloaded += bytesRead;
 
-                    // Throttle UI updates to every 100ms to avoid flooding the dispatcher
                     if ((DateTime.UtcNow - lastProgressUpdate).TotalMilliseconds >= 100)
                     {
                         var dl = downloaded;
@@ -107,7 +139,6 @@ public class DownloadManager : IDisposable
                     }
                 }
 
-                // Final progress update
                 {
                     var dl = downloaded;
                     await SafeDispatch(() =>
@@ -123,8 +154,11 @@ public class DownloadManager : IDisposable
             if (fileLen < 10)
             {
                 try { File.Delete(filePath); } catch { }
-                await SafeDispatch(() =>
-                    item.Status = "Failed: Downloaded file is empty or corrupt");
+                await SafeDispatch(() => {
+                    item.Status = "Failed";
+                    item.ErrorMessage = "Downloaded file is empty or corrupt";
+                    item.HasError = true;
+                });
                 DownloadFailed?.Invoke(item, "Downloaded file is empty or corrupt");
                 return;
             }
@@ -139,34 +173,37 @@ public class DownloadManager : IDisposable
                 peekStr.Contains("<!doctype html", StringComparison.OrdinalIgnoreCase))
             {
                 try { File.Delete(filePath); } catch { }
-                await SafeDispatch(() =>
-                    item.Status = "Failed: Nexus returned an error page instead of the file");
+                await SafeDispatch(() => {
+                    item.Status = "Failed";
+                    item.ErrorMessage = "Server returned an HTML error page instead of the archive";
+                    item.HasError = true;
+                });
                 DownloadFailed?.Invoke(item, "Server returned an HTML error page instead of the archive");
                 return;
             }
 
             await SafeDispatch(() => item.Status = "Installing...");
-            Logger.Info($"Download {modId}/{fileId}: file downloaded ({new FileInfo(filePath).Length} bytes), starting install");
+            _logger.Info($"Download {modId}/{fileId}: file downloaded ({new FileInfo(filePath).Length} bytes), starting install");
             var result = await _installer.InstallModAsync(filePath, forceKeepSettings);
 
             if (result.Success)
             {
-                Logger.Info($"Download {modId}/{fileId}: install succeeded, mod-id='{result.InstalledModId}'");
+                _logger.Info($"Download {modId}/{fileId}: install succeeded, mod-id='{result.InstalledModId}'");
                 if (result.InstalledModId != null)
                 {
-                    App.UpdateTracker.RecordInstall(result.InstalledModId, modId);
-
-                    // Stamp Nexus file version into manifest so update checker
-                    // sees the actual Nexus version (e.g. "1.1.1-hotfix") instead of
-                    // whatever the manifest inside the zip said (e.g. "1.1.1")
+                    _updateTracker.RecordInstall(result.InstalledModId, modId);
                     var nexusVersion = fileInfo?.Version;
                     if (!string.IsNullOrWhiteSpace(nexusVersion))
+                    {
                         _installer.StampManifestVersion(result.InstalledModId, nexusVersion);
+                        _updateTracker.RecordVersion(result.InstalledModId, nexusVersion);
+                    }
                 }
 
                 await SafeDispatch(() =>
                 {
                     item.Status = "Installed";
+                    item.IsInstalled = true;
                     item.Progress = 100;
                 });
                 DownloadCompleted?.Invoke(item);
@@ -195,12 +232,15 @@ public class DownloadManager : IDisposable
                 }
 
                 var statusMsg = result.Error ?? "Unknown error";
-                Logger.Error($"Download {modId}/{fileId}: install failed — {statusMsg}");
-                if (savedPath != null)
-                    statusMsg += $" — saved to {Path.GetFileName(savedPath)}";
-
-                await SafeDispatch(() =>
-                    item.Status = $"Install failed: {statusMsg}");
+                _logger.Error($"Download {modId}/{fileId}: install failed — {statusMsg}");
+                
+                await SafeDispatch(() => {
+                    item.Status = "Install Failed";
+                    item.ErrorMessage = statusMsg;
+                    if (savedPath != null)
+                        item.ErrorMessage += $" (Saved to {Path.GetFileName(savedPath)})";
+                    item.HasError = true;
+                });
 
                 if (savedPath != null)
                 {
@@ -219,9 +259,17 @@ public class DownloadManager : IDisposable
         }
         catch (Exception ex)
         {
-            await SafeDispatch(() =>
-                item.Status = $"Error: {ex.Message}");
+            try { if (filePath != null && File.Exists(filePath)) File.Delete(filePath); } catch { }
+            await SafeDispatch(() => {
+                item.Status = "Error";
+                item.ErrorMessage = ex.Message;
+                item.HasError = true;
+            });
             DownloadFailed?.Invoke(item, ex.Message);
+        }
+        finally
+        {
+            lock (_activeDownloads) { _activeDownloads.Remove(downloadKey); }
         }
     }
 

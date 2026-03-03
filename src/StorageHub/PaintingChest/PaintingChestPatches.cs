@@ -47,13 +47,12 @@ namespace StorageHub.PaintingChest
             _log = logger;
             _harmony = new Harmony("com.terrariamodder.storagehub.paintingchest");
 
-            var terrariaAsm = Assembly.Load("Terraria");
-            _mainType = terrariaAsm.GetType("Terraria.Main");
-            _playerType = terrariaAsm.GetType("Terraria.Player");
-            _chestType = terrariaAsm.GetType("Terraria.Chest");
-            _worldGenType = terrariaAsm.GetType("Terraria.WorldGen");
-            _tileObjectType = terrariaAsm.GetType("Terraria.TileObject");
-            _chestUIType = terrariaAsm.GetType("Terraria.UI.ChestUI");
+            _mainType = typeof(Terraria.Main);
+            _playerType = typeof(Terraria.Player);
+            _chestType = typeof(Terraria.Chest);
+            _worldGenType = typeof(Terraria.WorldGen);
+            _tileObjectType = typeof(Terraria.TileObject);
+            _chestUIType = typeof(Terraria.UI.ChestUI);
 
             CacheReflection();
             SetTileContainer();

@@ -1,5 +1,5 @@
 using System;
-using System.Reflection;
+using Terraria;
 using TerrariaModder.Core.Logging;
 using StorageHub.Storage;
 using StorageHub.Utils;
@@ -25,6 +25,7 @@ namespace StorageHub.Patches
         private readonly ILogger _log;
         private readonly ChestRegistry _registry;
 
+<<<<<<< HEAD
         // Reflection cache
         private static Type _mainType;
         private static Type _chestType;
@@ -44,6 +45,10 @@ namespace StorageHub.Patches
         private bool _initialized = false;
         private bool _dedicatedBlocksOnly;
         private int _requiredTileType = -1;
+=======
+        // State tracking
+        private int _lastChestIndex = -1;
+>>>>>>> inidar-main
 
         public ChestOpenDetector(ILogger log, ChestRegistry registry)
         {
@@ -53,6 +58,7 @@ namespace StorageHub.Patches
 
         public void Initialize()
         {
+<<<<<<< HEAD
             try
             {
                 _mainType = Type.GetType("Terraria.Main, Terraria")
@@ -108,6 +114,9 @@ namespace StorageHub.Patches
             {
                 _log.Error($"ChestOpenDetector init failed: {ex.Message}");
             }
+=======
+            _log.Debug("ChestOpenDetector initialized");
+>>>>>>> inidar-main
         }
 
         /// <summary>
@@ -116,7 +125,6 @@ namespace StorageHub.Patches
         /// </summary>
         public void Update()
         {
-            if (!_initialized) return;
 
             try
             {
@@ -143,27 +151,7 @@ namespace StorageHub.Patches
         {
             try
             {
-                if (_myPlayerField == null || _playerArrayField == null || _playerChestField == null)
-                    return -1;
-
-                var myPlayerVal = _myPlayerField.GetValue(null);
-                if (myPlayerVal == null) return -1;
-
-                int myPlayer = (int)myPlayerVal;
-                var players = _playerArrayField.GetValue(null) as Array;
-                if (players == null) return -1;
-
-                // Bounds check before array access
-                if (myPlayer < 0 || myPlayer >= players.Length)
-                    return -1;
-
-                var player = players.GetValue(myPlayer);
-                if (player == null) return -1;
-
-                var chestVal = _playerChestField.GetValue(player);
-                if (chestVal == null) return -1;
-
-                return (int)chestVal;
+                return Main.player[Main.myPlayer].chest;
             }
             catch
             {
@@ -175,22 +163,15 @@ namespace StorageHub.Patches
         {
             try
             {
-                if (_chestArrayField == null || _chestXField == null || _chestYField == null)
-                    return;
-
-                var chests = _chestArrayField.GetValue(null) as Array;
+                var chests = Main.chest;
                 if (chests == null || chestIndex < 0 || chestIndex >= chests.Length)
                     return;
 
-                var chest = chests.GetValue(chestIndex);
+                var chest = chests[chestIndex];
                 if (chest == null) return;
 
-                var xVal = _chestXField.GetValue(chest);
-                var yVal = _chestYField.GetValue(chest);
-                if (xVal == null || yVal == null) return;
-
-                int x = (int)xVal;
-                int y = (int)yVal;
+                int x = chest.x;
+                int y = chest.y;
 
                 // Check if it's a valid chest position
                 if (x < 0 || y < 0) return;

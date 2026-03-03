@@ -1,7 +1,7 @@
 using System;
 using System.IO;
-using System.Reflection;
 using System.Text;
+using Terraria;
 using TerrariaModder.Core.Logging;
 
 namespace StorageHub.Debug
@@ -26,24 +26,6 @@ namespace StorageHub.Debug
         private int _errorCount = 0;
         private int _warningCount = 0;
 
-        // Reflection cache
-        private static Type _mainType;
-        private static Type _itemType;
-        private static Type _chestType;
-        private static Type _playerType;
-        private static FieldInfo _chestArrayField;
-        private static FieldInfo _playerArrayField;
-        private static FieldInfo _myPlayerField;
-        private static FieldInfo _playerInventoryField;
-        private static FieldInfo _chestItemField;
-        private static FieldInfo _chestXField;
-        private static FieldInfo _chestYField;
-        private static FieldInfo _itemTypeField;
-        private static FieldInfo _itemStackField;
-        private static PropertyInfo _itemNameProp;
-        private static FieldInfo _mouseItemField;
-        private static bool _initialized = false;
-
         public DebugDumper(ILogger log, string modFolder)
         {
             _log = log;
@@ -55,11 +37,6 @@ namespace StorageHub.Debug
                 Directory.CreateDirectory(debugFolder);
 
             _logPath = Path.Combine(debugFolder, "session.log");
-
-            if (!_initialized)
-            {
-                InitReflection();
-            }
 
             // Start fresh session log
             _sessionLog.Clear();
@@ -73,55 +50,7 @@ namespace StorageHub.Debug
             WriteToFile();
         }
 
-        private void InitReflection()
-        {
-            try
-            {
-                _mainType = Type.GetType("Terraria.Main, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Main");
-                _itemType = Type.GetType("Terraria.Item, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Item");
-                _chestType = Type.GetType("Terraria.Chest, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Chest");
-                _playerType = Type.GetType("Terraria.Player, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Player");
-
-                if (_mainType != null)
-                {
-                    _chestArrayField = _mainType.GetField("chest", BindingFlags.Public | BindingFlags.Static);
-                    _playerArrayField = _mainType.GetField("player", BindingFlags.Public | BindingFlags.Static);
-                    _myPlayerField = _mainType.GetField("myPlayer", BindingFlags.Public | BindingFlags.Static);
-                    _mouseItemField = _mainType.GetField("mouseItem", BindingFlags.Public | BindingFlags.Static);
-                }
-
-                if (_chestType != null)
-                {
-                    _chestItemField = _chestType.GetField("item", BindingFlags.Public | BindingFlags.Instance);
-                    _chestXField = _chestType.GetField("x", BindingFlags.Public | BindingFlags.Instance);
-                    _chestYField = _chestType.GetField("y", BindingFlags.Public | BindingFlags.Instance);
-                }
-
-                if (_itemType != null)
-                {
-                    _itemTypeField = _itemType.GetField("type", BindingFlags.Public | BindingFlags.Instance);
-                    _itemStackField = _itemType.GetField("stack", BindingFlags.Public | BindingFlags.Instance);
-                    _itemNameProp = _itemType.GetProperty("Name", BindingFlags.Public | BindingFlags.Instance);
-                }
-
-                if (_playerType != null)
-                {
-                    _playerInventoryField = _playerType.GetField("inventory", BindingFlags.Public | BindingFlags.Instance);
-                }
-
-                _initialized = true;
-            }
-            catch (Exception ex)
-            {
-                _log.Error($"DebugDumper init failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
+/// <summary>
         /// Log an event (no state dump, just a timestamped message).
         /// </summary>
         public void LogEvent(string message)
@@ -255,18 +184,9 @@ namespace StorageHub.Debug
         {
             try
             {
-                var mouseItem = _mouseItemField?.GetValue(null);
-                if (mouseItem == null) return null;
-
-                var typeVal = _itemTypeField?.GetValue(mouseItem);
-                int type = typeVal != null ? (int)typeVal : 0;
-                if (type == 0) return null;
-
-                var stackVal = _itemStackField?.GetValue(mouseItem);
-                int stack = stackVal != null ? (int)stackVal : 0;
-                var name = _itemNameProp?.GetValue(mouseItem)?.ToString() ?? "Unknown";
-
-                return $"{stack}x {name} (ID:{type})";
+                var mouseItem = Main.mouseItem;
+                if (mouseItem == null || mouseItem.type == 0) return null;
+                return $"{mouseItem.stack}x {mouseItem.Name} (ID:{mouseItem.type})";
             }
             catch
             {
@@ -278,31 +198,23 @@ namespace StorageHub.Debug
         {
             try
             {
-                var chests = _chestArrayField?.GetValue(null) as Array;
+                var chests = Main.chest;
                 if (chests == null || chestIndex < 0 || chestIndex >= chests.Length)
                     return "(invalid)";
 
-                var chest = chests.GetValue(chestIndex);
+                var chest = chests[chestIndex];
                 if (chest == null) return "(null)";
 
-                var x = _chestXField?.GetValue(chest);
-                var y = _chestYField?.GetValue(chest);
-
-                var items = _chestItemField?.GetValue(chest) as Array;
                 int itemCount = 0;
-                if (items != null)
+                if (chest.item != null)
                 {
-                    for (int i = 0; i < items.Length; i++)
+                    foreach (var item in chest.item)
                     {
-                        var item = items.GetValue(i);
-                        if (item == null) continue;
-                        var typeVal = _itemTypeField?.GetValue(item);
-                        int type = typeVal != null ? (int)typeVal : 0;
-                        if (type > 0) itemCount++;
+                        if (item != null && item.type > 0) itemCount++;
                     }
                 }
 
-                return $"pos=({x},{y}), items={itemCount}/40";
+                return $"pos=({chest.x},{chest.y}), items={itemCount}/40";
             }
             catch
             {

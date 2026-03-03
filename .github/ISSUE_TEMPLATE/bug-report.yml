@@ -1,0 +1,68 @@
+name: Bug Report
+description: Something isn't working right
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: mod
+    attributes:
+      label: Which mod?
+      options:
+        - Core / Framework
+        - AdminPanel
+        - AutoBuffs
+        - DebugTools
+        - FpsUnlocked
+        - ItemSpawner
+        - PetChests
+        - QuickKeys
+        - SeedLab
+        - SkipIntro
+        - StorageHub
+        - WhipStacking
+        - Other / Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: TerrariaModder version
+      description: Check the mod menu (F6) or core logs for the version number
+      placeholder: "e.g. 0.1.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug clearly
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can someone else trigger this bug?
+      placeholder: |
+        1. Open the game
+        2. Press F5 to open StorageHub
+        3. Click on the crafting tab
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: Paste relevant lines from `Terraria/TerrariaModder/core/logs/terrariamodder.log`
+      render: shell

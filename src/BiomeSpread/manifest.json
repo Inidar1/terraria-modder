@@ -1,0 +1,23 @@
+{
+  "id": "biome-spread",
+  "name": "Biome Spread Control",
+  "version": "1.0.0",
+  "framework_version": ">=0.2.0",
+  "author": "Inidar",
+  "description": "Toggle evil biome spread (corruption, crimson, hallow) on or off. Crystal shards and chlorophyte are unaffected.",
+  "entry_dll": "BiomeSpread.dll",
+  "config_schema": {
+    "enabled": {
+      "type": "bool",
+      "default": true,
+      "label": "Enabled",
+      "description": "Enable or disable this mod."
+    },
+    "disableSpread": {
+      "type": "bool",
+      "default": true,
+      "label": "Disable Evil Spread",
+      "description": "When enabled, prevents corruption, crimson, and hallow from spreading to new tiles. Crystal shards and chlorophyte are unaffected."
+    }
+  }
+}

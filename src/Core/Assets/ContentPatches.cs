@@ -4,7 +4,6 @@ using System.Reflection;
 using HarmonyLib;
 using Terraria;
 using TerrariaModder.Core.Logging;
-using TerrariaModder.Core.Reflection;
 
 namespace TerrariaModder.Core.Assets
 {
@@ -183,15 +182,8 @@ namespace TerrariaModder.Core.Assets
                     // Get entity source for NPC loot
                     object source = GetNpcLootSource(npc);
 
-                    // Use reflection for position (Vector2 is XNA type)
-                    var posObj = GameAccessor.TryGetField<object>(npc, "position");
-                    int x = 0, y = 0;
-                    if (posObj != null)
-                    {
-                        var pos = Vec2.FromXna(posObj);
-                        x = (int)pos.X;
-                        y = (int)pos.Y;
-                    }
+                    int x = (int)npc.position.X;
+                    int y = (int)npc.position.Y;
                     int w = npc.width;
                     int h = npc.height;
 

@@ -28,17 +28,20 @@ public class InstalledMod
     public bool IsFirstDisabled { get; set; }
 
     // Computed for Avalonia UI (replaces WPF DataTrigger)
-    public string StatusText => HasUpdate ? "Update Available"
+    private static readonly IBrush CoreBrush = new SolidColorBrush(Color.Parse("#FF6CB4EE"));
+    private static readonly IBrush UpdateBrush = new SolidColorBrush(Color.Parse("#FFE8B93C"));
+    private static readonly IBrush EnabledBrush = new SolidColorBrush(Color.Parse("#FF58EB1C"));
+    private static readonly IBrush DisabledBrush = new SolidColorBrush(Color.Parse("#FF7C828D"));
+    private static readonly IBrush DefaultTextBrush = new SolidColorBrush(Color.Parse("#FFE2E4E8"));
+
+    public string StatusText => IsCore ? "Core"
+        : HasUpdate ? "Update Available"
         : IsEnabled ? "Enabled" : "Disabled";
-    public IBrush StatusColor => HasUpdate
-        ? new SolidColorBrush(Color.Parse("#FFE8B93C"))
-        : IsEnabled
-            ? new SolidColorBrush(Color.Parse("#FF58EB1C"))
-            : new SolidColorBrush(Color.Parse("#FF7C828D"));
-    public IBrush VersionColor => HasUpdate
-        ? new SolidColorBrush(Color.Parse("#FFE8B93C"))
-        : new SolidColorBrush(Color.Parse("#FF58EB1C"));
-    public IBrush NameColor => HasUpdate
-        ? new SolidColorBrush(Color.Parse("#FFE8B93C"))
-        : new SolidColorBrush(Color.Parse("#FFE2E4E8"));
+    public IBrush StatusColor => IsCore ? CoreBrush
+        : HasUpdate ? UpdateBrush
+        : IsEnabled ? EnabledBrush : DisabledBrush;
+    public IBrush VersionColor => IsCore ? CoreBrush
+        : HasUpdate ? UpdateBrush : EnabledBrush;
+    public IBrush NameColor => IsCore ? CoreBrush
+        : HasUpdate ? UpdateBrush : DefaultTextBrush;
 }

@@ -338,16 +338,19 @@ namespace TerrariaModder.Core.Input
 
             if (!_enabled) return;
 
-            // Don't process keybinds when typing
-            if (InputState.ShouldBlockInput()) return;
-
             // Update input state first
             InputState.Update();
+
+            bool blocked = InputState.ShouldBlockInput();
+            bool menuOnly = blocked && Game.InMenu;
 
             // Check all keybinds (snapshot to avoid InvalidOperationException if a callback modifies the list)
             var snapshot = _keybinds.ToArray();
             foreach (var keybind in snapshot)
             {
+                // Skip blocked keybinds, but allow AllowInMenu keybinds on the menu screen
+                if (blocked && !(menuOnly && keybind.AllowInMenu))
+                    continue;
                 keybind.CheckAndFire();
             }
         }

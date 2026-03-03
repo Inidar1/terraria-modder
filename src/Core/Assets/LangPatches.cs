@@ -25,7 +25,6 @@ namespace TerrariaModder.Core.Assets
         private static Array _nameCache;
         private static Array _tooltipCache;
         private static bool _nameTraceLogged;
-        private static bool _tooltipTraceLogged;
 
         public static void Initialize(ILogger logger)
         {

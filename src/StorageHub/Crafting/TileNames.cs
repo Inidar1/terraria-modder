@@ -10,7 +10,7 @@ namespace StorageHub.Crafting
     {
         private static readonly Dictionary<int, string> Names = new Dictionary<int, string>
         {
-            // All crafting station tiles (matches StationDetector.CraftingStationTiles)
+            // All crafting station tiles (matches CraftingStations.AllTileIds)
             { 13, "Bottle" },
             { 16, "Iron/Lead Anvil" },
             { 17, "Furnace" },

@@ -3,6 +3,9 @@ build/
 bin/
 obj/
 
+# Local Terraria link (created by setup.bat)
+Terraria/
+
 # IDE
 .vs/
 *.user

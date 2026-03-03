@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using Terraria;
 using TerrariaModder.Core.Events;
 using TerrariaModder.Core.Input;
@@ -26,18 +25,6 @@ namespace TerrariaModder.Core.Assets
         private static bool _confirmDeleteAll;
         private static int _confirmTimer; // Frames remaining for confirmation
 
-        // Reflection cache (shared with ItemSpawner patterns)
-        private static FieldInfo _mouseItemField;
-        private static FieldInfo _itemTypeField;
-        private static FieldInfo _itemStackField;
-        private static FieldInfo _itemMaxStackField;
-        private static FieldInfo _myPlayerField;
-        private static FieldInfo _playerArrayField;
-        private static Type _playerType;
-        private static Type _itemType;
-        private static MethodInfo _itemSetDefaultsIntMethod;
-        private static FieldInfo _playerInventoryField;
-
         // UI constants
         private const int PanelWidth = 440;
         private const int HeaderHeight = 35;
@@ -60,7 +47,6 @@ namespace TerrariaModder.Core.Assets
         {
             if (_initialized) return;
             _log = logger;
-            InitReflection();
             FrameEvents.OnUIOverlay += OnDraw;
             GameEvents.OnWorldLoad += OnWorldLoad;
             GameEvents.OnWorldUnload += OnWorldUnload;
@@ -113,35 +99,6 @@ namespace TerrariaModder.Core.Assets
             int listItems = Math.Min(itemCount, MaxVisibleItems);
             // Header + info text + item list + button bar
             return HeaderHeight + 30 + (listItems * ItemHeight) + ButtonBarHeight + 15;
-        }
-
-        private static void InitReflection()
-        {
-            try
-            {
-                var mainType = typeof(Main);
-                _itemType = typeof(Item);
-                _playerType = typeof(Player);
-
-                _mouseItemField = mainType.GetField("mouseItem", BindingFlags.Public | BindingFlags.Static);
-                _myPlayerField = mainType.GetField("myPlayer", BindingFlags.Public | BindingFlags.Static);
-                _playerArrayField = mainType.GetField("player", BindingFlags.Public | BindingFlags.Static);
-
-                _itemTypeField = _itemType.GetField("type", BindingFlags.Public | BindingFlags.Instance);
-                _itemStackField = _itemType.GetField("stack", BindingFlags.Public | BindingFlags.Instance);
-                _itemMaxStackField = _itemType.GetField("maxStack", BindingFlags.Public | BindingFlags.Instance);
-
-                _itemSetDefaultsIntMethod = _itemType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                    .FirstOrDefault(m => m.Name == "SetDefaults" &&
-                        m.GetParameters().Length >= 1 &&
-                        m.GetParameters()[0].ParameterType == typeof(int));
-
-                _playerInventoryField = _playerType.GetField("inventory", BindingFlags.Public | BindingFlags.Instance);
-            }
-            catch (Exception ex)
-            {
-                _log?.Error($"[PendingItemsUI] Reflection init error: {ex.Message}");
-            }
         }
 
         private static void OnDraw()
@@ -404,10 +361,8 @@ namespace TerrariaModder.Core.Assets
         {
             try
             {
-                if (_mouseItemField == null || _itemTypeField == null) return;
-
-                var mouseItem = _mouseItemField.GetValue(null);
-                int currentType = mouseItem != null ? (int)_itemTypeField.GetValue(mouseItem) : 0;
+                var mouseItem = Main.mouseItem;
+                int currentType = mouseItem?.type ?? 0;
 
                 if (currentType == 0)
                 {
@@ -415,20 +370,20 @@ namespace TerrariaModder.Core.Assets
                     var newItem = CreateItem(entry.Item.RuntimeType, entry.Item.Stack, entry.Item.Prefix, entry.Item.Favorited);
                     if (newItem != null)
                     {
-                        _mouseItemField.SetValue(null, newItem);
+                        Main.mouseItem = newItem;
                         RemoveEntry(entry);
                     }
                 }
                 else if (currentType == entry.Item.RuntimeType)
                 {
                     // Same type — try to stack
-                    int currentStack = (int)_itemStackField.GetValue(mouseItem);
-                    int maxStack = (int)_itemMaxStackField.GetValue(mouseItem);
+                    int currentStack = mouseItem.stack;
+                    int maxStack = mouseItem.maxStack;
                     int canAdd = maxStack - currentStack;
                     if (canAdd > 0)
                     {
                         int toAdd = Math.Min(entry.Item.Stack, canAdd);
-                        _itemStackField.SetValue(mouseItem, currentStack + toAdd);
+                        mouseItem.stack = currentStack + toAdd;
                         if (toAdd >= entry.Item.Stack)
                         {
                             RemoveEntry(entry);
@@ -455,12 +410,8 @@ namespace TerrariaModder.Core.Assets
         {
             try
             {
-                if (_myPlayerField == null || _playerArrayField == null || _playerInventoryField == null) return;
-
-                int myPlayer = (int)_myPlayerField.GetValue(null);
-                var players = (Array)_playerArrayField.GetValue(null);
-                var player = players.GetValue(myPlayer);
-                var inventory = (Item[])_playerInventoryField.GetValue(player);
+                var player = Main.player[Main.myPlayer];
+                var inventory = player.inventory;
 
                 // Find empty slot in main inventory (0-49)
                 for (int i = 0; i < 50 && i < inventory.Length; i++)
@@ -470,7 +421,7 @@ namespace TerrariaModder.Core.Assets
                         var newItem = CreateItem(entry.Item.RuntimeType, entry.Item.Stack, entry.Item.Prefix, entry.Item.Favorited);
                         if (newItem != null)
                         {
-                            inventory[i] = (Item)newItem;
+                            inventory[i] = newItem;
                             RemoveEntry(entry);
                         }
                         return;
@@ -491,17 +442,13 @@ namespace TerrariaModder.Core.Assets
             var allItems = GetAllItems();
             int withdrawn = 0;
 
+            var player = Main.player[Main.myPlayer];
+            var inventory = player.inventory;
+
             foreach (var entry in allItems.ToList())
             {
                 try
                 {
-                    if (_myPlayerField == null || _playerArrayField == null || _playerInventoryField == null) break;
-
-                    int myPlayer = (int)_myPlayerField.GetValue(null);
-                    var players = (Array)_playerArrayField.GetValue(null);
-                    var player = players.GetValue(myPlayer);
-                    var inventory = (Item[])_playerInventoryField.GetValue(player);
-
                     bool placed = false;
                     for (int i = 0; i < 50 && i < inventory.Length; i++)
                     {
@@ -510,7 +457,7 @@ namespace TerrariaModder.Core.Assets
                             var newItem = CreateItem(entry.Item.RuntimeType, entry.Item.Stack, entry.Item.Prefix, entry.Item.Favorited);
                             if (newItem != null)
                             {
-                                inventory[i] = (Item)newItem;
+                                inventory[i] = newItem;
                                 RemoveEntry(entry);
                                 withdrawn++;
                                 placed = true;
@@ -550,28 +497,18 @@ namespace TerrariaModder.Core.Assets
 
         // ── Helpers ──
 
-        private static object CreateItem(int runtimeType, int stack, int prefix, bool favorited = false)
+        private static Item CreateItem(int runtimeType, int stack, int prefix, bool favorited = false)
         {
-            if (_itemSetDefaultsIntMethod == null || _itemType == null) return null;
-
-            var item = Activator.CreateInstance(_itemType);
-            var parms = _itemSetDefaultsIntMethod.GetParameters();
-            object[] args = parms.Length >= 2 ? new object[] { runtimeType, null } : new object[] { runtimeType };
-            _itemSetDefaultsIntMethod.Invoke(item, args);
-            _itemStackField?.SetValue(item, stack);
+            var item = new Item();
+            item.SetDefaults(runtimeType);
+            item.stack = stack;
             if (prefix > 0)
             {
-                var prefixField = _itemType.GetField("prefix", BindingFlags.Public | BindingFlags.Instance);
-                prefixField?.SetValue(item, (byte)prefix);
-                var prefixMethod = _itemType.GetMethod("Prefix", BindingFlags.Public | BindingFlags.Instance,
-                    null, new[] { typeof(int) }, null);
-                prefixMethod?.Invoke(item, new object[] { prefix });
+                item.prefix = (byte)prefix;
+                item.Prefix(prefix);
             }
             if (favorited)
-            {
-                var favField = _itemType.GetField("favorited", BindingFlags.Public | BindingFlags.Instance);
-                favField?.SetValue(item, true);
-            }
+                item.favorited = true;
             return item;
         }
 

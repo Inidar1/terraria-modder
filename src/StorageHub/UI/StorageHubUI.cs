@@ -107,7 +107,7 @@ namespace StorageHub.UI
             // Initialize tab components
             _craftTab = new CraftTab(_log, _recipeIndex, _craftChecker, _crafter, _config, _storage, _modConfig);
             _recipesTab = new RecipesTab(_log, _recipeIndex, _craftChecker, _config);
-            _shimmerTab = new ShimmerTab(_log, _storage, _config);
+            _shimmerTab = new ShimmerTab(_log, _storage, _config, _rangeCalc);
             _infoTab = new InfoTab(_log, _storage, _config, _rangeCalc);
             _chestPinger = new ChestPinger(_log);
             _networkTab = new NetworkTab(_log, _config, _craftChecker, _storage,
@@ -681,7 +681,7 @@ namespace StorageHub.UI
 
         private void RefreshData()
         {
-            _allItems = _storage.GetAllItems();
+            _allItems = _rangeCalc.FilterItemsByRange(_storage.GetAllItems());
             FilterItems();
         }
 

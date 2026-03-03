@@ -32,6 +32,9 @@ namespace TerrariaModder.Core.Input
         /// <summary>Whether this keybind is enabled.</summary>
         public bool Enabled { get; set; } = true;
 
+        /// <summary>Whether this keybind works on the title/menu screen.</summary>
+        public bool AllowInMenu { get; set; }
+
         private readonly ILogger _log;
 
         public Keybind(string id, string modId, string label, string description, KeyCombo defaultKey, Action callback, ILogger logger = null)

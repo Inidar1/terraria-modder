@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using TerrariaModManager.Helpers;
+using TerrariaModManager.Services;
 
 namespace TerrariaModManager.ViewModels;
 
@@ -8,6 +9,9 @@ public class DownloadItem : ViewModelBase
 {
     private string _name = "";
     private string _status = "Pending";
+    private string _errorMessage = "";
+    private bool _hasError;
+    private bool _isInstalled;
     private double _progress;
     private long _totalBytes;
     private long _downloadedBytes;
@@ -26,6 +30,38 @@ public class DownloadItem : ViewModelBase
         get => _status;
         set => SetProperty(ref _status, value);
     }
+
+    public string ErrorMessage
+    {
+        get => _errorMessage;
+        set => SetProperty(ref _errorMessage, value);
+    }
+
+    public bool HasError
+    {
+        get => _hasError;
+        set
+        {
+            if (SetProperty(ref _hasError, value))
+            {
+                OnPropertyChanged(nameof(IsDownloading));
+                OnPropertyChanged(nameof(IsFailed));
+            }
+        }
+    }
+
+    public bool IsInstalled
+    {
+        get => _isInstalled;
+        set
+        {
+            if (SetProperty(ref _isInstalled, value))
+                OnPropertyChanged(nameof(IsDownloading));
+        }
+    }
+
+    public bool IsDownloading => !HasError && !IsInstalled;
+    public bool IsFailed => HasError;
 
     public double Progress
     {
@@ -60,13 +96,15 @@ public class DownloadItem : ViewModelBase
 
 public class DownloadsViewModel : ViewModelBase
 {
-    public ObservableCollection<DownloadItem> Downloads =>
-        App.Downloads?.Downloads ?? new ObservableCollection<DownloadItem>();
+    private readonly DownloadManager _downloadManager;
+
+    public ObservableCollection<DownloadItem> Downloads => _downloadManager.Downloads;
 
     public ICommand OpenOnNexusCommand { get; }
 
-    public DownloadsViewModel()
+    public DownloadsViewModel(DownloadManager downloadManager)
     {
+        _downloadManager = downloadManager;
         OpenOnNexusCommand = new RelayCommand<DownloadItem>(OpenOnNexus);
     }
 

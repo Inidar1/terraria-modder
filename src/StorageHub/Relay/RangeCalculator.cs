@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
+using Terraria;
 using TerrariaModder.Core.Logging;
 using StorageHub.Config;
+using StorageHub.Storage;
 
 namespace StorageHub.Relay
 {
@@ -24,60 +25,10 @@ namespace StorageHub.Relay
         private float _playerX;
         private float _playerY;
 
-        // Reflection for player position
-        private static FieldInfo _playerArrayField;
-        private static FieldInfo _myPlayerField;
-        private static FieldInfo _positionField;
-        private static FieldInfo _positionXField;
-        private static FieldInfo _positionYField;
-
         public RangeCalculator(ILogger log, StorageHubConfig config)
         {
             _log = log;
             _config = config;
-            InitReflection();
-        }
-
-        private void InitReflection()
-        {
-            try
-            {
-                var mainType = Type.GetType("Terraria.Main, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Main");
-
-                if (mainType != null)
-                {
-                    _playerArrayField = mainType.GetField("player", BindingFlags.Public | BindingFlags.Static);
-                    _myPlayerField = mainType.GetField("myPlayer", BindingFlags.Public | BindingFlags.Static);
-                }
-
-                var playerType = Type.GetType("Terraria.Player, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Player");
-
-                if (playerType != null)
-                {
-                    _positionField = playerType.GetField("position", BindingFlags.Public | BindingFlags.Instance);
-                }
-
-                // Vector2 has X and Y fields — scan loaded assemblies since the assembly name
-                // varies: "Microsoft.Xna.Framework" (Windows XNA), "FNA", "MonoGame.Framework"
-                Type vectorType = null;
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    vectorType = asm.GetType("Microsoft.Xna.Framework.Vector2");
-                    if (vectorType != null) break;
-                }
-
-                if (vectorType != null)
-                {
-                    _positionXField = vectorType.GetField("X", BindingFlags.Public | BindingFlags.Instance);
-                    _positionYField = vectorType.GetField("Y", BindingFlags.Public | BindingFlags.Instance);
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.Error($"RangeCalculator reflection error: {ex.Message}");
-            }
         }
 
         /// <summary>
@@ -87,36 +38,9 @@ namespace StorageHub.Relay
         {
             try
             {
-                if (_myPlayerField == null || _playerArrayField == null)
-                    return;
-
-                var myPlayerVal = _myPlayerField.GetValue(null);
-                if (myPlayerVal == null) return;
-
-                int myPlayer = (int)myPlayerVal;
-                var players = _playerArrayField.GetValue(null) as Array;
-                if (players == null) return;
-
-                // Bounds check before array access
-                if (myPlayer < 0 || myPlayer >= players.Length)
-                    return;
-
-                var player = players.GetValue(myPlayer);
-
-                if (player != null && _positionField != null)
-                {
-                    var position = _positionField.GetValue(player);
-                    if (position != null && _positionXField != null && _positionYField != null)
-                    {
-                        var xVal = _positionXField.GetValue(position);
-                        var yVal = _positionYField.GetValue(position);
-                        if (xVal != null && yVal != null)
-                        {
-                            _playerX = Convert.ToSingle(xVal);
-                            _playerY = Convert.ToSingle(yVal);
-                        }
-                    }
-                }
+                var player = Main.player[Main.myPlayer];
+                _playerX = player.position.X;
+                _playerY = player.position.Y;
             }
             catch (Exception ex)
             {
@@ -221,6 +145,36 @@ namespace StorageHub.Relay
             float dx = x2 - x1;
             float dy = y2 - y1;
             return dx * dx + dy * dy;
+        }
+
+        /// <summary>
+        /// Filter a list of item snapshots to only include items that are within range.
+        /// Items from inventory/banks (SourceChestIndex &lt; 0) are always included.
+        /// </summary>
+        public List<ItemSnapshot> FilterItemsByRange(List<ItemSnapshot> items)
+        {
+            var result = new List<ItemSnapshot>(items.Count);
+            var chests = Main.chest;
+
+            foreach (var item in items)
+            {
+                // Inventory, piggy bank, safe, forge, void vault — always accessible
+                if (item.SourceChestIndex < 0)
+                {
+                    result.Add(item);
+                    continue;
+                }
+
+                // World chest — check range
+                if (chests != null && item.SourceChestIndex < chests.Length)
+                {
+                    var chest = chests[item.SourceChestIndex];
+                    if (chest != null && IsInRange(chest.x, chest.y))
+                        result.Add(item);
+                }
+            }
+
+            return result;
         }
 
         /// <summary>

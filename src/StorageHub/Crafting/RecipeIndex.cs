@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
+using Terraria;
 using TerrariaModder.Core.Logging;
 
 namespace StorageHub.Crafting
@@ -33,33 +33,8 @@ namespace StorageHub.Crafting
         // Reverse lookup: OriginalIndex (Terraria recipe array index) -> internal _allRecipes index
         private Dictionary<int, int> _originalToInternal = new Dictionary<int, int>();
 
-        // Reflection cache
-        private static Type _recipeType;
-        private static Type _itemType;
-        private static Type _mainType;
-        private static FieldInfo _recipeArrayField;
-        private static FieldInfo _numRecipesField;
-        private static FieldInfo _createItemField;
-        private static FieldInfo _requiredItemField;
-        private static FieldInfo _requiredTileField;
-        private static FieldInfo _needWaterField;
-        private static FieldInfo _needHoneyField;
-        private static FieldInfo _needLavaField;
-        private static FieldInfo _needSnowBiomeField;
-        private static FieldInfo _needGraveyardField;
-        private static FieldInfo _needShimmerField;
-        private static FieldInfo _itemTypeField;
-        private static FieldInfo _itemStackField;
-        private static PropertyInfo _itemNameProp;
-
-        // Recipe group reflection cache
-        private static FieldInfo _quickLookupField;       // Recipe.requiredItemQuickLookup (RequiredItemEntry[])
-        private static FieldInfo _entryIdField;            // RequiredItemEntry.itemIdOrRecipeGroup
-        private static FieldInfo _entryStackField;         // RequiredItemEntry.stack
-        private static int _fakeItemIdOffset;              // RecipeGroup.FakeItemIdOffset (1000000)
-        private static FieldInfo _recipeGroupsField;       // RecipeGroup.recipeGroups (Dictionary<int, RecipeGroup>)
-        private static FieldInfo _validItemsField;         // RecipeGroup.ValidItems (HashSet<int>)
-        private static bool _recipeGroupsAvailable;        // True if recipe group reflection succeeded
+        private static int _fakeItemIdOffset;
+        private static bool _recipeGroupsAvailable;
 
         public int TotalRecipes => _allRecipes.Count;
 
@@ -69,7 +44,7 @@ namespace StorageHub.Crafting
         /// </summary>
         public int FakeItemIdOffset => _fakeItemIdOffset > 0 ? _fakeItemIdOffset : 1000000;
 
-        /// <summary>Whether recipe groups are available (reflection succeeded).</summary>
+        /// <summary>Whether recipe groups are available.</summary>
         public bool HasRecipeGroupSupport => _recipeGroupsAvailable;
 
         public RecipeIndex(ILogger log)
@@ -78,109 +53,21 @@ namespace StorageHub.Crafting
         }
 
         /// <summary>
-        /// Initialize reflection for recipe access.
+        /// Initialize recipe index support. Always succeeds with direct type access.
         /// </summary>
         public bool InitReflection()
         {
             try
             {
-                _mainType = Type.GetType("Terraria.Main, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Main");
-
-                _recipeType = Type.GetType("Terraria.Recipe, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Recipe");
-
-                _itemType = Type.GetType("Terraria.Item, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Item");
-
-                if (_mainType == null || _recipeType == null || _itemType == null)
-                {
-                    _log.Error("RecipeIndex: Failed to find required types");
-                    return false;
-                }
-
-                _recipeArrayField = _mainType.GetField("recipe", BindingFlags.Public | BindingFlags.Static);
-                _numRecipesField = _recipeType.GetField("numRecipes", BindingFlags.Public | BindingFlags.Static);
-
-                _createItemField = _recipeType.GetField("createItem", BindingFlags.Public | BindingFlags.Instance);
-                _requiredItemField = _recipeType.GetField("requiredItem", BindingFlags.Public | BindingFlags.Instance);
-                _requiredTileField = _recipeType.GetField("requiredTile", BindingFlags.Public | BindingFlags.Instance);
-
-                _needWaterField = _recipeType.GetField("needWater", BindingFlags.Public | BindingFlags.Instance);
-                _needHoneyField = _recipeType.GetField("needHoney", BindingFlags.Public | BindingFlags.Instance);
-                _needLavaField = _recipeType.GetField("needLava", BindingFlags.Public | BindingFlags.Instance);
-                _needSnowBiomeField = _recipeType.GetField("needSnowBiome", BindingFlags.Public | BindingFlags.Instance);
-                _needGraveyardField = _recipeType.GetField("needGraveyardBiome", BindingFlags.Public | BindingFlags.Instance);
-                // Note: needShimmer does NOT exist on vanilla 1.4.5 Recipe class.
-                // Shimmer transmutation is handled separately (not through Recipe objects).
-                // This field will be null, and GetBoolField returns false — harmless.
-                _needShimmerField = _recipeType.GetField("needShimmer", BindingFlags.Public | BindingFlags.Instance);
-
-                _itemTypeField = _itemType.GetField("type", BindingFlags.Public | BindingFlags.Instance);
-                _itemStackField = _itemType.GetField("stack", BindingFlags.Public | BindingFlags.Instance);
-                _itemNameProp = _itemType.GetProperty("Name", BindingFlags.Public | BindingFlags.Instance);
-
-                // Recipe group support — optional, gracefully degrades if not available
-                InitRecipeGroupReflection();
-
+                _fakeItemIdOffset = RecipeGroup.FakeItemIdOffset;
+                _recipeGroupsAvailable = true;
+                _log.Info($"RecipeIndex: Recipe group support enabled (FakeItemIdOffset={_fakeItemIdOffset})");
                 return true;
             }
             catch (Exception ex)
             {
-                _log.Error($"RecipeIndex reflection error: {ex.Message}");
+                _log.Error($"RecipeIndex init error: {ex.Message}");
                 return false;
-            }
-        }
-
-        private void InitRecipeGroupReflection()
-        {
-            try
-            {
-                // RequiredItemEntry is a nested struct in Recipe
-                var entryType = _recipeType.GetNestedType("RequiredItemEntry", BindingFlags.Public);
-                if (entryType == null)
-                {
-                    _log.Warn("RecipeIndex: RequiredItemEntry not found — recipe groups unavailable");
-                    return;
-                }
-
-                _quickLookupField = _recipeType.GetField("requiredItemQuickLookup", BindingFlags.Public | BindingFlags.Instance);
-                _entryIdField = entryType.GetField("itemIdOrRecipeGroup", BindingFlags.Public | BindingFlags.Instance);
-                _entryStackField = entryType.GetField("stack", BindingFlags.Public | BindingFlags.Instance);
-
-                var recipeGroupType = Type.GetType("Terraria.RecipeGroup, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.RecipeGroup");
-
-                if (recipeGroupType != null)
-                {
-                    var offsetField = recipeGroupType.GetField("FakeItemIdOffset", BindingFlags.Public | BindingFlags.Static);
-                    if (offsetField != null)
-                    {
-                        var val = offsetField.GetValue(null);
-                        _fakeItemIdOffset = val != null ? (int)val : 1000000;
-                    }
-                    else
-                    {
-                        _fakeItemIdOffset = 1000000; // Known constant
-                    }
-
-                    _recipeGroupsField = recipeGroupType.GetField("recipeGroups", BindingFlags.Public | BindingFlags.Static);
-                    _validItemsField = recipeGroupType.GetField("ValidItems", BindingFlags.Public | BindingFlags.Instance);
-                }
-
-                if (_quickLookupField != null && _entryIdField != null && _entryStackField != null)
-                {
-                    _recipeGroupsAvailable = true;
-                    _log.Info($"RecipeIndex: Recipe group support enabled (FakeItemIdOffset={_fakeItemIdOffset})");
-                }
-                else
-                {
-                    _log.Warn("RecipeIndex: Incomplete recipe group reflection — falling back to exact matching");
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.Warn($"RecipeIndex: Recipe group init failed: {ex.Message} — falling back to exact matching");
             }
         }
 
@@ -198,33 +85,15 @@ namespace StorageHub.Crafting
 
             try
             {
-                var recipeArray = _recipeArrayField?.GetValue(null) as Array;
+                var recipeArray = Main.recipe;
+                int numRecipes = Recipe.numRecipes;
+
                 if (recipeArray == null)
                 {
                     _log.Error("Cannot build recipe index: recipe array is null");
                     return;
                 }
 
-                var numRecipesVal = _numRecipesField?.GetValue(null);
-                if (numRecipesVal == null)
-                {
-                    _log.Error("Cannot build recipe index: numRecipes field is null");
-                    return;
-                }
-
-                // Safe type conversion with validation
-                int numRecipes;
-                if (numRecipesVal is int intVal)
-                {
-                    numRecipes = intVal;
-                }
-                else
-                {
-                    _log.Error($"Cannot build recipe index: numRecipes is not int, got {numRecipesVal.GetType().Name}");
-                    return;
-                }
-
-                // Validate numRecipes is reasonable
                 if (numRecipes < 0 || numRecipes > recipeArray.Length)
                 {
                     _log.Error($"Invalid numRecipes: {numRecipes} (array length: {recipeArray.Length})");
@@ -235,7 +104,7 @@ namespace StorageHub.Crafting
 
                 for (int i = 0; i < numRecipes; i++)
                 {
-                    var recipe = recipeArray.GetValue(i);
+                    var recipe = recipeArray[i];
                     if (recipe == null) continue;
 
                     var info = ExtractRecipeInfo(recipe, i);
@@ -262,6 +131,22 @@ namespace StorageHub.Crafting
                             _byIngredient[ing.ItemId] = ingList;
                         }
                         ingList.Add(recipeIdx);
+
+                        // For recipe groups, also index by each valid item ID
+                        // so GetRecipesUsingIngredient(ironBarId) finds "Any Iron Bar" recipes
+                        if (ing.IsRecipeGroup && ing.ValidItemIds != null)
+                        {
+                            foreach (int validId in ing.ValidItemIds)
+                            {
+                                if (!_byIngredient.TryGetValue(validId, out var validList))
+                                {
+                                    validList = new List<int>();
+                                    _byIngredient[validId] = validList;
+                                }
+                                if (!validList.Contains(recipeIdx))
+                                    validList.Add(recipeIdx);
+                            }
+                        }
                     }
 
                     // Index by station
@@ -285,25 +170,19 @@ namespace StorageHub.Crafting
             }
         }
 
-        private RecipeInfo ExtractRecipeInfo(object recipe, int originalIndex)
+        private RecipeInfo ExtractRecipeInfo(Recipe recipe, int originalIndex)
         {
             try
             {
-                // Validate required fields
-                if (_itemTypeField == null || _itemStackField == null)
-                    return null;
-
                 var info = new RecipeInfo { OriginalIndex = originalIndex };
 
                 // Get output item
-                var createItem = _createItemField?.GetValue(recipe);
+                var createItem = recipe.createItem;
                 if (createItem != null)
                 {
-                    var outputTypeVal = _itemTypeField.GetValue(createItem);
-                    var outputStackVal = _itemStackField.GetValue(createItem);
-                    info.OutputItemId = outputTypeVal != null ? (int)outputTypeVal : 0;
-                    info.OutputStack = outputStackVal != null ? (int)outputStackVal : 0;
-                    info.OutputName = _itemNameProp?.GetValue(createItem) as string ?? "";
+                    info.OutputItemId = createItem.type;
+                    info.OutputStack = createItem.stack;
+                    info.OutputName = createItem.Name ?? "";
                 }
 
                 // Get ingredients — prefer requiredItemQuickLookup (has recipe group info)
@@ -316,45 +195,40 @@ namespace StorageHub.Crafting
                 if (!usedQuickLookup)
                 {
                     // Fallback: use requiredItem[] (no recipe group support)
-                    var requiredItems = _requiredItemField?.GetValue(recipe) as Array;
+                    var requiredItems = recipe.requiredItem;
                     if (requiredItems != null)
                     {
                         foreach (var item in requiredItems)
                         {
                             if (item == null) continue;
-
-                            var typeVal = _itemTypeField.GetValue(item);
-                            int type = typeVal != null ? (int)typeVal : 0;
-                            if (type <= 0) break; // Empty slot marks end of ingredients
-
-                            var stackVal = _itemStackField.GetValue(item);
-                            int stack = stackVal != null ? (int)stackVal : 0;
-                            string name = _itemNameProp?.GetValue(item) as string ?? "";
+                            if (item.type <= 0) break; // Empty slot marks end of ingredients
 
                             info.Ingredients.Add(new IngredientInfo
                             {
-                                ItemId = type,
-                                RequiredStack = stack,
-                                Name = name
+                                ItemId = item.type,
+                                RequiredStack = item.stack,
+                                Name = item.Name ?? ""
                             });
                         }
                     }
                 }
 
                 // Get required tile (single int in 1.4.5, -1 = none)
-                var requiredTileVal = _requiredTileField?.GetValue(recipe);
-                if (requiredTileVal is int tileId && tileId >= 0)
+                int tileId = recipe.requiredTile;
+                if (tileId >= 0)
                 {
                     info.RequiredTiles.Add(tileId);
                 }
 
                 // Get environmental requirements
-                info.NeedWater = GetBoolField(_needWaterField, recipe);
-                info.NeedHoney = GetBoolField(_needHoneyField, recipe);
-                info.NeedLava = GetBoolField(_needLavaField, recipe);
-                info.NeedSnowBiome = GetBoolField(_needSnowBiomeField, recipe);
-                info.NeedGraveyard = GetBoolField(_needGraveyardField, recipe);
-                info.NeedShimmer = GetBoolField(_needShimmerField, recipe);
+                info.NeedWater = recipe.needWater;
+                info.NeedHoney = recipe.needHoney;
+                info.NeedLava = recipe.needLava;
+                info.NeedSnowBiome = recipe.needSnowBiome;
+                info.NeedGraveyard = recipe.needGraveyardBiome;
+                // Note: needShimmer does NOT exist on vanilla 1.4.5 Recipe class.
+                // Shimmer transmutation is handled separately (not through Recipe objects).
+                info.NeedShimmer = false;
 
                 return info;
             }
@@ -367,24 +241,18 @@ namespace StorageHub.Crafting
         /// <summary>
         /// Extract ingredients from requiredItemQuickLookup, which contains recipe group info.
         /// </summary>
-        private bool ExtractIngredientsFromQuickLookup(object recipe, RecipeInfo info)
+        private bool ExtractIngredientsFromQuickLookup(Recipe recipe, RecipeInfo info)
         {
             try
             {
-                var quickLookup = _quickLookupField?.GetValue(recipe) as Array;
+                var quickLookup = recipe.requiredItemQuickLookup;
                 if (quickLookup == null) return false;
 
                 for (int i = 0; i < quickLookup.Length; i++)
                 {
-                    var entry = quickLookup.GetValue(i);
-                    if (entry == null) break;
-
-                    var idVal = _entryIdField.GetValue(entry);
-                    var stackVal = _entryStackField.GetValue(entry);
-                    if (idVal == null || stackVal == null) break;
-
-                    int idOrGroup = (int)idVal;
-                    int stack = (int)stackVal;
+                    var entry = quickLookup[i];
+                    int idOrGroup = entry.itemIdOrRecipeGroup;
+                    int stack = entry.stack;
                     if (idOrGroup <= 0) break; // Empty slot marks end of ingredients
 
                     bool isGroup = idOrGroup >= _fakeItemIdOffset;
@@ -433,33 +301,8 @@ namespace StorageHub.Crafting
         {
             try
             {
-                var groupsDict = _recipeGroupsField?.GetValue(null);
-                if (groupsDict == null) return null;
-
-                // Dictionary<int, RecipeGroup>.TryGetValue via reflection
-                var tryGetMethod = groupsDict.GetType().GetMethod("TryGetValue");
-                if (tryGetMethod == null) return null;
-
-                var args = new object[] { groupId, null };
-                bool found = (bool)tryGetMethod.Invoke(groupsDict, args);
-                if (!found || args[1] == null) return null;
-
-                var validItems = _validItemsField?.GetValue(args[1]);
-                if (validItems is HashSet<int> hashSet)
-                    return hashSet;
-
-                // If the type doesn't match directly, copy manually
-                if (validItems is System.Collections.IEnumerable enumerable)
-                {
-                    var result = new HashSet<int>();
-                    foreach (var item in enumerable)
-                    {
-                        if (item is int id)
-                            result.Add(id);
-                    }
-                    return result;
-                }
-
+                if (RecipeGroup.recipeGroups.TryGetValue(groupId, out var group))
+                    return group.ValidItems;
                 return null;
             }
             catch
@@ -475,29 +318,12 @@ namespace StorageHub.Crafting
         {
             try
             {
-                var groupsDict = _recipeGroupsField?.GetValue(null);
-                if (groupsDict == null) return $"Group #{groupId}";
-
-                var tryGetMethod = groupsDict.GetType().GetMethod("TryGetValue");
-                if (tryGetMethod == null) return $"Group #{groupId}";
-
-                var args = new object[] { groupId, null };
-                bool found = (bool)tryGetMethod.Invoke(groupsDict, args);
-                if (!found || args[1] == null) return $"Group #{groupId}";
-
-                // GetText is a Func<string> field
-                var getTextField = args[1].GetType().GetField("GetText", BindingFlags.Public | BindingFlags.Instance);
-                if (getTextField != null)
+                if (RecipeGroup.recipeGroups.TryGetValue(groupId, out var group))
                 {
-                    var getText = getTextField.GetValue(args[1]) as Func<string>;
-                    if (getText != null)
-                    {
-                        string name = getText();
-                        if (!string.IsNullOrEmpty(name))
-                            return name;
-                    }
+                    string name = group.GetText?.Invoke();
+                    if (!string.IsNullOrEmpty(name))
+                        return name;
                 }
-
                 return $"Group #{groupId}";
             }
             catch
@@ -509,36 +335,21 @@ namespace StorageHub.Crafting
         /// <summary>
         /// Get item name from the requiredItem array at a given index (for non-group ingredients).
         /// </summary>
-        private string GetItemNameFromRequiredItem(object recipe, int index)
+        private string GetItemNameFromRequiredItem(Recipe recipe, int index)
         {
             try
             {
-                var requiredItems = _requiredItemField?.GetValue(recipe) as Array;
+                var requiredItems = recipe.requiredItem;
                 if (requiredItems == null || index >= requiredItems.Length) return "";
 
-                var item = requiredItems.GetValue(index);
+                var item = requiredItems[index];
                 if (item == null) return "";
 
-                return _itemNameProp?.GetValue(item) as string ?? "";
+                return item.Name ?? "";
             }
             catch
             {
                 return "";
-            }
-        }
-
-        private bool GetBoolField(FieldInfo field, object obj)
-        {
-            if (field == null) return false;
-            try
-            {
-                var val = field.GetValue(obj);
-                if (val == null) return false;
-                return (bool)val;
-            }
-            catch
-            {
-                return false;
             }
         }
 

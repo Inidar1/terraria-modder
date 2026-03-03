@@ -1,0 +1,86 @@
+{
+  "id": "randomizer",
+  "name": "Randomizer",
+  "version": "1.0.0",
+  "framework_version": ">=0.2.0",
+  "author": "Inidar",
+  "description": "Randomize chests, drops, recipes, shops, spawns, and more with a seed system for reproducible chaos",
+  "entry_dll": "Randomizer.dll",
+  "config_schema": {
+    "enabled": {
+      "type": "bool",
+      "default": true,
+      "label": "Enabled",
+      "description": "Enable the Randomizer mod"
+    },
+    "seed": {
+      "type": "int",
+      "default": 0,
+      "label": "Seed",
+      "description": "Randomization seed (0 = random each time)"
+    },
+    "module_chest_loot": {
+      "type": "bool",
+      "default": false,
+      "label": "Chest Loot Shuffle"
+    },
+    "module_enemy_drops": {
+      "type": "bool",
+      "default": false,
+      "label": "Enemy Drop Shuffle"
+    },
+    "module_recipes": {
+      "type": "bool",
+      "default": false,
+      "label": "Recipe Shuffle"
+    },
+    "module_shops": {
+      "type": "bool",
+      "default": false,
+      "label": "Shop Shuffle"
+    },
+    "module_fishing": {
+      "type": "bool",
+      "default": false,
+      "label": "Fishing Shuffle"
+    },
+    "module_tile_drops": {
+      "type": "bool",
+      "default": false,
+      "label": "Tile Drop Shuffle"
+    },
+    "module_spawns": {
+      "type": "bool",
+      "default": false,
+      "label": "Spawn Shuffle"
+    },
+    "module_item_stats": {
+      "type": "bool",
+      "default": false,
+      "label": "Item Stat Scramble"
+    },
+    "module_starting_items": {
+      "type": "bool",
+      "default": false,
+      "label": "Starting Inventory"
+    },
+    "module_gravity": {
+      "type": "bool",
+      "default": false,
+      "label": "Gravity Chaos"
+    },
+    "module_weather": {
+      "type": "bool",
+      "default": false,
+      "label": "Weather Chaos"
+    }
+  },
+  "keybinds": [
+    {
+      "id": "toggle",
+      "label": "Toggle Panel",
+      "description": "Open/close the Randomizer config panel",
+      "default": "Divide"
+    }
+  ]
+}

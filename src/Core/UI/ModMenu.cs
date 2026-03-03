@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using TerrariaModder.Core.Config;
+using TerrariaModder.Core.Conflicts;
 using TerrariaModder.Core.Input;
 using TerrariaModder.Core.Logging;
+using TerrariaModder.Core.Manifest;
 using TerrariaModder.Core.Reflection;
 using TerrariaModder.Core.UI.Widgets;
 
@@ -65,6 +67,18 @@ namespace TerrariaModder.Core.UI
         // Z-order input blocking (set per frame in DrawInternal)
         private static bool _blockInput;
 
+        // Conflict scanner state
+        private static ConflictReport _conflictReport;
+        private static bool _conflictScanDone;
+
+        // Load order drag state
+        private static bool _isDraggingLoadOrder;
+        private static int _dragLoadOrderIndex = -1;
+        private static int _dragLoadOrderTargetIndex = -1;
+        private static int _dragLoadOrderMouseOffsetY;
+        private static List<string> _editedLoadOrder;
+        private static bool _loadOrderChanged;
+
         // Menu dimensions
         private const int MenuWidth = 600;
         private const int MenuHeight = 450;
@@ -75,7 +89,7 @@ namespace TerrariaModder.Core.UI
         private const int ButtonHeight = 22;
 
         // Tabs
-        private static readonly string[] Tabs = { "Mods", "Config", "Keybinds", "Logs" };
+        private static readonly string[] Tabs = { "Mods", "Config", "Keybinds", "Load Order", "Logs" };
 
         public static bool IsVisible => _visible;
 
@@ -87,8 +101,9 @@ namespace TerrariaModder.Core.UI
             _log = log;
             UIRenderer.Initialize(log);
 
-            // Register menu toggle keybind
-            KeybindManager.RegisterInternal("menu-toggle", "Mod Menu", "Open/close mod menu", "F6", ToggleMenu);
+            // Register menu toggle keybind (works on title screen too)
+            var menuKeybind = KeybindManager.RegisterInternal("menu-toggle", "Mod Menu", "Open/close mod menu", "F6", ToggleMenu);
+            menuKeybind.AllowInMenu = true;
 
             // Register draw callback for z-ordered panel drawing
             UIRenderer.RegisterPanelDraw("mod-menu", Draw);
@@ -118,6 +133,10 @@ namespace TerrariaModder.Core.UI
             if (_visible)
             {
                 _log?.Info("[UI] Menu opened");
+                // Invalidate conflict cache so it re-scans when Conflicts tab is opened
+                _conflictScanDone = false;
+                _conflictReport = null;
+
                 // Select first mod if none selected
                 var mods = PluginLoader.Mods;
                 if (mods.Count > 0 && string.IsNullOrEmpty(_selectedModId))
@@ -301,7 +320,8 @@ namespace TerrariaModder.Core.UI
                 case 0: DrawModsTab(menuX + Padding, contentY, MenuWidth - Padding * 2, contentHeight); break;
                 case 1: DrawConfigTab(menuX + Padding, contentY, MenuWidth - Padding * 2, contentHeight); break;
                 case 2: DrawKeybindsTab(menuX + Padding, contentY, MenuWidth - Padding * 2, contentHeight); break;
-                case 3: DrawLogsTab(menuX + Padding, contentY, MenuWidth - Padding * 2, contentHeight); break;
+                case 3: DrawConflictsTab(menuX + Padding, contentY, MenuWidth - Padding * 2, contentHeight); break;
+                case 4: DrawLogsTab(menuX + Padding, contentY, MenuWidth - Padding * 2, contentHeight); break;
             }
 
             // Handle scrollbar drag (before wheel handling)
@@ -1236,6 +1256,487 @@ namespace TerrariaModder.Core.UI
             _rebindingKeybindId = null;
             _rebindWaitingForKey = false;
             UIRenderer.DisableTextInput();
+        }
+
+        private static void DrawConflictsTab(int x, int y, int width, int height)
+        {
+            // Lazy scan on first render
+            if (!_conflictScanDone)
+            {
+                ConflictScanner.Initialize(_log);
+                _conflictReport = ConflictScanner.Scan();
+                _conflictScanDone = true;
+
+                // Initialize editable load order from current order
+                _editedLoadOrder = new List<string>(_conflictReport.LoadOrder);
+                _loadOrderChanged = false;
+            }
+
+            if (_conflictReport == null) return;
+
+            int scrollIndicatorWidth = 10;
+            int contentWidth = width - scrollIndicatorWidth;
+
+            // Build display items list
+            var displayItems = new List<ConflictDisplayItem>();
+
+            // Patch conflicts section (always shown)
+            displayItems.Add(new ConflictDisplayItem { Type = ConflictItemType.SectionHeader, Label = "Patch Conflicts" });
+            if (_conflictReport.PatchConflicts.Count > 0)
+            {
+                foreach (var pc in _conflictReport.PatchConflicts)
+                {
+                    displayItems.Add(new ConflictDisplayItem
+                    {
+                        Type = ConflictItemType.PatchConflictHeader,
+                        Label = pc.TargetType + "." + pc.TargetMethod,
+                        Severity = pc.Severity
+                    });
+                    foreach (var p in pc.Patches)
+                    {
+                        string detail = p.ModName + "  " + p.PatchType.ToLower();
+                        if (p.ReturnsBool) detail += " (bool)";
+                        displayItems.Add(new ConflictDisplayItem
+                        {
+                            Type = ConflictItemType.PatchDetail,
+                            Label = detail,
+                            ModId = p.ModId
+                        });
+                    }
+                }
+            }
+            else
+            {
+                displayItems.Add(new ConflictDisplayItem { Type = ConflictItemType.PatchDetail, Label = "No conflicts detected" });
+            }
+            displayItems.Add(new ConflictDisplayItem { Type = ConflictItemType.Spacer });
+
+            // --- Load Order ---
+            if (_loadOrderChanged)
+            {
+                displayItems.Add(new ConflictDisplayItem
+                {
+                    Type = ConflictItemType.Warning,
+                    Label = "Load Order Changed - Restart Required"
+                });
+            }
+
+            for (int idx = 0; idx < _editedLoadOrder.Count; idx++)
+            {
+                var modId = _editedLoadOrder[idx];
+                var mod = PluginLoader.Mods.FirstOrDefault(m => m.Manifest.Id == modId);
+                string modName = mod != null ? mod.Manifest.Name : modId;
+                displayItems.Add(new ConflictDisplayItem
+                {
+                    Type = ConflictItemType.LoadOrderEntry,
+                    Label = (idx + 1) + ". " + modName,
+                    ModId = modId,
+                    LoadOrderIndex = idx
+                });
+            }
+
+            // Scrolling
+            int buttonBarHeight = _loadOrderChanged ? 32 : 0;
+            int listHeight = height - buttonBarHeight;
+            int visibleItems = listHeight / ItemHeight;
+            int maxScroll = Math.Max(0, displayItems.Count - visibleItems);
+            _scrollOffset = Math.Min(_scrollOffset, maxScroll);
+
+            // Handle scroll wheel
+            if (UIRenderer.ScrollWheel != 0 && UIRenderer.IsMouseOver(x, y, width, listHeight) && !_blockInput)
+            {
+                _scrollOffset -= UIRenderer.ScrollWheel > 0 ? 1 : -1;
+                _scrollOffset = Math.Max(0, Math.Min(_scrollOffset, maxScroll));
+            }
+
+            // Draw items
+            int currentY = y;
+            for (int i = _scrollOffset; i < displayItems.Count && currentY < y + listHeight - ItemHeight; i++)
+            {
+                var item = displayItems[i];
+
+                // Skip dragged item in its original position
+                if (_isDraggingLoadOrder && item.Type == ConflictItemType.LoadOrderEntry &&
+                    item.LoadOrderIndex == _dragLoadOrderIndex)
+                {
+                    currentY += ItemHeight;
+                    continue;
+                }
+
+                switch (item.Type)
+                {
+                    case ConflictItemType.SectionHeader:
+                        int headerHeight = ItemHeight - 4;
+                        UIRenderer.DrawRect(x, currentY, contentWidth, headerHeight, UIColors.SectionBg);
+                        UIRenderer.DrawRect(x, currentY, contentWidth, 2, UIColors.Divider);
+                        UIRenderer.DrawTextShadow(item.Label, x + 8, currentY + 5, UIColors.Warning);
+                        currentY += headerHeight + 4;
+                        break;
+
+                    case ConflictItemType.Spacer:
+                        currentY += 10;
+                        break;
+
+                    case ConflictItemType.PatchConflictHeader:
+                        var sevColor = UIColors.Error;
+                        UIRenderer.DrawRect(x, currentY, contentWidth, ItemHeight - 2, UIColors.ItemBg);
+                        UIRenderer.DrawText("! HIGH", x + 5, currentY + 5, sevColor);
+                        UIRenderer.DrawTextShadow(item.Label, x + 60, currentY + 5, UIColors.Text);
+                        currentY += ItemHeight;
+                        break;
+
+                    case ConflictItemType.PatchDetail:
+                        UIRenderer.DrawText(item.Label, x + 25, currentY + 5, UIColors.TextDim);
+                        currentY += ItemHeight;
+                        break;
+
+                    case ConflictItemType.Warning:
+                        UIRenderer.DrawText(item.Label, x + 8, currentY + 5, UIColors.Error);
+                        currentY += ItemHeight;
+                        break;
+
+                    case ConflictItemType.LoadOrderEntry:
+                        // Draw drop indicator line between items
+                        if (_isDraggingLoadOrder && _dragLoadOrderTargetIndex != _dragLoadOrderIndex)
+                        {
+                            // Moving up: line at top of target row
+                            if (_dragLoadOrderTargetIndex < _dragLoadOrderIndex
+                                && item.LoadOrderIndex == _dragLoadOrderTargetIndex)
+                            {
+                                var lineColor = new Color4(255, 255, 255);
+                                UIRenderer.DrawRect(x + 2, currentY - 2, contentWidth - 4, 2, lineColor);
+                                UIRenderer.DrawRect(x, currentY - 4, 6, 6, lineColor);
+                                UIRenderer.DrawRect(x + contentWidth - 6, currentY - 4, 6, 6, lineColor);
+                            }
+                            // Moving down: line at top of the row AFTER the target
+                            if (_dragLoadOrderTargetIndex > _dragLoadOrderIndex
+                                && item.LoadOrderIndex == _dragLoadOrderTargetIndex + 1)
+                            {
+                                var lineColor = new Color4(255, 255, 255);
+                                UIRenderer.DrawRect(x + 2, currentY - 2, contentWidth - 4, 2, lineColor);
+                                UIRenderer.DrawRect(x, currentY - 4, 6, 6, lineColor);
+                                UIRenderer.DrawRect(x + contentWidth - 6, currentY - 4, 6, 6, lineColor);
+                            }
+                        }
+                        DrawLoadOrderEntry(x, currentY, contentWidth, item);
+                        currentY += ItemHeight;
+                        break;
+                }
+            }
+
+            // Draw scroll indicator
+            DrawScrollIndicator(x + contentWidth + 2, y, listHeight, _scrollOffset, displayItems.Count, visibleItems);
+
+            // Revert Changes button (only shown when order has changed)
+            if (_loadOrderChanged)
+            {
+                int btnW = 120;
+                int btnH = ButtonHeight;
+                int btnX = x + width - btnW;
+                int btnY = y + height - btnH - 4;
+                bool btnHover = UIRenderer.IsMouseOver(btnX, btnY, btnW, btnH) && !_blockInput;
+                UIRenderer.DrawRect(btnX, btnY, btnW, btnH, btnHover ? UIColors.ButtonHover : UIColors.Button);
+                UIRenderer.DrawText("Revert Changes", btnX + 8, btnY + 3, UIColors.Text);
+
+                if (btnHover && UIRenderer.MouseLeftClick)
+                {
+                    _editedLoadOrder = new List<string>(_conflictReport.LoadOrder);
+                    _loadOrderChanged = false;
+
+                    // Delete load-order.json
+                    try
+                    {
+                        var orderPath = DependencyResolver.GetLoadOrderPathFromCore(CoreConfig.Instance.CorePath);
+                        if (System.IO.File.Exists(orderPath))
+                            System.IO.File.Delete(orderPath);
+                        _log?.Info("[UI] Reverted load order changes");
+                    }
+                    catch (Exception ex)
+                    {
+                        _log?.Error($"[UI] Failed to delete load-order.json: {ex.Message}");
+                    }
+                    UIRenderer.ConsumeClick();
+                }
+            }
+
+            // Handle drag-in-progress (draw floating item)
+            if (_isDraggingLoadOrder && _dragLoadOrderIndex >= 0 && _dragLoadOrderIndex < _editedLoadOrder.Count)
+            {
+                // Draw indicator for "move to last" (no next row to attach to)
+                if (_dragLoadOrderTargetIndex != _dragLoadOrderIndex &&
+                    _dragLoadOrderTargetIndex > _dragLoadOrderIndex &&
+                    _dragLoadOrderTargetIndex == _editedLoadOrder.Count - 1)
+                {
+                    var lineColor = new Color4(255, 255, 255);
+                    UIRenderer.DrawRect(x + 2, currentY - 2, contentWidth - 4, 2, lineColor);
+                    UIRenderer.DrawRect(x, currentY - 4, 6, 6, lineColor);
+                    UIRenderer.DrawRect(x + contentWidth - 6, currentY - 4, 6, 6, lineColor);
+                }
+
+                int floatY = UIRenderer.MouseY - _dragLoadOrderMouseOffsetY;
+                var modId = _editedLoadOrder[_dragLoadOrderIndex];
+                var mod = PluginLoader.Mods.FirstOrDefault(m => m.Manifest.Id == modId);
+                string modName = mod != null ? mod.Manifest.Name : modId;
+                string label = (_dragLoadOrderIndex + 1) + ". " + modName;
+
+                UIRenderer.DrawRect(x, floatY, contentWidth, ItemHeight - 2, UIColors.Accent);
+                UIRenderer.DrawTextShadow(label, x + 8, floatY + 5, UIColors.Text);
+
+                // Determine target position based on mouse Y
+                HandleLoadOrderDragMove(y, displayItems);
+
+                // Drop on mouse release
+                if (!UIRenderer.MouseLeft)
+                {
+                    HandleLoadOrderDrop();
+                }
+            }
+        }
+
+        private static void DrawLoadOrderEntry(int x, int currentY, int contentWidth, ConflictDisplayItem item)
+        {
+            bool rowHover = UIRenderer.IsMouseOver(x, currentY, contentWidth, ItemHeight - 2) && !_blockInput && !_isDraggingLoadOrder;
+            var bg = rowHover ? UIColors.ItemHoverBg : UIColors.ItemBg;
+            UIRenderer.DrawRect(x, currentY, contentWidth, ItemHeight - 2, bg);
+
+            // Up/down arrow buttons on the right
+            int arrowW = 20;
+            int arrowH = ItemHeight - 4;
+            int arrowX = x + contentWidth - arrowW * 2 - 8;
+            int arrowY = currentY + 1;
+            int idx = item.LoadOrderIndex;
+
+            // Up arrow
+            bool canMoveUp = idx > 0;
+            if (canMoveUp)
+            {
+                bool upHover = UIRenderer.IsMouseOver(arrowX, arrowY, arrowW, arrowH) && !_blockInput && !_isDraggingLoadOrder;
+                UIRenderer.DrawRect(arrowX, arrowY, arrowW, arrowH, upHover ? UIColors.ButtonHover : UIColors.Button);
+                UIRenderer.DrawText("^", arrowX + 6, arrowY + 2, UIColors.Text);
+                if (upHover && UIRenderer.MouseLeftClick)
+                {
+                    MoveLoadOrderEntry(idx, idx - 1);
+                    UIRenderer.ConsumeClick();
+                }
+            }
+
+            // Down arrow
+            bool canMoveDown = idx < _editedLoadOrder.Count - 1;
+            int downX = arrowX + arrowW + 2;
+            if (canMoveDown)
+            {
+                bool downHover = UIRenderer.IsMouseOver(downX, arrowY, arrowW, arrowH) && !_blockInput && !_isDraggingLoadOrder;
+                UIRenderer.DrawRect(downX, arrowY, arrowW, arrowH, downHover ? UIColors.ButtonHover : UIColors.Button);
+                UIRenderer.DrawText("v", downX + 6, arrowY + 2, UIColors.Text);
+                if (downHover && UIRenderer.MouseLeftClick)
+                {
+                    MoveLoadOrderEntry(idx, idx + 1);
+                    UIRenderer.ConsumeClick();
+                }
+            }
+
+            // Mod label
+            UIRenderer.DrawTextShadow(item.Label, x + 8, currentY + 5, UIColors.Text);
+
+            // Show dependency info
+            var mod = PluginLoader.Mods.FirstOrDefault(m => m.Manifest.Id == item.ModId);
+            if (mod != null && mod.Manifest.Dependencies.Count > 0)
+            {
+                string depText = "(after " + string.Join(", ", mod.Manifest.Dependencies) + ")";
+                depText = TextUtil.Truncate(depText, arrowX - x - 20);
+                UIRenderer.DrawText(depText, arrowX - TextUtil.MeasureWidth(depText) - 5, currentY + 5, UIColors.TextDim);
+            }
+
+            // Start drag on mouse down (on the label area, not on arrows)
+            if (rowHover && UIRenderer.MouseLeftClick &&
+                !(UIRenderer.MouseX >= arrowX && UIRenderer.MouseX < downX + arrowW))
+            {
+                _isDraggingLoadOrder = true;
+                _dragLoadOrderIndex = item.LoadOrderIndex;
+                _dragLoadOrderTargetIndex = item.LoadOrderIndex;
+                _dragLoadOrderMouseOffsetY = UIRenderer.MouseY - currentY;
+                UIRenderer.ConsumeClick();
+            }
+        }
+
+        /// <summary>
+        /// Move a load order entry from one index to another, with dependency validation.
+        /// </summary>
+        private static void MoveLoadOrderEntry(int fromIdx, int toIdx)
+        {
+            if (fromIdx < 0 || fromIdx >= _editedLoadOrder.Count ||
+                toIdx < 0 || toIdx >= _editedLoadOrder.Count)
+                return;
+
+            string movingModId = _editedLoadOrder[fromIdx];
+            var movingMod = PluginLoader.Mods.FirstOrDefault(m => m.Manifest.Id == movingModId);
+
+            if (movingMod != null && toIdx < fromIdx)
+            {
+                // Moving up: can't move before a dependency
+                foreach (var depId in movingMod.Manifest.Dependencies)
+                {
+                    int depIdx = _editedLoadOrder.IndexOf(depId);
+                    if (depIdx >= 0 && depIdx >= toIdx)
+                    {
+                        _log?.Warn($"[UI] Can't move {movingModId} before its dependency {depId}");
+                        return;
+                    }
+                }
+            }
+
+            if (toIdx > fromIdx)
+            {
+                // Moving down: can't move after a mod that depends on this one
+                string otherId = _editedLoadOrder[toIdx];
+                var otherMod = PluginLoader.Mods.FirstOrDefault(m => m.Manifest.Id == otherId);
+                if (otherMod != null && otherMod.Manifest.Dependencies.Contains(movingModId))
+                {
+                    _log?.Warn($"[UI] Can't move {movingModId} after {otherId} (which depends on it)");
+                    return;
+                }
+            }
+
+            // Perform the move
+            string entry = _editedLoadOrder[fromIdx];
+            _editedLoadOrder.RemoveAt(fromIdx);
+            _editedLoadOrder.Insert(toIdx, entry);
+
+            // Save to load-order.json
+            try
+            {
+                var corePath = CoreConfig.Instance.CorePath;
+                DependencyResolver.SaveLoadOrder(corePath, _editedLoadOrder);
+                _loadOrderChanged = true;
+                _log?.Info($"[UI] Saved load order: {string.Join(", ", _editedLoadOrder)}");
+            }
+            catch (Exception ex)
+            {
+                _log?.Error($"[UI] Failed to save load order: {ex.Message}");
+            }
+        }
+
+        private static void HandleLoadOrderDragMove(int listStartY, List<ConflictDisplayItem> displayItems)
+        {
+            // Find which load order slot the mouse is over.
+            // Must match the draw loop exactly — skip dragged item, use correct heights.
+            int mouseY = UIRenderer.MouseY;
+            int currentY = listStartY;
+
+            for (int i = _scrollOffset; i < displayItems.Count; i++)
+            {
+                var item = displayItems[i];
+
+                // Skip the dragged item's gap (same as draw loop)
+                if (item.Type == ConflictItemType.LoadOrderEntry &&
+                    item.LoadOrderIndex == _dragLoadOrderIndex)
+                {
+                    currentY += ItemHeight;
+                    continue;
+                }
+
+                // Use same heights as draw loop
+                int itemH;
+                switch (item.Type)
+                {
+                    case ConflictItemType.SectionHeader: itemH = ItemHeight; break;
+                    case ConflictItemType.Spacer: itemH = 10; break;
+                    default: itemH = ItemHeight; break;
+                }
+
+                if (item.Type == ConflictItemType.LoadOrderEntry)
+                {
+                    if (mouseY >= currentY && mouseY < currentY + itemH)
+                    {
+                        _dragLoadOrderTargetIndex = item.LoadOrderIndex;
+                        break;
+                    }
+                }
+                currentY += itemH;
+            }
+        }
+
+        private static void HandleLoadOrderDrop()
+        {
+            _isDraggingLoadOrder = false;
+
+            if (_dragLoadOrderIndex == _dragLoadOrderTargetIndex || _dragLoadOrderIndex < 0)
+                return;
+
+            int fromIdx = _dragLoadOrderIndex;
+            int toIdx = _dragLoadOrderTargetIndex;
+
+            // Validate: can't move a mod before its dependencies
+            string movingModId = _editedLoadOrder[fromIdx];
+            var movingMod = PluginLoader.Mods.FirstOrDefault(m => m.Manifest.Id == movingModId);
+
+            if (movingMod != null && toIdx < fromIdx)
+            {
+                // Moving up: check that none of its dependencies are at or after the target position
+                foreach (var depId in movingMod.Manifest.Dependencies)
+                {
+                    int depIdx = _editedLoadOrder.IndexOf(depId);
+                    if (depIdx >= 0 && depIdx >= toIdx)
+                    {
+                        _log?.Warn($"[UI] Can't move {movingModId} before its dependency {depId}");
+                        return;
+                    }
+                }
+            }
+
+            if (toIdx > fromIdx)
+            {
+                // Moving down: check that no mod at or before the target position depends on this mod
+                for (int i = fromIdx + 1; i <= toIdx; i++)
+                {
+                    string otherId = _editedLoadOrder[i];
+                    var otherMod = PluginLoader.Mods.FirstOrDefault(m => m.Manifest.Id == otherId);
+                    if (otherMod != null && otherMod.Manifest.Dependencies.Contains(movingModId))
+                    {
+                        _log?.Warn($"[UI] Can't move {movingModId} after {otherId} (which depends on it)");
+                        return;
+                    }
+                }
+            }
+
+            // Perform the move
+            string item = _editedLoadOrder[fromIdx];
+            _editedLoadOrder.RemoveAt(fromIdx);
+            _editedLoadOrder.Insert(toIdx, item);
+
+            // Save to load-order.json
+            try
+            {
+                var corePath = CoreConfig.Instance.CorePath;
+                DependencyResolver.SaveLoadOrder(corePath, _editedLoadOrder);
+                _loadOrderChanged = true;
+                _log?.Info($"[UI] Saved load order: {string.Join(", ", _editedLoadOrder)}");
+            }
+            catch (Exception ex)
+            {
+                _log?.Error($"[UI] Failed to save load order: {ex.Message}");
+            }
+        }
+
+        // Display item types for the Load Order tab
+        private enum ConflictItemType
+        {
+            SectionHeader,
+            PatchConflictHeader,
+            PatchDetail,
+            LoadOrderEntry,
+            Spacer,
+            Warning
+        }
+
+        private class ConflictDisplayItem
+        {
+            public ConflictItemType Type;
+            public string Label;
+            public string Detail;
+            public string ModId;
+            public ConflictSeverity Severity;
+            public int LoadOrderIndex;
         }
 
         private static void DrawLogsTab(int x, int y, int width, int height)

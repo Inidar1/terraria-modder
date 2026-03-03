@@ -23,6 +23,8 @@ namespace TerrariaModder.Core.Manifest
         public List<string> Dependencies { get; set; } = new List<string>();
         public List<string> OptionalDependencies { get; set; } = new List<string>();
         public List<string> IncompatibleWith { get; set; } = new List<string>();
+        public List<string> LoadAfter { get; set; } = new List<string>();
+        public List<string> LoadBefore { get; set; } = new List<string>();
         public string ConfigSchemaJson { get; set; }
         public List<KeybindDefinition> Keybinds { get; set; } = new List<KeybindDefinition>();
         public string Homepage { get; set; }

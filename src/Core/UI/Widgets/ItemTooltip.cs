@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
+using Terraria;
+using Terraria.ID;
+using Terraria.Localization;
 using TerrariaModder.Core.Logging;
 
 namespace TerrariaModder.Core.UI.Widgets
@@ -40,36 +41,6 @@ namespace TerrariaModder.Core.UI.Widgets
 
         // Logging
         private static readonly ILogger _log = LogManager.GetLogger("ItemTooltip");
-
-        // Reflection cache
-        private static bool _reflectionInitialized;
-        private static bool _reflectionValid;
-        private static System.Collections.IDictionary _itemsByType;
-        private static Type _itemClrType;
-
-        // Item fields
-        private static FieldInfo _fDamage, _fCrit, _fUseAnimation, _fUseStyle, _fKnockBack;
-        private static FieldInfo _fDefense, _fPick, _fAxe, _fHammer, _fTileBoost;
-        private static FieldInfo _fHealLife, _fHealMana, _fMana;
-        private static FieldInfo _fConsumable, _fMaterial, _fVanity;
-        private static FieldInfo _fAccessory, _fHeadSlot, _fBodySlot, _fLegSlot;
-        private static FieldInfo _fCreateTile, _fCreateWall, _fAmmo, _fNotAmmo;
-        private static FieldInfo _fBuffTime, _fMelee, _fRanged, _fMagic, _fSummon;
-        private static FieldInfo _fRarity, _fBait, _fFishingPole, _fQuestItem;
-        private static FieldInfo _fScale, _fShootSpeed;
-        private static FieldInfo _fStack;
-
-        // Item methods/properties
-        private static MethodInfo _mSetDefaults;
-        private static MethodInfo _mPrefixMethod;
-        private static MethodInfo _mAffixName;
-        private static FieldInfo _pToolTip;
-        private static PropertyInfo _pToolTipLines;
-        private static MethodInfo _mGetLine;
-
-        // Lang.tip access
-        private static Array _langTip;
-        private static PropertyInfo _ltValueProp;
 
         /// <summary>
         /// Set an item tooltip to display. Call during hover detection.
@@ -119,7 +90,8 @@ namespace TerrariaModder.Core.UI.Widgets
             if (!_hasTooltip) return;
             _hasTooltip = false;
 
-            if (!InitReflection()) return;
+            if (ContentSamples.ItemsByType == null || ContentSamples.ItemsByType.Count == 0)
+                return;
 
             BuildLines();
             if (_lines.Count == 0) return;
@@ -127,159 +99,26 @@ namespace TerrariaModder.Core.UI.Widgets
             RenderLines();
         }
 
-        #region Reflection Init
-
-        private static bool InitReflection()
-        {
-            if (_reflectionInitialized) return _reflectionValid;
-            _reflectionInitialized = true;
-
-            try
-            {
-                // ContentSamples.ItemsByType
-                var csType = Type.GetType("Terraria.ID.ContentSamples, Terraria");
-                if (csType == null)
-                {
-                    var asm = Assembly.Load("Terraria");
-                    csType = asm?.GetType("Terraria.ID.ContentSamples");
-                }
-                var ibtField = csType?.GetField("ItemsByType", BindingFlags.Public | BindingFlags.Static);
-                _itemsByType = ibtField?.GetValue(null) as System.Collections.IDictionary;
-                if (_itemsByType == null || _itemsByType.Count == 0) return false;
-
-                // Get Item type from first entry
-                foreach (System.Collections.DictionaryEntry e in _itemsByType)
-                {
-                    _itemClrType = e.Value.GetType();
-                    break;
-                }
-                if (_itemClrType == null) return false;
-
-                // Cache fields
-                _fDamage = _itemClrType.GetField("damage");
-                _fCrit = _itemClrType.GetField("crit");
-                _fUseAnimation = _itemClrType.GetField("useAnimation");
-                _fUseStyle = _itemClrType.GetField("useStyle");
-                _fKnockBack = _itemClrType.GetField("knockBack");
-                _fDefense = _itemClrType.GetField("defense");
-                _fPick = _itemClrType.GetField("pick");
-                _fAxe = _itemClrType.GetField("axe");
-                _fHammer = _itemClrType.GetField("hammer");
-                _fTileBoost = _itemClrType.GetField("tileBoost");
-                _fHealLife = _itemClrType.GetField("healLife");
-                _fHealMana = _itemClrType.GetField("healMana");
-                _fMana = _itemClrType.GetField("mana");
-                _fConsumable = _itemClrType.GetField("consumable");
-                _fMaterial = _itemClrType.GetField("material");
-                _fVanity = _itemClrType.GetField("vanity");
-                _fAccessory = _itemClrType.GetField("accessory");
-                _fHeadSlot = _itemClrType.GetField("headSlot");
-                _fBodySlot = _itemClrType.GetField("bodySlot");
-                _fLegSlot = _itemClrType.GetField("legSlot");
-                _fCreateTile = _itemClrType.GetField("createTile");
-                _fCreateWall = _itemClrType.GetField("createWall");
-                _fAmmo = _itemClrType.GetField("ammo");
-                _fNotAmmo = _itemClrType.GetField("notAmmo");
-                _fBuffTime = _itemClrType.GetField("buffTime");
-                _fMelee = _itemClrType.GetField("melee");
-                _fRanged = _itemClrType.GetField("ranged");
-                _fMagic = _itemClrType.GetField("magic");
-                _fSummon = _itemClrType.GetField("summon");
-                _fRarity = _itemClrType.GetField("rare");
-                _fBait = _itemClrType.GetField("bait");
-                _fFishingPole = _itemClrType.GetField("fishingPole");
-                _fQuestItem = _itemClrType.GetField("questItem");
-                _fScale = _itemClrType.GetField("scale");
-                _fShootSpeed = _itemClrType.GetField("shootSpeed");
-                _fStack = _itemClrType.GetField("stack");
-
-                // Methods — SetDefaults has signature (int, ItemVariant = null), so use binder overload
-                _mSetDefaults = _itemClrType.GetMethod("SetDefaults",
-                    BindingFlags.Public | BindingFlags.Instance, null,
-                    new[] { typeof(int) }, null);
-                if (_mSetDefaults == null)
-                {
-                    // Fallback: find first SetDefaults with int as first param
-                    _mSetDefaults = _itemClrType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                        .FirstOrDefault(m => m.Name == "SetDefaults"
-                            && m.GetParameters().Length >= 1
-                            && m.GetParameters()[0].ParameterType == typeof(int));
-                }
-                _mPrefixMethod = _itemClrType.GetMethod("Prefix", new[] { typeof(int) });
-                _mAffixName = _itemClrType.GetMethod("AffixName", Type.EmptyTypes);
-
-                // ToolTip is a public field (not a property) on Item
-                _pToolTip = _itemClrType.GetField("ToolTip", BindingFlags.Public | BindingFlags.Instance);
-
-                // ItemTooltip type (for Lines/GetLine)
-                if (_pToolTip != null)
-                {
-                    var tooltipType = _pToolTip.FieldType;
-                    _pToolTipLines = tooltipType.GetProperty("Lines");
-                    _mGetLine = tooltipType.GetMethod("GetLine", new[] { typeof(int) });
-                }
-
-                // Lang.tip
-                var langType = Type.GetType("Terraria.Lang, Terraria");
-                if (langType == null)
-                {
-                    var asm = Assembly.Load("Terraria");
-                    langType = asm?.GetType("Terraria.Lang");
-                }
-                var tipField = langType?.GetField("tip", BindingFlags.Public | BindingFlags.Static);
-                _langTip = tipField?.GetValue(null) as Array;
-
-                var ltType = Type.GetType("Terraria.Localization.LocalizedText, Terraria");
-                if (ltType == null)
-                {
-                    var asm = Assembly.Load("Terraria");
-                    ltType = asm?.GetType("Terraria.Localization.LocalizedText");
-                }
-                _ltValueProp = ltType?.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance);
-
-                _reflectionValid = _fDamage != null && _mSetDefaults != null;
-                _log.Info($"[ItemTooltip] Reflection init: valid={_reflectionValid}, " +
-                    $"itemsByType={_itemsByType?.Count ?? -1}, itemType={_itemClrType?.Name}, " +
-                    $"damage={_fDamage != null}, setDefaults={_mSetDefaults != null}, " +
-                    $"prefix={_mPrefixMethod != null}, affixName={_mAffixName != null}, " +
-                    $"langTip={_langTip?.Length ?? -1}, toolTip={_pToolTip != null}");
-                return _reflectionValid;
-            }
-            catch (Exception ex)
-            {
-                _log.Error($"[ItemTooltip] Reflection init failed: {ex.Message}");
-                _reflectionValid = false;
-                return false;
-            }
-        }
-
-        #endregion
-
         #region Line Building
 
         private static void BuildLines()
         {
             _lines.Clear();
 
-            if (!_itemsByType.Contains(_itemType)) return;
+            if (!ContentSamples.ItemsByType.ContainsKey(_itemType)) return;
 
             // Get base item from ContentSamples
-            object baseItem = _itemsByType[_itemType];
+            Item baseItem = ContentSamples.ItemsByType[_itemType];
 
             // If prefix specified, create a temp prefixed item for display
-            object displayItem = baseItem;
+            Item displayItem = baseItem;
             if (_prefix > 0)
             {
                 try
                 {
-                    displayItem = Activator.CreateInstance(_itemClrType);
-                    // SetDefaults may have 1 or 2 params (int Type, ItemVariant variant = null)
-                    var sdParams = _mSetDefaults.GetParameters();
-                    if (sdParams.Length == 1)
-                        _mSetDefaults.Invoke(displayItem, new object[] { _itemType });
-                    else
-                        _mSetDefaults.Invoke(displayItem, new object[] { _itemType, null });
-                    _mPrefixMethod.Invoke(displayItem, new object[] { (int)_prefix });
+                    displayItem = new Item();
+                    displayItem.SetDefaults(_itemType);
+                    displayItem.Prefix(_prefix);
                 }
                 catch (Exception ex)
                 {
@@ -289,39 +128,39 @@ namespace TerrariaModder.Core.UI.Widgets
             }
 
             // Read fields from display item (prefixed if applicable)
-            int damage = GetInt(_fDamage, displayItem);
-            int crit = GetInt(_fCrit, displayItem);
-            int useAnimation = GetInt(_fUseAnimation, displayItem);
-            int useStyle = GetInt(_fUseStyle, displayItem);
-            float knockBack = GetFloat(_fKnockBack, displayItem);
-            int defense = GetInt(_fDefense, displayItem);
-            int pick = GetInt(_fPick, displayItem);
-            int axe = GetInt(_fAxe, displayItem);
-            int hammer = GetInt(_fHammer, displayItem);
-            int tileBoost = GetInt(_fTileBoost, displayItem);
-            int healLife = GetInt(_fHealLife, displayItem);
-            int healMana = GetInt(_fHealMana, displayItem);
-            int mana = GetInt(_fMana, displayItem);
-            bool consumable = GetBool(_fConsumable, displayItem);
-            bool material = GetBool(_fMaterial, displayItem);
-            bool vanity = GetBool(_fVanity, displayItem);
-            bool accessory = GetBool(_fAccessory, displayItem);
-            int headSlot = GetInt(_fHeadSlot, displayItem);
-            int bodySlot = GetInt(_fBodySlot, displayItem);
-            int legSlot = GetInt(_fLegSlot, displayItem);
-            int createTile = GetInt(_fCreateTile, displayItem);
-            int createWall = GetInt(_fCreateWall, displayItem);
-            int ammo = GetInt(_fAmmo, displayItem);
-            bool notAmmo = GetBool(_fNotAmmo, displayItem);
-            int buffTime = GetInt(_fBuffTime, displayItem);
-            bool melee = GetBool(_fMelee, displayItem);
-            bool ranged = GetBool(_fRanged, displayItem);
-            bool magic = GetBool(_fMagic, displayItem);
-            bool summon = GetBool(_fSummon, displayItem);
-            int rarity = GetInt(_fRarity, displayItem);
-            int bait = GetInt(_fBait, displayItem);
-            int fishingPole = GetInt(_fFishingPole, displayItem);
-            bool questItem = GetBool(_fQuestItem, displayItem);
+            int damage = displayItem.damage;
+            int crit = displayItem.crit;
+            int useAnimation = displayItem.useAnimation;
+            int useStyle = displayItem.useStyle;
+            float knockBack = displayItem.knockBack;
+            int defense = displayItem.defense;
+            int pick = displayItem.pick;
+            int axe = displayItem.axe;
+            int hammer = displayItem.hammer;
+            int tileBoost = displayItem.tileBoost;
+            int healLife = displayItem.healLife;
+            int healMana = displayItem.healMana;
+            int mana = displayItem.mana;
+            bool consumable = displayItem.consumable;
+            bool material = displayItem.material;
+            bool vanity = displayItem.vanity;
+            bool accessory = displayItem.accessory;
+            int headSlot = displayItem.headSlot;
+            int bodySlot = displayItem.bodySlot;
+            int legSlot = displayItem.legSlot;
+            int createTile = displayItem.createTile;
+            int createWall = displayItem.createWall;
+            int ammo = displayItem.ammo;
+            bool notAmmo = displayItem.notAmmo;
+            int buffTime = displayItem.buffTime;
+            bool melee = displayItem.melee;
+            bool ranged = displayItem.ranged;
+            bool magic = displayItem.magic;
+            bool summon = displayItem.summon;
+            int rarity = displayItem.rare;
+            int bait = displayItem.bait;
+            int fishingPole = displayItem.fishingPole;
+            bool questItem = displayItem.questItem;
 
             // === Line 0: Name (rarity colored) ===
             string name;
@@ -333,7 +172,7 @@ namespace TerrariaModder.Core.UI.Widgets
             {
                 try
                 {
-                    name = _mAffixName.Invoke(displayItem, null) as string ?? "???";
+                    name = displayItem.AffixName() ?? "???";
                 }
                 catch
                 {
@@ -448,24 +287,21 @@ namespace TerrariaModder.Core.UI.Widgets
                 AddLine(GetTip(36), UIColors.Text);
 
             // === Tooltip description lines ===
-            if (_pToolTip != null)
+            try
             {
-                try
+                var tooltip = displayItem.ToolTip;
+                if (tooltip != null)
                 {
-                    var tooltip = _pToolTip.GetValue(displayItem);
-                    if (tooltip != null && _pToolTipLines != null && _mGetLine != null)
+                    int lineCount = tooltip.Lines;
+                    for (int i = 0; i < lineCount; i++)
                     {
-                        int lineCount = (int)_pToolTipLines.GetValue(tooltip);
-                        for (int i = 0; i < lineCount; i++)
-                        {
-                            string line = _mGetLine.Invoke(tooltip, new object[] { i }) as string;
-                            if (!string.IsNullOrEmpty(line))
-                                AddLine(line, UIColors.Text);
-                        }
+                        string line = tooltip.GetLine(i);
+                        if (!string.IsNullOrEmpty(line))
+                            AddLine(line, UIColors.Text);
                     }
                 }
-                catch { }
             }
+            catch { }
 
             // === Buff duration ===
             if (buffTime > 0)
@@ -492,11 +328,11 @@ namespace TerrariaModder.Core.UI.Widgets
             }
         }
 
-        private static void BuildPrefixLines(object baseItem, object prefixedItem)
+        private static void BuildPrefixLines(Item baseItem, Item prefixedItem)
         {
             // Damage
-            int baseDmg = GetInt(_fDamage, baseItem);
-            int prefDmg = GetInt(_fDamage, prefixedItem);
+            int baseDmg = baseItem.damage;
+            int prefDmg = prefixedItem.damage;
             if (baseDmg > 0 && prefDmg != baseDmg)
             {
                 float pct = ((float)(prefDmg - baseDmg) / baseDmg) * 100f;
@@ -505,18 +341,18 @@ namespace TerrariaModder.Core.UI.Widgets
             }
 
             // Speed (useAnimation — lower is faster, so invert)
-            int baseSpd = GetInt(_fUseAnimation, baseItem);
-            int prefSpd = GetInt(_fUseAnimation, prefixedItem);
+            int baseSpd = baseItem.useAnimation;
+            int prefSpd = prefixedItem.useAnimation;
             if (baseSpd > 0 && prefSpd != baseSpd)
             {
-                float pct = ((float)(baseSpd - prefSpd) / baseSpd) * 100f; // inverted
+                float pct = ((float)(baseSpd - prefSpd) / baseSpd) * 100f;
                 bool better = pct > 0;
                 AddLine((better ? "+" : "") + (int)Math.Round(pct) + GetTip(40), better ? PrefixBetter : PrefixWorse);
             }
 
             // Crit
-            int baseCrit = GetInt(_fCrit, baseItem);
-            int prefCrit = GetInt(_fCrit, prefixedItem);
+            int baseCrit = baseItem.crit;
+            int prefCrit = prefixedItem.crit;
             if (prefCrit != baseCrit)
             {
                 int diff = prefCrit - baseCrit;
@@ -525,18 +361,18 @@ namespace TerrariaModder.Core.UI.Widgets
             }
 
             // Mana (lower is better, so invert display)
-            int baseMana = GetInt(_fMana, baseItem);
-            int prefMana = GetInt(_fMana, prefixedItem);
+            int baseMana = baseItem.mana;
+            int prefMana = prefixedItem.mana;
             if (baseMana > 0 && prefMana != baseMana)
             {
                 float pct = ((float)(prefMana - baseMana) / baseMana) * 100f;
-                bool better = pct < 0; // less mana = better
+                bool better = pct < 0;
                 AddLine((pct > 0 ? "+" : "") + (int)Math.Round(pct) + GetTip(42), better ? PrefixBetter : PrefixWorse);
             }
 
             // Size (scale)
-            float baseScale = GetFloat(_fScale, baseItem);
-            float prefScale = GetFloat(_fScale, prefixedItem);
+            float baseScale = baseItem.scale;
+            float prefScale = prefixedItem.scale;
             if (baseScale > 0f && Math.Abs(prefScale - baseScale) > 0.001f)
             {
                 float pct = ((prefScale - baseScale) / baseScale) * 100f;
@@ -545,8 +381,8 @@ namespace TerrariaModder.Core.UI.Widgets
             }
 
             // Shoot speed (velocity)
-            float baseVel = GetFloat(_fShootSpeed, baseItem);
-            float prefVel = GetFloat(_fShootSpeed, prefixedItem);
+            float baseVel = baseItem.shootSpeed;
+            float prefVel = prefixedItem.shootSpeed;
             if (baseVel > 0f && Math.Abs(prefVel - baseVel) > 0.001f)
             {
                 float pct = ((prefVel - baseVel) / baseVel) * 100f;
@@ -555,8 +391,8 @@ namespace TerrariaModder.Core.UI.Widgets
             }
 
             // Knockback
-            float baseKb = GetFloat(_fKnockBack, baseItem);
-            float prefKb = GetFloat(_fKnockBack, prefixedItem);
+            float baseKb = baseItem.knockBack;
+            float prefKb = prefixedItem.knockBack;
             if (baseKb > 0f && Math.Abs(prefKb - baseKb) > 0.001f)
             {
                 float pct = ((prefKb - baseKb) / baseKb) * 100f;
@@ -667,48 +503,14 @@ namespace TerrariaModder.Core.UI.Widgets
                 _lines.Add(new TooltipLine { Text = text, Color = color });
         }
 
-        private static int GetInt(FieldInfo field, object obj)
-        {
-            if (field == null) return 0;
-            try
-            {
-                var val = field.GetValue(obj);
-                return val != null ? (int)val : 0;
-            }
-            catch { return 0; }
-        }
-
-        private static float GetFloat(FieldInfo field, object obj)
-        {
-            if (field == null) return 0f;
-            try
-            {
-                var val = field.GetValue(obj);
-                return val != null ? (float)val : 0f;
-            }
-            catch { return 0f; }
-        }
-
-        private static bool GetBool(FieldInfo field, object obj)
-        {
-            if (field == null) return false;
-            try
-            {
-                var val = field.GetValue(obj);
-                return val != null && (bool)val;
-            }
-            catch { return false; }
-        }
-
         private static string GetTip(int index)
         {
-            if (_langTip == null || index < 0 || index >= _langTip.Length)
+            if (Lang.tip == null || index < 0 || index >= Lang.tip.Length)
                 return "";
             try
             {
-                var obj = _langTip.GetValue(index);
-                if (obj == null) return "";
-                return _ltValueProp?.GetValue(obj) as string ?? "";
+                var lt = Lang.tip[index];
+                return lt?.Value ?? "";
             }
             catch { return ""; }
         }

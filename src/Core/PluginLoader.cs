@@ -13,6 +13,7 @@ using TerrariaModder.Core.Events;
 using TerrariaModder.Core.Input;
 using TerrariaModder.Core.Logging;
 using TerrariaModder.Core.Manifest;
+using TerrariaModder.Core.Patches;
 using TerrariaModder.Core.UI;
 
 namespace TerrariaModder.Core
@@ -129,7 +130,7 @@ namespace TerrariaModder.Core
     /// </summary>
     public static class PluginLoader
     {
-        public const string FrameworkVersion = "1.0.0";
+        public const string FrameworkVersion = "0.2.0";
 
         private static bool _initialized = false;
         private static readonly List<ModInfo> _mods = new List<ModInfo>();
@@ -206,6 +207,9 @@ namespace TerrariaModder.Core
                 // Initialize logging first
                 LogManager.Initialize();
                 _log = LogManager.Core;
+
+                // Guard against CaptureManager crash (must be before Main.Initialize)
+                CaptureManagerGuard.Apply(_log);
 
                 // Initialize keybind system
                 KeybindManager.Initialize(_log);
@@ -891,7 +895,7 @@ namespace TerrariaModder.Core
         // Update notification state
         private static bool _updateAvailable = false; // Set via GitHub API check
         private static string _updateVersion = ""; // Set via GitHub API check
-        private static string _updateUrl = "";  // Set to actual releases URL
+        private static string _updateUrl = "https://www.nexusmods.com/terraria/mods/135";
 
         /// <summary>
         /// Draw title screen overlay showing framework version and warnings.
@@ -938,7 +942,7 @@ namespace TerrariaModder.Core
                 int panelHeight;
                 if (hasWarnings)
                 {
-                    panelHeight = footerStartY - y + 50;
+                    panelHeight = footerStartY - y + 90; // extra 40px for download button below footer text
                 }
                 else if (_updateAvailable)
                 {
@@ -1038,6 +1042,32 @@ namespace TerrariaModder.Core
                     // Draw footer messages
                     UIRenderer.DrawText("Some features may not work.", x + padding, footerStartY, UIColors.TextDim);
                     UIRenderer.DrawText("Update TerrariaModder to fix.", x + padding, footerStartY + 22, UIColors.Text);
+
+                    // Download button
+                    int warnBtnX = x + padding;
+                    int warnBtnWidth = 110;
+                    int warnBtnHeight = 28;
+                    int warnBtnY = footerStartY + 50;
+                    bool warnBtnHover = UIRenderer.IsMouseOver(warnBtnX, warnBtnY, warnBtnWidth, warnBtnHeight);
+                    var warnBtnBg = warnBtnHover ? UIColors.ButtonHover : UIColors.Button;
+                    UIRenderer.DrawRect(warnBtnX, warnBtnY, warnBtnWidth, warnBtnHeight, warnBtnBg);
+                    UIRenderer.DrawRectOutline(warnBtnX, warnBtnY, warnBtnWidth, warnBtnHeight, UIColors.Warning, 1);
+                    UIRenderer.DrawText("Download", warnBtnX + 12, warnBtnY + 6, UIColors.Text);
+                    if (warnBtnHover && UIRenderer.MouseLeftClick)
+                    {
+                        try
+                        {
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = _updateUrl,
+                                UseShellExecute = true
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            _log?.Warn($"Failed to open browser: {ex.Message}");
+                        }
+                    }
                 }
             }
             catch (Exception ex)

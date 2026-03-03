@@ -6,28 +6,32 @@ namespace TerrariaModManager.Services;
 
 public class SettingsService
 {
-    public static readonly string AppDataDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "TerrariaModManager");
-
-    private static readonly string SettingsPath = Path.Combine(AppDataDir, "settings.json");
-
-    public static string DownloadsDir => Path.Combine(AppDataDir, "downloads");
-    public static string CacheDir => Path.Combine(AppDataDir, "cache");
-
-    private static readonly JsonSerializerOptions JsonOpts = new()
+    private readonly string _appDataDir;
+    private readonly string _settingsPath;
+    private readonly JsonSerializerOptions _jsonOpts = new()
     {
         WriteIndented = true
     };
+
+    public SettingsService()
+    {
+        _appDataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "TerrariaModManager");
+        _settingsPath = Path.Combine(_appDataDir, "settings.json");
+    }
+
+    public string DownloadsDir => Path.Combine(_appDataDir, "downloads");
+    public string CacheDir => Path.Combine(_appDataDir, "cache");
 
     public AppSettings Load()
     {
         try
         {
-            if (File.Exists(SettingsPath))
+            if (File.Exists(_settingsPath))
             {
-                var json = File.ReadAllText(SettingsPath);
-                return JsonSerializer.Deserialize<AppSettings>(json, JsonOpts) ?? new AppSettings();
+                var json = File.ReadAllText(_settingsPath);
+                return JsonSerializer.Deserialize<AppSettings>(json, _jsonOpts) ?? new AppSettings();
             }
         }
         catch { }
@@ -38,16 +42,16 @@ public class SettingsService
     {
         try
         {
-            Directory.CreateDirectory(AppDataDir);
-            var json = JsonSerializer.Serialize(settings, JsonOpts);
-            File.WriteAllText(SettingsPath, json);
+            EnsureDirectories();
+            var json = JsonSerializer.Serialize(settings, _jsonOpts);
+            File.WriteAllText(_settingsPath, json);
         }
         catch { }
     }
 
-    public static void EnsureDirectories()
+    public void EnsureDirectories()
     {
-        Directory.CreateDirectory(AppDataDir);
+        Directory.CreateDirectory(_appDataDir);
         Directory.CreateDirectory(DownloadsDir);
         Directory.CreateDirectory(CacheDir);
     }

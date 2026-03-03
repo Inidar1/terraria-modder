@@ -1,8 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+<<<<<<< HEAD
 using System.Reflection;
 using TerrariaModder.Core.Assets;
+=======
+using Terraria;
+using Terraria.DataStructures;
+using Terraria.ID;
+>>>>>>> inidar-main
 using TerrariaModder.Core;
 using TerrariaModder.Core.Events;
 using TerrariaModder.Core.Input;
@@ -26,23 +32,6 @@ namespace ItemSpawner
         private List<ItemEntry> _allItems = new List<ItemEntry>();
         private List<ItemEntry> _filteredItems = new List<ItemEntry>();
 
-        // Reflection - shared
-        private static Type _mainType;
-        private static Type _itemType;
-        private static Type _playerType;
-        private static FieldInfo _netModeField;
-        private static FieldInfo _myPlayerField;
-        private static FieldInfo _playerArrayField;
-        private static PropertyInfo _itemNameProp;
-        private static FieldInfo _itemMaxStackField;
-
-        // Reflection - cursor/inventory placement
-        private static FieldInfo _mouseItemField;
-        private static FieldInfo _itemTypeField;
-        private static FieldInfo _itemStackField;
-        private static MethodInfo _itemSetDefaultsIntMethod;
-        private static FieldInfo _playerInventoryField;
-
         // UI - grid layout
         private const int GridSlotSize = 44;
         private const int SlotOuter = GridSlotSize - 2;
@@ -59,7 +48,6 @@ namespace ItemSpawner
             _context = context;
 
             LoadConfig();
-            InitReflection();
 
             if (!_enabled)
             {
@@ -68,6 +56,7 @@ namespace ItemSpawner
             }
 
             _searchInput.KeyBlockId = "item-spawner";
+            _panel.ClipContent = false; // Virtual scrolling via _scroll.IsVisible handles culling; BeginClip causes transform issues
             _panel.OnClose = OnPanelClose;
             _panel.RegisterDrawCallback(OnDraw);
 
@@ -83,53 +72,11 @@ namespace ItemSpawner
             _singleplayerOnly = _context.Config.Get<bool>("singleplayerOnly");
         }
 
-        private void InitReflection()
-        {
-            try
-            {
-                _mainType = Type.GetType("Terraria.Main, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Main");
-                _itemType = Type.GetType("Terraria.Item, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Item");
-                _playerType = Type.GetType("Terraria.Player, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Player");
-
-                if (_mainType != null)
-                {
-                    _netModeField = _mainType.GetField("netMode", BindingFlags.Public | BindingFlags.Static);
-                    _myPlayerField = _mainType.GetField("myPlayer", BindingFlags.Public | BindingFlags.Static);
-                    _playerArrayField = _mainType.GetField("player", BindingFlags.Public | BindingFlags.Static);
-                    _mouseItemField = _mainType.GetField("mouseItem", BindingFlags.Public | BindingFlags.Static);
-                }
-
-                if (_itemType != null)
-                {
-                    _itemNameProp = _itemType.GetProperty("Name", BindingFlags.Public | BindingFlags.Instance);
-                    _itemMaxStackField = _itemType.GetField("maxStack", BindingFlags.Public | BindingFlags.Instance);
-                    _itemTypeField = _itemType.GetField("type", BindingFlags.Public | BindingFlags.Instance);
-                    _itemStackField = _itemType.GetField("stack", BindingFlags.Public | BindingFlags.Instance);
-
-                    _itemSetDefaultsIntMethod = _itemType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                        .FirstOrDefault(m => m.Name == "SetDefaults" &&
-                            m.GetParameters().Length >= 1 &&
-                            m.GetParameters()[0].ParameterType == typeof(int));
-                }
-
-                if (_playerType != null)
-                {
-                    _playerInventoryField = _playerType.GetField("inventory", BindingFlags.Public | BindingFlags.Instance);
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.Error($"Reflection init error: {ex.Message}");
-            }
-        }
-
         private void BuildItemCatalog()
         {
             try
             {
+<<<<<<< HEAD
                 _allItems.Clear();
 
                 var itemIdType = Type.GetType("Terraria.ID.ItemID, Terraria")
@@ -172,13 +119,19 @@ namespace ItemSpawner
                 }
 
                 int paramCount = _itemSetDefaultsIntMethod.GetParameters().Length;
+=======
+                int itemCount = ItemID.Count;
+                int errorCount = 0;
+>>>>>>> inidar-main
 
                 foreach (int type in candidateTypes.OrderBy(t => t))
                 {
                     try
                     {
-                        var item = Activator.CreateInstance(_itemType);
+                        var item = new Item();
+                        item.SetDefaults(i);
 
+<<<<<<< HEAD
                         object[] args = paramCount >= 2
                             ? new object[] { type, null }
                             : new object[] { type };
@@ -189,6 +142,10 @@ namespace ItemSpawner
                         int maxStack = 1;
                         if (_itemMaxStackField != null)
                             maxStack = (int)_itemMaxStackField.GetValue(item);
+=======
+                        string name = item.Name ?? "";
+                        int maxStack = item.maxStack;
+>>>>>>> inidar-main
 
                         if (!string.IsNullOrEmpty(name) && name.Trim() != "")
                         {
@@ -243,10 +200,7 @@ namespace ItemSpawner
             {
                 if (_singleplayerOnly)
                 {
-                    int netMode = 0;
-                    try { netMode = (int)_netModeField.GetValue(null); }
-                    catch { }
-                    if (netMode != 0)
+                    if (Main.netMode != 0)
                     {
                         _log.Warn("ItemSpawner is disabled in multiplayer");
                         return;
@@ -416,46 +370,27 @@ namespace ItemSpawner
         {
             try
             {
-                if (_mouseItemField == null || _itemTypeField == null || _itemStackField == null || _itemType == null)
-                {
-                    _log.Warn("Cannot spawn to cursor - missing reflection fields");
-                    SpawnToInventory(itemId, stack);
-                    return;
-                }
-
-                var mouseItem = _mouseItemField.GetValue(null);
+                Item mouseItem = Main.mouseItem;
                 if (mouseItem == null)
                 {
                     SpawnToInventory(itemId, stack);
                     return;
                 }
 
-                int currentType = (int)_itemTypeField.GetValue(mouseItem);
-
-                if (currentType == 0)
+                if (mouseItem.type == 0)
                 {
-                    if (_itemSetDefaultsIntMethod == null)
-                    {
-                        SpawnToInventory(itemId, stack);
-                        return;
-                    }
-                    var newItem = Activator.CreateInstance(_itemType);
-                    if (newItem != null)
-                    {
-                        InvokeSetDefaults(newItem, itemId);
-                        _itemStackField.SetValue(newItem, stack);
-                        _mouseItemField.SetValue(null, newItem);
-                    }
+                    var newItem = new Item();
+                    newItem.SetDefaults(itemId);
+                    newItem.stack = stack;
+                    Main.mouseItem = newItem;
                 }
-                else if (currentType == itemId)
+                else if (mouseItem.type == itemId)
                 {
-                    int currentStack = (int)_itemStackField.GetValue(mouseItem);
-                    int maxStack = (int)_itemMaxStackField.GetValue(mouseItem);
-                    int canAdd = maxStack - currentStack;
+                    int canAdd = mouseItem.maxStack - mouseItem.stack;
                     if (canAdd > 0)
                     {
                         int toAdd = Math.Min(stack, canAdd);
-                        _itemStackField.SetValue(mouseItem, currentStack + toAdd);
+                        mouseItem.stack += toAdd;
                     }
                 }
                 else
@@ -469,65 +404,13 @@ namespace ItemSpawner
             }
         }
 
-        private void InvokeSetDefaults(object item, int itemId)
-        {
-            var parms = _itemSetDefaultsIntMethod.GetParameters();
-            if (parms.Length == 1)
-                _itemSetDefaultsIntMethod.Invoke(item, new object[] { itemId });
-            else if (parms.Length == 2)
-                _itemSetDefaultsIntMethod.Invoke(item, new object[] { itemId, null });
-            else
-                _itemSetDefaultsIntMethod.Invoke(item, new object[] { itemId });
-        }
-
         private void SpawnToInventory(int itemId, int stack)
         {
             try
             {
-                int myPlayer = (int)_myPlayerField.GetValue(null);
-                var players = (Array)_playerArrayField.GetValue(null);
-                var player = players.GetValue(myPlayer);
-
-                var quickSpawnMethod = _playerType?.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                    .FirstOrDefault(m => m.Name == "QuickSpawnItem" && m.GetParameters().Length >= 3);
-
-                if (quickSpawnMethod != null)
-                {
-                    var parms = quickSpawnMethod.GetParameters();
-                    var entitySourceType = parms[0].ParameterType;
-
-                    object source = null;
-                    var entitySourceIdType = _mainType.Assembly.GetType("Terraria.DataStructures.EntitySource_Parent");
-                    if (entitySourceIdType == null)
-                    {
-                        entitySourceIdType = _mainType.Assembly.GetType("Terraria.DataStructures.EntitySource_Gift");
-                    }
-
-                    if (entitySourceIdType != null)
-                    {
-                        var ctor = entitySourceIdType.GetConstructors().FirstOrDefault();
-                        if (ctor != null)
-                        {
-                            var ctorParms = ctor.GetParameters();
-                            if (ctorParms.Length == 1)
-                            {
-                                source = ctor.Invoke(new[] { player });
-                            }
-                            else if (ctorParms.Length == 0)
-                            {
-                                source = ctor.Invoke(null);
-                            }
-                        }
-                    }
-
-                    if (source != null)
-                    {
-                        quickSpawnMethod.Invoke(player, new object[] { source, itemId, stack });
-                        return;
-                    }
-                }
-
-                _log.Warn("Could not spawn item - no suitable method found");
+                Player player = Main.player[Main.myPlayer];
+                var source = new EntitySource_Parent(player);
+                player.QuickSpawnItem(source, itemId, stack);
             }
             catch (Exception ex)
             {
@@ -555,20 +438,6 @@ namespace ItemSpawner
 
             _allItems.Clear();
             _filteredItems.Clear();
-
-            _mainType = null;
-            _itemType = null;
-            _playerType = null;
-            _netModeField = null;
-            _myPlayerField = null;
-            _playerArrayField = null;
-            _itemNameProp = null;
-            _itemMaxStackField = null;
-            _mouseItemField = null;
-            _itemTypeField = null;
-            _itemStackField = null;
-            _itemSetDefaultsIntMethod = null;
-            _playerInventoryField = null;
 
             _log.Info("ItemSpawner unloaded");
         }

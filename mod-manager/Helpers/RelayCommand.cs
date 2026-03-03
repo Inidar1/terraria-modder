@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using TerrariaModManager.Services;
 
 namespace TerrariaModManager.Helpers;
 
@@ -67,6 +68,10 @@ public class AsyncRelayCommand : ICommand
         try
         {
             await _execute();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Command failed: {ex}");
         }
         finally
         {

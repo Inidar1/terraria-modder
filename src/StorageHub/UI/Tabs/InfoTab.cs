@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
+using Terraria;
 using TerrariaModder.Core.UI;
 using TerrariaModder.Core.Logging;
 using StorageHub.Storage;
@@ -448,9 +448,11 @@ namespace StorageHub.UI.Tabs
         {
             _itemCounts.Clear();
 
-            // Count items from all storage
-            var allItems = _storage.GetAllItems();
-            _log.Debug($"[InfoTab] RefreshItemCounts: Scanning {allItems.Count} items from storage");
+            // Count items in range only (out-of-range items can't be consumed for upgrades)
+            var allItems = _rangeCalc != null
+                ? _rangeCalc.FilterItemsByRange(_storage.GetAllItems())
+                : _storage.GetAllItems();
+            _log.Debug($"[InfoTab] RefreshItemCounts: Scanning {allItems.Count} in-range items from storage");
 
             foreach (var item in allItems)
             {
@@ -487,23 +489,9 @@ namespace StorageHub.UI.Tabs
         private readonly ILogger _log;
         private IStorageProvider _storage;
 
-        // Reflection cache
-        private static Type _mainType;
-        private static Type _itemType;
-        private static FieldInfo _playerArrayField;
-        private static FieldInfo _myPlayerField;
-        private static FieldInfo _playerInventoryField;
-        private static FieldInfo _itemTypeField;
-        private static FieldInfo _itemStackField;
-        private static bool _initialized;
-
         public ItemConsumer(ILogger log)
         {
             _log = log;
-            if (!_initialized)
-            {
-                InitReflection();
-            }
         }
 
         /// <summary>
@@ -512,42 +500,6 @@ namespace StorageHub.UI.Tabs
         public void SetStorageProvider(IStorageProvider storage)
         {
             _storage = storage;
-        }
-
-        private void InitReflection()
-        {
-            try
-            {
-                _mainType = Type.GetType("Terraria.Main, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Main");
-                _itemType = Type.GetType("Terraria.Item, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Item");
-
-                if (_mainType != null)
-                {
-                    _playerArrayField = _mainType.GetField("player", BindingFlags.Public | BindingFlags.Static);
-                    _myPlayerField = _mainType.GetField("myPlayer", BindingFlags.Public | BindingFlags.Static);
-                }
-
-                var playerType = Type.GetType("Terraria.Player, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Player");
-                if (playerType != null)
-                {
-                    _playerInventoryField = playerType.GetField("inventory", BindingFlags.Public | BindingFlags.Instance);
-                }
-
-                if (_itemType != null)
-                {
-                    _itemTypeField = _itemType.GetField("type", BindingFlags.Public | BindingFlags.Instance);
-                    _itemStackField = _itemType.GetField("stack", BindingFlags.Public | BindingFlags.Instance);
-                }
-
-                _initialized = true;
-            }
-            catch (Exception ex)
-            {
-                _log.Error($"ItemConsumer init failed: {ex.Message}");
-            }
         }
 
         /// <summary>
@@ -561,35 +513,24 @@ namespace StorageHub.UI.Tabs
         {
             try
             {
-                // Validate fields exist
-                if (_itemTypeField == null || _itemStackField == null)
-                {
-                    _log.Error("ConsumeItems: Required fields not initialized");
-                    return false;
-                }
-
                 // First, count total available from inventory and storage
                 long totalAvailable = 0;
                 var itemSources = new List<ItemSource>();
 
                 // Count from player inventory
-                var player = GetLocalPlayer();
+                var player = Main.player[Main.myPlayer];
                 if (player != null)
                 {
-                    var inventory = _playerInventoryField?.GetValue(player) as Array;
+                    var inventory = player.inventory;
                     if (inventory != null)
                     {
                         for (int i = 0; i < inventory.Length; i++)
                         {
-                            var item = inventory.GetValue(i);
+                            var item = inventory[i];
                             if (item == null) continue;
 
-                            var itemTypeVal = _itemTypeField.GetValue(item);
-                            var stackVal = _itemStackField.GetValue(item);
-                            if (itemTypeVal == null || stackVal == null) continue;
-
-                            int itemType = (int)itemTypeVal;
-                            int stack = (int)stackVal;
+                            int itemType = item.type;
+                            int stack = item.stack;
 
                             if (stack > 0 && IsAcceptedItem(itemType, acceptedItemIds))
                             {
@@ -655,12 +596,12 @@ namespace StorageHub.UI.Tabs
                         int newStack = source.Stack - toConsume;
                         if (newStack <= 0)
                         {
-                            _itemTypeField.SetValue(source.InventoryItem, 0);
-                            _itemStackField.SetValue(source.InventoryItem, 0);
+                            source.InventoryItem.type = 0;
+                            source.InventoryItem.stack = 0;
                         }
                         else
                         {
-                            _itemStackField.SetValue(source.InventoryItem, newStack);
+                            source.InventoryItem.stack = newStack;
                         }
                         remaining -= toConsume;
                         _log.Debug($"Consumed {toConsume}x item #{source.ItemId} from inventory slot {source.InventorySlot}");
@@ -692,7 +633,7 @@ namespace StorageHub.UI.Tabs
         private struct ItemSource
         {
             public bool IsInventory;
-            public object InventoryItem;
+            public Item InventoryItem;
             public int InventorySlot;
             public ItemSnapshot StorageSnapshot;
             public int ItemId;
@@ -706,32 +647,6 @@ namespace StorageHub.UI.Tabs
                 if (itemType == id) return true;
             }
             return false;
-        }
-
-        private object GetLocalPlayer()
-        {
-            try
-            {
-                if (_myPlayerField == null || _playerArrayField == null)
-                    return null;
-
-                var myPlayerVal = _myPlayerField.GetValue(null);
-                if (myPlayerVal == null) return null;
-
-                int myPlayer = (int)myPlayerVal;
-                var players = _playerArrayField.GetValue(null) as Array;
-                if (players == null) return null;
-
-                // Bounds check before array access
-                if (myPlayer < 0 || myPlayer >= players.Length)
-                    return null;
-
-                return players.GetValue(myPlayer);
-            }
-            catch
-            {
-                return null;
-            }
         }
     }
 }

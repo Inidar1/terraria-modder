@@ -99,6 +99,8 @@ namespace TerrariaModder.Core.Manifest
             manifest.Dependencies = ExtractStringArray(json, "dependencies");
             manifest.OptionalDependencies = ExtractStringArray(json, "optional_dependencies");
             manifest.IncompatibleWith = ExtractStringArray(json, "incompatible_with");
+            manifest.LoadAfter = ExtractStringArray(json, "load_after");
+            manifest.LoadBefore = ExtractStringArray(json, "load_before");
             manifest.Tags = ExtractStringArray(json, "tags");
             manifest.ConfigSchemaJson = ExtractObject(json, "config_schema");
             manifest.Keybinds = ExtractKeybinds(json);

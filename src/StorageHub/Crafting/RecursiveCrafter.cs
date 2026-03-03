@@ -72,9 +72,13 @@ namespace StorageHub.Crafting
             var visited = new HashSet<int>(); // itemId -> being calculated (for cycle detection)
             var steps = new List<CraftStep>();
             var rawMaterialsNeeded = new Dictionary<int, int>();
+            // Track materials already allocated to earlier steps to prevent double-counting.
+            // Each ingredient subtracts from the real available count so sibling ingredients
+            // and sibling recipes see an accurate remaining quantity.
+            var claimedMaterials = new Dictionary<int, int>();
 
             // Calculate recursively
-            bool success = CalculateStepsFor(targetRecipe, targetCount, 0, visited, steps, rawMaterialsNeeded);
+            bool success = CalculateStepsFor(targetRecipe, targetCount, 0, visited, steps, rawMaterialsNeeded, claimedMaterials);
 
             if (!success)
             {
@@ -123,9 +127,10 @@ namespace StorageHub.Crafting
                     }
                 }
 
-                // PHASE 2: Virtual pool validation — simulate execution to catch double-counting
-                // The recursive planner may generate steps where the same materials are counted
-                // multiple times (each GetMaterialCount() sees fresh storage). This catches it.
+                // PHASE 2: Virtual pool validation — simulate execution as a safety net.
+                // The claimedMaterials dict handles the primary double-counting prevention
+                // during planning, but this second pass catches any edge cases (e.g., merged
+                // steps from diamond dependencies) by simulating actual execution order.
                 if (plan.CanCraft)
                 {
                     ValidateWithVirtualPool(plan);
@@ -141,7 +146,8 @@ namespace StorageHub.Crafting
             int depth,
             HashSet<int> visited,
             List<CraftStep> steps,
-            Dictionary<int, int> rawMaterialsNeeded)
+            Dictionary<int, int> rawMaterialsNeeded,
+            Dictionary<int, int> claimedMaterials)
         {
             if (depth > _currentMaxDepth)
             {
@@ -164,14 +170,20 @@ namespace StorageHub.Crafting
                 long totalNeededLong = (long)ing.RequiredStack * craftTimes;
                 int totalNeeded = totalNeededLong > int.MaxValue ? int.MaxValue : (int)totalNeededLong;
 
-                // Check if we already have this ingredient
-                int have = _checker.GetMaterialCount(ing.ItemId);
+                // Check how many we have, minus what earlier steps already claimed
+                int rawHave = _checker.GetMaterialCount(ing.ItemId);
+                int alreadyClaimed = GetClaimed(claimedMaterials, ing.ItemId);
+                int have = Math.Max(0, rawHave - alreadyClaimed);
 
                 // If we're already calculating this item, we have a cycle
                 if (visited.Contains(ing.ItemId))
                 {
                     // Use what we have, need the rest as raw material
                     AddToDict(rawMaterialsNeeded, ing.ItemId, totalNeeded);
+                    // Claim what we're consuming from available stock
+                    int fromStock = Math.Min(have, totalNeeded);
+                    if (fromStock > 0)
+                        AddToDict(claimedMaterials, ing.ItemId, fromStock);
                     continue;
                 }
 
@@ -201,6 +213,10 @@ namespace StorageHub.Crafting
                 {
                     // Cannot be crafted - this is a raw material
                     AddToDict(rawMaterialsNeeded, ing.ItemId, totalNeeded);
+                    // Claim the materials we'll consume from storage
+                    int fromStock = Math.Min(have, totalNeeded);
+                    if (fromStock > 0)
+                        AddToDict(claimedMaterials, ing.ItemId, fromStock);
                 }
                 else
                 {
@@ -226,8 +242,13 @@ namespace StorageHub.Crafting
                             continue; // Can't use this recipe — station/environment unavailable
                         }
 
-                        // Calculate how many we actually need to craft
+                        // Calculate how many we actually need to craft (accounting for claims)
                         int amountToCraft = totalNeeded - have;
+
+                        // Claim the materials we're consuming from available stock
+                        int fromStock = Math.Min(have, totalNeeded);
+                        if (fromStock > 0)
+                            AddToDict(claimedMaterials, ing.ItemId, fromStock);
 
                         // Skip if we already have enough (no crafting needed)
                         if (amountToCraft <= 0)
@@ -239,8 +260,9 @@ namespace StorageHub.Crafting
                         // Mark as being visited
                         visited.Add(ing.ItemId);
 
-                        // Recursively calculate
-                        bool subSuccess = CalculateStepsFor(subRecipe, amountToCraft, depth + 1, visited, steps, rawMaterialsNeeded);
+                        // Recursively calculate — pass claimedMaterials so sub-recipes
+                        // see what's already been allocated
+                        bool subSuccess = CalculateStepsFor(subRecipe, amountToCraft, depth + 1, visited, steps, rawMaterialsNeeded, claimedMaterials);
 
                         visited.Remove(ing.ItemId);
 
@@ -250,12 +272,23 @@ namespace StorageHub.Crafting
                             foundCraftable = true;
                             break;
                         }
+                        else
+                        {
+                            // Sub-recipe failed — unclaim the stock we optimistically claimed
+                            if (fromStock > 0)
+                                SubtractFromDict(claimedMaterials, ing.ItemId, fromStock);
+                        }
                     }
 
                     if (!foundCraftable)
                     {
                         // Couldn't craft it, need as raw material
-                        AddToDict(rawMaterialsNeeded, ing.ItemId, totalNeeded - have);
+                        int shortfall = totalNeeded - have;
+                        AddToDict(rawMaterialsNeeded, ing.ItemId, shortfall);
+                        // Claim what we do have from storage
+                        int fromStock = Math.Min(have, totalNeeded);
+                        if (fromStock > 0)
+                            AddToDict(claimedMaterials, ing.ItemId, fromStock);
                     }
                 }
             }
@@ -291,6 +324,31 @@ namespace StorageHub.Crafting
             }
             else
                 dict[key] = value;
+        }
+
+        /// <summary>
+        /// Subtract a value from a dictionary entry. Clamps to 0 (never goes negative).
+        /// Used to "unclaim" materials when a sub-recipe attempt fails.
+        /// </summary>
+        private void SubtractFromDict(Dictionary<int, int> dict, int key, int value)
+        {
+            if (value <= 0) return;
+            if (dict.TryGetValue(key, out int current))
+            {
+                int newVal = current - value;
+                if (newVal <= 0)
+                    dict.Remove(key);
+                else
+                    dict[key] = newVal;
+            }
+        }
+
+        /// <summary>
+        /// Get the currently claimed amount for a material, or 0 if not yet claimed.
+        /// </summary>
+        private static int GetClaimed(Dictionary<int, int> claimedMaterials, int itemId)
+        {
+            return claimedMaterials.TryGetValue(itemId, out int claimed) ? claimed : 0;
         }
 
         /// <summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
+using Terraria;
+using Terraria.ID;
 
 namespace StorageHub.PaintingChest
 {
@@ -59,62 +60,19 @@ namespace StorageHub.PaintingChest
 
             try
             {
-                var terrariaAsm = Assembly.Load("Terraria");
+                var basicChest = TileID.Sets.BasicChest;
+                var itemsByType = ContentSamples.ItemsByType;
 
-                // Get TileID.Sets.BasicChest (bool[])
-                var setsType = terrariaAsm.GetType("Terraria.ID.TileID+Sets");
-                var basicChestField = setsType?.GetField("BasicChest", BindingFlags.Public | BindingFlags.Static);
-                var basicChest = basicChestField?.GetValue(null) as bool[];
-                if (basicChest == null)
-                {
-                    _chestItemIds = Array.Empty<int>();
-                    return _chestItemIds;
-                }
-
-                // Get ContentSamples.ItemsByType (Dictionary<int, Item>)
-                var contentSamplesType = terrariaAsm.GetType("Terraria.ID.ContentSamples");
-                var itemsByTypeField = contentSamplesType?.GetField("ItemsByType", BindingFlags.Public | BindingFlags.Static);
-                var itemsByType = itemsByTypeField?.GetValue(null);
-                if (itemsByType == null)
-                {
-                    _chestItemIds = Array.Empty<int>();
-                    return _chestItemIds;
-                }
-
-                // Item.createTile field
-                var itemType = terrariaAsm.GetType("Terraria.Item");
-                var createTileField = itemType?.GetField("createTile", BindingFlags.Public | BindingFlags.Instance);
-                var typeField = itemType?.GetField("type", BindingFlags.Public | BindingFlags.Instance);
-                if (createTileField == null || typeField == null)
-                {
-                    _chestItemIds = Array.Empty<int>();
-                    return _chestItemIds;
-                }
-
-                // Iterate dictionary
                 var result = new List<int>();
-                var enumerator = itemsByType.GetType().GetMethod("GetEnumerator")?.Invoke(itemsByType, null);
-                if (enumerator == null)
+                foreach (var kvp in itemsByType)
                 {
-                    _chestItemIds = Array.Empty<int>();
-                    return _chestItemIds;
-                }
-
-                var moveNext = enumerator.GetType().GetMethod("MoveNext");
-                var currentProp = enumerator.GetType().GetProperty("Current");
-
-                while ((bool)moveNext.Invoke(enumerator, null))
-                {
-                    var kvp = currentProp.GetValue(enumerator);
-                    var valueProp = kvp.GetType().GetProperty("Value");
-                    var item = valueProp.GetValue(kvp);
+                    var item = kvp.Value;
                     if (item == null) continue;
 
-                    int createTile = (int)createTileField.GetValue(item);
+                    int createTile = item.createTile;
                     if (createTile >= 0 && createTile < basicChest.Length && basicChest[createTile])
                     {
-                        int id = (int)typeField.GetValue(item);
-                        if (id > 0) result.Add(id);
+                        if (item.type > 0) result.Add(item.type);
                     }
                 }
 

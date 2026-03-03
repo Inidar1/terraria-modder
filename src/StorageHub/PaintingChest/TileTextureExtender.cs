@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.GameContent;
 using TerrariaModder.Core.Assets;
@@ -14,12 +15,10 @@ namespace StorageHub.PaintingChest
         private static bool _itemExtended;
         private static bool _failed;
 
-        private static Type _texture2dType;
-        private static object _graphicsDevice;
-        private static MethodInfo _getDataMethod;
-        private static MethodInfo _setDataMethod;
-        private static ConstructorInfo _texture2dCtor;
-        private static bool _reflectionReady;
+        // GraphicsDevice is from XNA (Microsoft.Xna.Framework.Graphics), directly referenced.
+        // Asset<T> is from ReLogic.Content — NOT visible at compile time (embedded in Terraria.exe
+        // with no separate ReLogic.Content.dll). Tile/item arrays stay as Array for the same reason.
+        private static GraphicsDevice _graphicsDevice;
 
         private const int SOURCE_STYLE = 3; // "Good Morning" painting
         private const int FRAME_WIDTH = 54;
@@ -36,7 +35,11 @@ namespace StorageHub.PaintingChest
 
             try
             {
-                if (!InitReflection()) return;
+                if (_graphicsDevice == null)
+                {
+                    _graphicsDevice = Main.instance?.GraphicsDevice;
+                    if (_graphicsDevice == null) return;
+                }
 
                 if (!_tileExtended)
                     _tileExtended = ExtendTileSpritesheet();
@@ -50,81 +53,15 @@ namespace StorageHub.PaintingChest
             }
         }
 
-        private static bool InitReflection()
-        {
-            if (_reflectionReady) return true;
-
-            _texture2dType = null;
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                _texture2dType = asm.GetType("Microsoft.Xna.Framework.Graphics.Texture2D");
-                if (_texture2dType != null) break;
-            }
-            if (_texture2dType == null) return false;
-
-            var instField = typeof(Main).GetField("instance", BindingFlags.Public | BindingFlags.Static);
-            var inst = instField?.GetValue(null);
-            if (inst != null)
-            {
-                var gdProp = inst.GetType().GetProperty("GraphicsDevice");
-                _graphicsDevice = gdProp?.GetValue(inst);
-            }
-            if (_graphicsDevice == null) return false;
-
-            var gdType = _graphicsDevice.GetType();
-            _texture2dCtor = _texture2dType.GetConstructor(new[] { gdType, typeof(int), typeof(int) });
-            if (_texture2dCtor == null) return false;
-
-            foreach (var m in _texture2dType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (m.Name == "GetData" && m.IsGenericMethod)
-                {
-                    var parms = m.GetParameters();
-                    if (parms.Length == 1 && parms[0].ParameterType.IsArray)
-                    {
-                        _getDataMethod = m.MakeGenericMethod(typeof(uint));
-                        break;
-                    }
-                }
-            }
-            foreach (var m in _texture2dType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (m.Name == "SetData" && m.IsGenericMethod)
-                {
-                    var parms = m.GetParameters();
-                    if (parms.Length == 1 && parms[0].ParameterType.IsArray)
-                    {
-                        _setDataMethod = m.MakeGenericMethod(typeof(uint));
-                        break;
-                    }
-                }
-            }
-
-            if (_getDataMethod == null || _setDataMethod == null) return false;
-
-            _reflectionReady = true;
-            return true;
-        }
-
-        private static object GetTexture2DFromAsset(object asset)
+        // Asset<T>.Value — ReLogic type, must get via reflection.
+        private static Texture2D GetTexture2DFromAsset(object asset)
         {
             if (asset == null) return null;
-            return asset.GetType().GetProperty("Value")?.GetValue(asset);
+            return asset.GetType().GetProperty("Value")?.GetValue(asset) as Texture2D;
         }
 
-        private static int GetTextureWidth(object texture) => (int)texture.GetType().GetProperty("Width").GetValue(texture);
-        private static int GetTextureHeight(object texture) => (int)texture.GetType().GetProperty("Height").GetValue(texture);
-
-        private static uint[] GetPixelData(object texture)
-        {
-            int w = GetTextureWidth(texture);
-            int h = GetTextureHeight(texture);
-            var data = new uint[w * h];
-            _getDataMethod.Invoke(texture, new object[] { data });
-            return data;
-        }
-
-        private static object ForceLoadAsset(string assetName)
+        // Main.Assets is IAssetRepository (ReLogic type) — must call Request<T> via reflection.
+        private static Texture2D ForceLoadAsset(string assetName)
         {
             try
             {
@@ -139,18 +76,19 @@ namespace StorageHub.PaintingChest
                 }
                 if (requestMethod == null) return null;
 
-                var requestGeneric = requestMethod.MakeGenericMethod(_texture2dType);
+                var requestGeneric = requestMethod.MakeGenericMethod(typeof(Texture2D));
                 var modeType = requestGeneric.GetParameters()[1].ParameterType;
                 var immediateLoad = Enum.ToObject(modeType, 1);
 
                 var asset = requestGeneric.Invoke(repo, new object[] { assetName, immediateLoad });
-                return asset == null ? null : GetTexture2DFromAsset(asset);
+                return GetTexture2DFromAsset(asset);
             }
             catch { return null; }
         }
 
         private static bool ExtendTileSpritesheet()
         {
+            // TextureAssets.Tile is Asset<Texture2D>[] — Asset<T> not visible at compile time, access as Array.
             var tileArray = typeof(TextureAssets).GetField("Tile", BindingFlags.Public | BindingFlags.Static)
                 ?.GetValue(null) as Array;
             if (tileArray == null || PaintingChestManager.TILE_TYPE >= tileArray.Length) return false;
@@ -159,12 +97,13 @@ namespace StorageHub.PaintingChest
             var existingTexture = ForceLoadAsset("Images/Tiles_" + PaintingChestManager.TILE_TYPE);
             if (existingTexture == null) return false;
 
-            int origWidth = GetTextureWidth(existingTexture);
-            int origHeight = GetTextureHeight(existingTexture);
-            uint[] origPixels = GetPixelData(existingTexture);
+            int origWidth = existingTexture.Width;
+            int origHeight = existingTexture.Height;
+            var origPixels = new uint[origWidth * origHeight];
+            existingTexture.GetData(origPixels);
 
             int gmFrameY = SOURCE_STYLE * FRAME_HEIGHT;
-            uint[] framePixels = new uint[FRAME_WIDTH * FRAME_HEIGHT];
+            var framePixels = new uint[FRAME_WIDTH * FRAME_HEIGHT];
             for (int row = 0; row < FRAME_HEIGHT; row++)
                 for (int col = 0; col < FRAME_WIDTH; col++)
                 {
@@ -176,15 +115,15 @@ namespace StorageHub.PaintingChest
             RecolorFrame(framePixels, FRAME_WIDTH, FRAME_HEIGHT);
 
             int newHeight = origHeight + FRAME_HEIGHT;
-            var newTexture = _texture2dCtor.Invoke(new object[] { _graphicsDevice, origWidth, newHeight });
-            uint[] newPixels = new uint[origWidth * newHeight];
+            var newTexture = new Texture2D(_graphicsDevice, origWidth, newHeight);
+            var newPixels = new uint[origWidth * newHeight];
             Array.Copy(origPixels, 0, newPixels, 0, origPixels.Length);
 
             for (int row = 0; row < FRAME_HEIGHT; row++)
                 for (int col = 0; col < FRAME_WIDTH; col++)
                     newPixels[(origHeight + row) * origWidth + col] = framePixels[row * FRAME_WIDTH + col];
 
-            _setDataMethod.Invoke(newTexture, new object[] { newPixels });
+            newTexture.SetData(newPixels);
 
             var originalName = GetAssetName(existingAsset) ?? "Images/Tiles_" + PaintingChestManager.TILE_TYPE;
             var newAsset = CreateAssetWrapper(existingAsset.GetType(), newTexture, originalName);
@@ -240,6 +179,7 @@ namespace StorageHub.PaintingChest
             int ourType = ItemRegistry.GetRuntimeType(PaintingChestManager.FULL_ITEM_ID);
             if (ourType < 0) return false;
 
+            // TextureAssets.Item is Asset<Texture2D>[] — Asset<T> not visible at compile time, access as Array.
             var itemArray = typeof(TextureAssets).GetField("Item", BindingFlags.Public | BindingFlags.Static)
                 ?.GetValue(null) as Array;
             if (itemArray == null) return false;
@@ -250,10 +190,11 @@ namespace StorageHub.PaintingChest
             var gmTexture = ForceLoadAsset("Images/Item_" + SOURCE_ITEM_ID);
             if (gmTexture == null) return false;
 
-            int itemW = GetTextureWidth(gmTexture);
-            int itemH = GetTextureHeight(gmTexture);
-            uint[] pixels = GetPixelData(gmTexture);
-            uint[] newPixels = new uint[pixels.Length];
+            int itemW = gmTexture.Width;
+            int itemH = gmTexture.Height;
+            var pixels = new uint[itemW * itemH];
+            gmTexture.GetData(pixels);
+            var newPixels = new uint[pixels.Length];
             Array.Copy(pixels, newPixels, pixels.Length);
 
             for (int i = 0; i < newPixels.Length; i++)
@@ -272,8 +213,8 @@ namespace StorageHub.PaintingChest
                 newPixels[i] = (alpha << 24) | (b << 16) | (g << 8) | r;
             }
 
-            var newTexture = _texture2dCtor.Invoke(new object[] { _graphicsDevice, itemW, itemH });
-            _setDataMethod.Invoke(newTexture, new object[] { newPixels });
+            var newTexture = new Texture2D(_graphicsDevice, itemW, itemH);
+            newTexture.SetData(newPixels);
 
             var existingItemAsset = itemArray.GetValue(SOURCE_ITEM_ID);
             var originalItemName = GetAssetName(existingItemAsset) ?? "Images/Item_" + SOURCE_ITEM_ID;
@@ -292,7 +233,8 @@ namespace StorageHub.PaintingChest
             return asset?.GetType().GetProperty("Name")?.GetValue(asset) as string;
         }
 
-        private static object CreateAssetWrapper(Type assetType, object texture, string assetName)
+        // Asset<T> has internal constructor and private backing fields — must use reflection.
+        private static object CreateAssetWrapper(Type assetType, Texture2D texture, string assetName)
         {
             try
             {

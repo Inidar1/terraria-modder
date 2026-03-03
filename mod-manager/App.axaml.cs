@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using Microsoft.Extensions.DependencyInjection;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
 using TerrariaModManager.Services;
@@ -14,20 +15,10 @@ namespace TerrariaModManager;
 public partial class App : Application
 {
     private SingleInstance? _singleInstance;
+    private IServiceProvider? _serviceProvider;
+    private Logger? _logger;
 
-    // Shared services — accessed by ViewModels
-    public static SettingsService Settings { get; } = new();
-    public static TerrariaDetector Detector { get; } = new();
-    public static ModStateService ModState { get; } = new();
-    public static NexusApiService NexusApi { get; } = new();
-    public static NxmLinkHandler NxmHandler { get; } = new();
-    public static NxmProtocolRegistrar NxmRegistrar { get; } = new();
-    public static ModInstallService Installer { get; } = new();
-    public static UpdateTracker UpdateTracker { get; } = new();
-    public static DownloadManager Downloads { get; private set; } = null!;
-
-    public static Models.AppSettings AppSettings { get; set; } = null!;
-    public static Avalonia.Controls.Window? MainWindow { get; private set; }
+    public static string? EnvApiKey { get; private set; }
 
     public override void Initialize()
     {
@@ -40,15 +31,13 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
             if (args.ExceptionObject is Exception ex)
-                Logger.Error("Fatal unhandled exception", ex);
+                _logger?.Error("Fatal unhandled exception", ex);
         };
         TaskScheduler.UnobservedTaskException += (_, args) =>
         {
-            Logger.Error("Unobserved task exception", args.Exception);
+            _logger?.Error("Unobserved task exception", args.Exception);
             args.SetObserved();
         };
-
-        Logger.Info("TerrariaModder Manager starting");
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -62,25 +51,40 @@ public partial class App : Application
                 return;
             }
 
-            SettingsService.EnsureDirectories();
-
-            // Load settings
-            AppSettings = Settings.Load();
-
             // Load .env file (dev API key)
             LoadEnvFile();
 
-            // Init services
-            if (!string.IsNullOrWhiteSpace(AppSettings.NexusApiKey))
-                NexusApi.SetApiKey(AppSettings.NexusApiKey);
+            // Set up DI
+            var services = new ServiceCollection();
+            ConfigureServices(services);
+            _serviceProvider = services.BuildServiceProvider();
+
+            // Initialize Logger
+            _logger = _serviceProvider.GetRequiredService<Logger>();
+            _logger.Info("TerrariaModder Vault starting");
+
+            var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
+            settingsService.EnsureDirectories();
+
+            var appSettings = settingsService.Load();
+            var nexusApi = _serviceProvider.GetRequiredService<NexusApiService>();
+            var installer = _serviceProvider.GetRequiredService<ModInstallService>();
+
+            if (!string.IsNullOrWhiteSpace(appSettings.NexusApiKey))
+                nexusApi.SetApiKey(appSettings.NexusApiKey);
             else if (!string.IsNullOrWhiteSpace(EnvApiKey))
-                NexusApi.SetApiKey(EnvApiKey);
+                nexusApi.SetApiKey(EnvApiKey);
 
-            if (!string.IsNullOrWhiteSpace(AppSettings.TerrariaPath))
-                Installer.SetTerrariaPath(AppSettings.TerrariaPath);
+            if (!string.IsNullOrWhiteSpace(appSettings.TerrariaPath))
+                installer.SetTerrariaPath(appSettings.TerrariaPath);
 
-            // Config found callback — invoked on UI thread via Dispatcher.UIThread.InvokeAsync
-            Installer.OnExistingConfigFound = async (modId, configFiles) =>
+            // Create and show main window
+            var mainWindow = new MainWindow();
+            var vm = _serviceProvider.GetRequiredService<MainViewModel>();
+            mainWindow.DataContext = vm;
+
+            // Config found callback
+            installer.OnExistingConfigFound = async (modId, configFiles) =>
             {
                 var fileList = string.Join("\n", configFiles.Select(f => $"  • {f}"));
                 var box = MessageBoxManager.GetMessageBoxCustom(
@@ -97,19 +101,12 @@ public partial class App : Application
                             new MsBox.Avalonia.Models.ButtonDefinition { Name = "Clean Install", IsCancel = true }
                         }
                     });
-                var result = MainWindow != null
-                    ? await box.ShowWindowDialogAsync(MainWindow)
-                    : await box.ShowAsync();
+                var result = await box.ShowWindowDialogAsync(mainWindow);
                 return result == "Keep Settings" ? ConfigAction.Keep : ConfigAction.Delete;
             };
 
-            Downloads = new DownloadManager(NexusApi, Installer);
-
-            // Create and show main window
-            var mainWindow = new MainWindow();
-            var vm = (MainViewModel)mainWindow.DataContext!;
-
             // Listen for nxm:// links from other instances
+            var nxmHandler = _serviceProvider.GetRequiredService<NxmLinkHandler>();
             _singleInstance.MessageReceived += msg =>
             {
                 Dispatcher.UIThread.InvokeAsync(() =>
@@ -120,8 +117,8 @@ public partial class App : Application
                         return;
                     }
 
-                    var link = NxmHandler.Parse(msg);
-                    if (link != null && NxmHandler.IsTerrariaLink(link))
+                    var link = nxmHandler.Parse(msg);
+                    if (link != null && nxmHandler.IsTerrariaLink(link))
                         vm.HandleNxmLink(link);
                 });
             };
@@ -131,50 +128,53 @@ public partial class App : Application
             var startupNxm = FindNxmArg(desktop.Args ?? []);
             if (startupNxm != null)
             {
-                var link = NxmHandler.Parse(startupNxm);
-                if (link != null && NxmHandler.IsTerrariaLink(link))
+                var link = nxmHandler.Parse(startupNxm);
+                if (link != null && nxmHandler.IsTerrariaLink(link))
                 {
                     mainWindow.Opened += (_, _) => vm.HandleNxmLink(link);
                 }
             }
 
-            MainWindow = mainWindow;
             desktop.MainWindow = mainWindow;
             desktop.ShutdownRequested += (_, _) =>
             {
-                Settings.Save(AppSettings);
-                NexusApi.Dispose();
-                Downloads?.Dispose();
+                nexusApi.Dispose();
+                _serviceProvider.GetRequiredService<DownloadManager>().Dispose();
                 _singleInstance?.Dispose();
             };
 
-            Logger.Info("Main window shown");
+            _logger.Info("Main window shown");
         }
 
         base.OnFrameworkInitializationCompleted();
     }
 
-    public static string? EnvApiKey { get; private set; }
+    private void ConfigureServices(IServiceCollection services)
+    {
+        // Services
+        services.AddSingleton<SettingsService>();
+        services.AddSingleton<Logger>();
+        services.AddSingleton<TerrariaDetector>();
+        services.AddSingleton<ModStateService>();
+        services.AddSingleton<NexusApiService>();
+        services.AddSingleton<NxmLinkHandler>();
+        services.AddSingleton<NxmProtocolRegistrar>();
+        services.AddSingleton<ModInstallService>();
+        services.AddSingleton<UpdateTracker>();
+        services.AddSingleton<DownloadManager>();
+
+        // ViewModels
+        services.AddTransient<MainViewModel>();
+        services.AddTransient<InstalledModsViewModel>();
+        services.AddTransient<BrowseViewModel>();
+        services.AddTransient<DownloadsViewModel>();
+        services.AddTransient<SettingsViewModel>();
+    }
 
     private static void LoadEnvFile()
     {
         var exeDir = AppDomain.CurrentDomain.BaseDirectory;
         var envPath = Path.Combine(exeDir, ".env");
-
-        if (!File.Exists(envPath))
-        {
-            var dir = new DirectoryInfo(exeDir);
-            while (dir?.Parent != null)
-            {
-                var candidate = Path.Combine(dir.Parent.FullName, ".env");
-                if (File.Exists(candidate))
-                {
-                    envPath = candidate;
-                    break;
-                }
-                dir = dir.Parent;
-            }
-        }
 
         if (!File.Exists(envPath)) return;
 

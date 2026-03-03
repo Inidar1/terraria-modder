@@ -3,14 +3,22 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Terraria;
+using Terraria.GameInput;
 using TerrariaModder.Core.Logging;
-using TerrariaModder.Core.Reflection;
+using Game = TerrariaModder.Core.Reflection.Game;
 
 namespace TerrariaModder.Core.UI
 {
     /// <summary>
-    /// Low-level UI rendering using reflection to avoid XNA dependencies.
+    /// Low-level UI rendering using direct Terraria and XNA type references.
     /// Uses Terraria's built-in SpriteBatch, fonts, and textures.
+    ///
+    /// ReLogic types (DynamicSpriteFont, Asset&lt;T&gt;) are embedded in Terraria.exe
+    /// but not visible at compile time, so font/asset access uses targeted reflection.
+    /// All XNA and Terraria types use direct references.
     /// </summary>
     public static class UIRenderer
     {
@@ -18,95 +26,25 @@ namespace TerrariaModder.Core.UI
         private static bool _initialized;
         private static bool _initFailed;
 
-        // Cached reflection objects
-        private static object _spriteBatch;
-        private static object _font;
-        private static object _magicPixel;
+        // Cached rendering objects
+        private static SpriteBatch _spriteBatch;
+        private static object _font;         // DynamicSpriteFont — ReLogic type, must stay as object
+        private static Texture2D _magicPixel;
 
-        // Types
-        private static Type _spriteBatchType;
-        private static Type _vector2Type;
-        private static Type _colorType;
-        private static Type _rectangleType;
-        private static Type _spriteSortModeType;
-        private static Type _blendStateType;
-        private static Type _samplerStateType;
-        private static Type _depthStencilStateType;
-        private static Type _rasterizerStateType;
-        private static Type _matrixType;
-
-        // Constructors
-        private static ConstructorInfo _vector2Ctor;
-        private static FieldInfo _vector2XField;
-        private static ConstructorInfo _colorCtorRgba;
-        private static ConstructorInfo _rectangleCtor;
-
-        // Methods
-        private static MethodInfo _drawTextureRect;
-        private static MethodInfo _drawString;
+        // Font measurement — cached reflection for DynamicSpriteFont.MeasureString
         private static MethodInfo _measureString;
-        private static MethodInfo _spriteBatchBegin;
-        private static MethodInfo _spriteBatchEnd;
 
-        // SpriteBatch state
+        // SpriteBatch private state — must remain reflection (private fields)
         private static FieldInfo _spriteBatchBeginCalled;
-        private static object _spriteSortModeDeferred;
-        private static object _blendStateAlphaBlend;
-        private static object _depthStencilStateNone;
-        private static object _mainDefaultSamplerState;
-        private static object _mainRasterizer;
-        private static object _mainTransformMatrix;
-        private static object _identityMatrix;
+        private static FieldInfo _spriteBatchTransformField; // stores Matrix? passed to Begin()
 
         // Track if we called Begin
         private static bool _weCalledBegin;
-
-        // Input state
-        private static FieldInfo _mouseXField;
-        private static FieldInfo _mouseYField;
-        private static FieldInfo _mouseLeftField;
-        private static FieldInfo _mouseLeftReleaseField;
-        private static FieldInfo _mouseRightField;
-        private static FieldInfo _mouseRightReleaseField;
-        private static FieldInfo _mouseMiddleField;
-        private static FieldInfo _mouseMiddleReleaseField;
-        private static FieldInfo _blockMouseField;
-
-        // Screen dimensions
-        private static FieldInfo _screenWidthField;
-        private static FieldInfo _screenHeightField;
-        private static FieldInfo _uiScaleField;
 
         private static bool _scrollPatchApplied;
         private static bool _ignoreMousePatchApplied;
         private static bool _inventoryScrollPatchApplied;
         private static bool _copyIntoPatchApplied;
-
-        // Cached Player control fields (perf: avoid reflection lookup every frame)
-        private static FieldInfo _controlUseTileField;
-        private static FieldInfo _controlUseItemField;
-        private static FieldInfo _controlUpField;
-        private static FieldInfo _controlDownField;
-        private static FieldInfo _controlLeftField;
-        private static FieldInfo _controlRightField;
-        private static FieldInfo _controlJumpField;
-        private static FieldInfo _controlThrowField;
-        private static FieldInfo _controlHookField;
-        private static FieldInfo _controlMountField;
-        private static FieldInfo _mouseInterfaceField;
-
-        // Cached fields for scroll consumption and keyboard blocking
-        private static Type _playerInputType;
-        private static FieldInfo _scrollWheelDeltaForUIField;
-        private static FieldInfo _scrollWheelDeltaField;
-        private static FieldInfo _blockInputField;
-        private static FieldInfo _mainPlayerInputWritingTextField;
-        private static FieldInfo _myPlayerField;
-        private static FieldInfo _playerArrayField;
-
-        // Raw mouse position from PlayerInput (never transformed by zoom — always hardware pixel coords)
-        private static FieldInfo _playerInputMouseXField;
-        private static FieldInfo _playerInputMouseYField;
 
         public static void Initialize(ILogger log)
         {
@@ -124,14 +62,7 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                var playerType = typeof(Terraria.Main).Assembly.GetType("Terraria.Player");
-                if (playerType == null)
-                {
-                    _log?.Warn("[UI] Could not find Player type for scroll patch");
-                    return;
-                }
-
-                var updateMethod = playerType.GetMethod("Update", BindingFlags.Public | BindingFlags.Instance);
+                var updateMethod = typeof(Player).GetMethod("Update", BindingFlags.Public | BindingFlags.Instance);
                 if (updateMethod == null)
                 {
                     _log?.Warn("[UI] Could not find Player.Update for scroll patch");
@@ -161,14 +92,7 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                var playerInputType = typeof(Terraria.Main).Assembly.GetType("Terraria.GameInput.PlayerInput");
-                if (playerInputType == null)
-                {
-                    _log?.Warn("[UI] Could not find PlayerInput type for IgnoreMouseInterface patch");
-                    return;
-                }
-
-                var ignoreMouseProperty = playerInputType.GetProperty("IgnoreMouseInterface", BindingFlags.Public | BindingFlags.Static);
+                var ignoreMouseProperty = typeof(PlayerInput).GetProperty("IgnoreMouseInterface", BindingFlags.Public | BindingFlags.Static);
                 if (ignoreMouseProperty == null)
                 {
                     _log?.Warn("[UI] Could not find PlayerInput.IgnoreMouseInterface property");
@@ -207,8 +131,7 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                var mainType = typeof(Terraria.Main);
-                var method = mainType.GetMethod("DoScrollingInInventory", BindingFlags.Public | BindingFlags.Static);
+                var method = typeof(Main).GetMethod("DoScrollingInInventory", BindingFlags.Public | BindingFlags.Static);
                 if (method == null)
                 {
                     _log?.Warn("[UI] Could not find Main.DoScrollingInInventory for scroll patch");
@@ -260,24 +183,12 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                var triggersSetType = typeof(Terraria.Main).Assembly.GetType("Terraria.GameInput.TriggersSet");
-                if (triggersSetType == null)
-                {
-                    _log?.Warn("[UI] Could not find TriggersSet type for CopyInto patch");
-                    return;
-                }
-
-                var playerType = typeof(Terraria.Main).Assembly.GetType("Terraria.Player");
-                var method = triggersSetType.GetMethod("CopyInto", BindingFlags.Public | BindingFlags.Instance, null, new[] { playerType }, null);
+                var method = typeof(TriggersSet).GetMethod("CopyInto", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(Player) }, null);
                 if (method == null)
                 {
                     _log?.Warn("[UI] Could not find TriggersSet.CopyInto for world interaction block patch");
                     return;
                 }
-
-                // Cache Player control fields for performance (called every frame)
-                _controlUseTileField = playerType.GetField("controlUseTile", BindingFlags.Public | BindingFlags.Instance);
-                _controlUseItemField = playerType.GetField("controlUseItem", BindingFlags.Public | BindingFlags.Instance);
 
                 var harmony = new Harmony("TerrariaModder.Core.UI.CopyIntoBlock");
                 var postfix = typeof(UIRenderer).GetMethod(nameof(CopyIntoPostfix), BindingFlags.NonPublic | BindingFlags.Static);
@@ -297,15 +208,15 @@ namespace TerrariaModder.Core.UI
         /// After triggers are copied to player controls, clears controlUseTile and controlUseItem
         /// when mouse is over a mod panel. Uses UIScale-corrected coordinates for Update phase.
         /// </summary>
-        private static void CopyIntoPostfix(object p)
+        private static void CopyIntoPostfix(Player p)
         {
             if (!IsBlocking) return;
             if (!IsMouseOverAnyPanelUpdatePhase()) return;
 
             try
             {
-                _controlUseTileField?.SetValue(p, false);
-                _controlUseItemField?.SetValue(p, false);
+                p.controlUseTile = false;
+                p.controlUseItem = false;
             }
             catch { }
         }
@@ -339,7 +250,7 @@ namespace TerrariaModder.Core.UI
         /// NOTE: We do NOT set blockMouse here — click prevention during Draw phase is handled by
         /// ShouldBlockItemSlot and IgnoreMouseInterface patches.
         /// </summary>
-        private static void PlayerUpdateScrollBlockPrefix(object __instance)
+        private static void PlayerUpdateScrollBlockPrefix(Player __instance)
         {
             if (IsBlocking)
             {
@@ -355,7 +266,7 @@ namespace TerrariaModder.Core.UI
             {
                 try
                 {
-                    _mainPlayerInputWritingTextField?.SetValue(null, true);
+                    PlayerInput.WritingText = true;
                 }
                 catch { }
 
@@ -363,16 +274,16 @@ namespace TerrariaModder.Core.UI
                 {
                     if (__instance != null)
                     {
-                        _controlUpField?.SetValue(__instance, false);
-                        _controlDownField?.SetValue(__instance, false);
-                        _controlLeftField?.SetValue(__instance, false);
-                        _controlRightField?.SetValue(__instance, false);
-                        _controlJumpField?.SetValue(__instance, false);
-                        _controlUseItemField?.SetValue(__instance, false);
-                        _controlUseTileField?.SetValue(__instance, false);
-                        _controlThrowField?.SetValue(__instance, false);
-                        _controlHookField?.SetValue(__instance, false);
-                        _controlMountField?.SetValue(__instance, false);
+                        __instance.controlUp = false;
+                        __instance.controlDown = false;
+                        __instance.controlLeft = false;
+                        __instance.controlRight = false;
+                        __instance.controlJump = false;
+                        __instance.controlUseItem = false;
+                        __instance.controlUseTile = false;
+                        __instance.controlThrow = false;
+                        __instance.controlHook = false;
+                        __instance.controlMount = false;
                     }
                 }
                 catch { }
@@ -386,8 +297,7 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                if (_scrollWheelDeltaForUIField != null)
-                    return (int)_scrollWheelDeltaForUIField.GetValue(null);
+                return PlayerInput.ScrollWheelDeltaForUI;
             }
             catch { }
             return 0;
@@ -406,55 +316,16 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                var mainType = typeof(Terraria.Main);
-
-                // Find XNA types from loaded assemblies
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    _spriteBatchType ??= asm.GetType("Microsoft.Xna.Framework.Graphics.SpriteBatch");
-                    _vector2Type ??= asm.GetType("Microsoft.Xna.Framework.Vector2");
-                    _colorType ??= asm.GetType("Microsoft.Xna.Framework.Color");
-                    _rectangleType ??= asm.GetType("Microsoft.Xna.Framework.Rectangle");
-                    _spriteSortModeType ??= asm.GetType("Microsoft.Xna.Framework.Graphics.SpriteSortMode");
-                    _blendStateType ??= asm.GetType("Microsoft.Xna.Framework.Graphics.BlendState");
-                    _samplerStateType ??= asm.GetType("Microsoft.Xna.Framework.Graphics.SamplerState");
-                    _depthStencilStateType ??= asm.GetType("Microsoft.Xna.Framework.Graphics.DepthStencilState");
-                    _rasterizerStateType ??= asm.GetType("Microsoft.Xna.Framework.Graphics.RasterizerState");
-                    _matrixType ??= asm.GetType("Microsoft.Xna.Framework.Matrix");
-                    if (_matrixType != null && _identityMatrix == null)
-                    {
-                        var identityProp = _matrixType.GetProperty("Identity", BindingFlags.Public | BindingFlags.Static);
-                        _identityMatrix = identityProp?.GetValue(null);
-                    }
-
-                    if (_spriteBatchType != null && _vector2Type != null && _colorType != null && _rectangleType != null)
-                        break;
-                }
-
-                if (_vector2Type == null || _colorType == null || _rectangleType == null)
-                {
-                    _log?.Error("[UI] Failed to find XNA types");
-                    _initFailed = true;
-                    return false;
-                }
-
                 // Get SpriteBatch
-                var sbField = mainType.GetField("spriteBatch", BindingFlags.Public | BindingFlags.Static);
-                _spriteBatch = sbField?.GetValue(null);
+                _spriteBatch = Main.spriteBatch;
                 if (_spriteBatch == null)
                 {
                     _log?.Warn("[UI] SpriteBatch not available yet");
                     return false;
                 }
 
-                // Get constructors
-                _vector2Ctor = _vector2Type.GetConstructor(new[] { typeof(float), typeof(float) });
-                _vector2XField = _vector2Type.GetField("X");
-                _colorCtorRgba = _colorType.GetConstructor(new[] { typeof(int), typeof(int), typeof(int), typeof(int) });
-                _rectangleCtor = _rectangleType.GetConstructor(new[] { typeof(int), typeof(int), typeof(int), typeof(int) });
-
-                // Get MagicPixel texture
-                var textureAssetsType = mainType.Assembly.GetType("Terraria.GameContent.TextureAssets");
+                // Get MagicPixel texture via reflection (Asset<T> is a ReLogic type not visible at compile time)
+                var textureAssetsType = typeof(Main).Assembly.GetType("Terraria.GameContent.TextureAssets");
                 if (textureAssetsType != null)
                 {
                     var magicPixelField = textureAssetsType.GetField("MagicPixel", BindingFlags.Public | BindingFlags.Static);
@@ -462,12 +333,12 @@ namespace TerrariaModder.Core.UI
                     if (magicPixelAsset != null)
                     {
                         var valueProp = magicPixelAsset.GetType().GetProperty("Value");
-                        _magicPixel = valueProp?.GetValue(magicPixelAsset);
+                        _magicPixel = valueProp?.GetValue(magicPixelAsset) as Texture2D;
                     }
                 }
 
-                // Get MouseText font
-                var fontAssetsType = mainType.Assembly.GetType("Terraria.GameContent.FontAssets");
+                // Get MouseText font via reflection (DynamicSpriteFont is a ReLogic type)
+                var fontAssetsType = typeof(Main).Assembly.GetType("Terraria.GameContent.FontAssets");
                 if (fontAssetsType != null)
                 {
                     var mouseTextField = fontAssetsType.GetField("MouseText", BindingFlags.Public | BindingFlags.Static);
@@ -479,152 +350,26 @@ namespace TerrariaModder.Core.UI
                     }
                 }
 
-                // Get SpriteBatch.Draw method for textures
-                // Signature: Draw(Texture2D texture, Rectangle destinationRectangle, Color color)
-                if (_spriteBatchType != null && _magicPixel != null)
+                // Cache MeasureString on the font type
+                if (_font != null)
                 {
-                    var texture2dType = _magicPixel.GetType();
-                    _drawTextureRect = _spriteBatchType.GetMethods()
-                        .FirstOrDefault(m =>
-                            m.Name == "Draw" &&
-                            m.GetParameters().Length == 3 &&
-                            m.GetParameters()[0].ParameterType == texture2dType &&
-                            m.GetParameters()[1].ParameterType == _rectangleType &&
-                            m.GetParameters()[2].ParameterType == _colorType);
-
-                    if (_drawTextureRect == null)
-                        _log?.Warn("[UI] Could not find exact Draw(Texture2D, Rectangle, Color) method");
-                }
-
-                // Get DrawString extension method
-                Type dynamicSpriteFontType = null;
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    dynamicSpriteFontType = asm.GetType("ReLogic.Graphics.DynamicSpriteFont");
-                    if (dynamicSpriteFontType != null) break;
-                }
-
-                if (dynamicSpriteFontType != null && _font != null)
-                {
-                    Type extensionType = null;
-                    foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                    {
-                        extensionType = asm.GetType("ReLogic.Graphics.DynamicSpriteFontExtensionMethods");
-                        if (extensionType != null) break;
-                    }
-
-                    if (extensionType != null)
-                    {
-                        _drawString = extensionType.GetMethods(BindingFlags.Public | BindingFlags.Static)
-                            .FirstOrDefault(m => m.Name == "DrawString" && m.GetParameters().Length >= 5);
-                    }
-
-                    // Cache MeasureString on the font type
-                    _measureString = dynamicSpriteFontType.GetMethod("MeasureString",
+                    _measureString = _font.GetType().GetMethod("MeasureString",
                         BindingFlags.Public | BindingFlags.Instance,
                         null, new[] { typeof(string) }, null);
                 }
 
-                // Get SpriteBatch Begin/End
-                if (_spriteBatchType != null)
-                {
-                    _spriteBatchBegin = _spriteBatchType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                        .FirstOrDefault(m => m.Name == "Begin" && m.GetParameters().Length == 7);
-                    _spriteBatchEnd = _spriteBatchType.GetMethod("End", BindingFlags.Public | BindingFlags.Instance);
-                    // XNA 4.0 uses "inBeginEndPair", FNA uses "beginCalled"
-                    _spriteBatchBeginCalled = _spriteBatchType.GetField("inBeginEndPair", BindingFlags.NonPublic | BindingFlags.Instance)
-                        ?? _spriteBatchType.GetField("beginCalled", BindingFlags.NonPublic | BindingFlags.Instance)
-                        ?? _spriteBatchType.GetField("_beginCalled", BindingFlags.NonPublic | BindingFlags.Instance);
-                }
+                // Get SpriteBatch private begin state field
+                // XNA 4.0 uses "inBeginEndPair", FNA uses "beginCalled"
+                var sbType = typeof(SpriteBatch);
+                _spriteBatchBeginCalled = sbType.GetField("inBeginEndPair", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? sbType.GetField("beginCalled", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? sbType.GetField("_beginCalled", BindingFlags.NonPublic | BindingFlags.Instance);
 
-                // Get render state values
-                if (_spriteSortModeType != null)
-                    _spriteSortModeDeferred = Enum.Parse(_spriteSortModeType, "Deferred");
-                if (_blendStateType != null)
-                    _blendStateAlphaBlend = _blendStateType.GetProperty("AlphaBlend", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-                if (_depthStencilStateType != null)
-                    _depthStencilStateNone = _depthStencilStateType.GetProperty("None", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-
-                // Get Main's render state
-                var defaultSamplerField = mainType.GetField("DefaultSamplerState", BindingFlags.Public | BindingFlags.Static);
-                _mainDefaultSamplerState = defaultSamplerField?.GetValue(null);
-                if (_mainDefaultSamplerState == null)
-                {
-                    var defaultSamplerProp = mainType.GetProperty("DefaultSamplerState", BindingFlags.Public | BindingFlags.Static);
-                    _mainDefaultSamplerState = defaultSamplerProp?.GetValue(null);
-                }
-
-                var rasterizerField = mainType.GetField("Rasterizer", BindingFlags.Public | BindingFlags.Static);
-                _mainRasterizer = rasterizerField?.GetValue(null);
-                if (_mainRasterizer == null)
-                {
-                    var rasterizerProp = mainType.GetProperty("Rasterizer", BindingFlags.Public | BindingFlags.Static);
-                    _mainRasterizer = rasterizerProp?.GetValue(null);
-                }
-
-                // Get transform matrix
-                var gameViewMatrixField = mainType.GetField("GameViewMatrix", BindingFlags.Public | BindingFlags.Static);
-                if (gameViewMatrixField != null)
-                {
-                    var gameViewMatrix = gameViewMatrixField.GetValue(null);
-                    if (gameViewMatrix != null)
-                    {
-                        var transformProp = gameViewMatrix.GetType().GetProperty("TransformationMatrix", BindingFlags.Public | BindingFlags.Instance);
-                        _mainTransformMatrix = transformProp?.GetValue(gameViewMatrix);
-                    }
-                }
-
-                // Get input fields
-                _mouseXField = mainType.GetField("mouseX", BindingFlags.Public | BindingFlags.Static);
-                _mouseYField = mainType.GetField("mouseY", BindingFlags.Public | BindingFlags.Static);
-                _mouseLeftField = mainType.GetField("mouseLeft", BindingFlags.Public | BindingFlags.Static);
-                _mouseLeftReleaseField = mainType.GetField("mouseLeftRelease", BindingFlags.Public | BindingFlags.Static);
-                _mouseRightField = mainType.GetField("mouseRight", BindingFlags.Public | BindingFlags.Static);
-                _mouseRightReleaseField = mainType.GetField("mouseRightRelease", BindingFlags.Public | BindingFlags.Static);
-                _mouseMiddleField = mainType.GetField("mouseMiddle", BindingFlags.Public | BindingFlags.Static);
-                _mouseMiddleReleaseField = mainType.GetField("mouseMiddleRelease", BindingFlags.Public | BindingFlags.Static);
-                _blockMouseField = mainType.GetField("blockMouse", BindingFlags.Public | BindingFlags.Static);
-                _screenWidthField = mainType.GetField("screenWidth", BindingFlags.Public | BindingFlags.Static);
-                _screenHeightField = mainType.GetField("screenHeight", BindingFlags.Public | BindingFlags.Static);
-                _uiScaleField = mainType.GetField("_uiScaleUsed", BindingFlags.NonPublic | BindingFlags.Static);
-
-                // Cache PlayerInput type and fields used per-frame
-                _playerInputType = mainType.Assembly.GetType("Terraria.GameInput.PlayerInput");
-                if (_playerInputType != null)
-                {
-                    // Raw mouse position (never transformed by zoom)
-                    _playerInputMouseXField = _playerInputType.GetField("MouseX", BindingFlags.Public | BindingFlags.Static);
-                    _playerInputMouseYField = _playerInputType.GetField("MouseY", BindingFlags.Public | BindingFlags.Static);
-                    if (_playerInputMouseXField == null)
-                        _log?.Warn("[UI] Could not find PlayerInput.MouseX field");
-
-                    // Scroll fields (used by ConsumeScroll/ReadRawScrollDelta)
-                    _scrollWheelDeltaForUIField = _playerInputType.GetField("ScrollWheelDeltaForUI", BindingFlags.Public | BindingFlags.Static);
-                    _scrollWheelDeltaField = _playerInputType.GetField("ScrollWheelDelta", BindingFlags.Public | BindingFlags.Static);
-
-                    // WritingText for keyboard blocking
-                    _mainPlayerInputWritingTextField = _playerInputType.GetField("WritingText", BindingFlags.Public | BindingFlags.Static);
-                }
-
-                // Cache fields for BlockKeyboardInput
-                _blockInputField = mainType.GetField("blockInput", BindingFlags.Public | BindingFlags.Static);
-                _myPlayerField = mainType.GetField("myPlayer", BindingFlags.Public | BindingFlags.Static);
-                _playerArrayField = mainType.GetField("player", BindingFlags.Public | BindingFlags.Static);
-
-                // Cache Player control fields (used by PlayerUpdateScrollBlockPrefix and BlockKeyboardInput)
-                var playerType = mainType.Assembly.GetType("Terraria.Player");
-                if (playerType != null)
-                {
-                    _controlUpField = playerType.GetField("controlUp", BindingFlags.Public | BindingFlags.Instance);
-                    _controlDownField = playerType.GetField("controlDown", BindingFlags.Public | BindingFlags.Instance);
-                    _controlLeftField = playerType.GetField("controlLeft", BindingFlags.Public | BindingFlags.Instance);
-                    _controlRightField = playerType.GetField("controlRight", BindingFlags.Public | BindingFlags.Instance);
-                    _controlJumpField = playerType.GetField("controlJump", BindingFlags.Public | BindingFlags.Instance);
-                    _controlThrowField = playerType.GetField("controlThrow", BindingFlags.Public | BindingFlags.Instance);
-                    _controlHookField = playerType.GetField("controlHook", BindingFlags.Public | BindingFlags.Instance);
-                    _controlMountField = playerType.GetField("controlMount", BindingFlags.Public | BindingFlags.Instance);
-                    _mouseInterfaceField = playerType.GetField("mouseInterface", BindingFlags.Public | BindingFlags.Instance);
-                }
+                // Get SpriteBatch private transform field (Matrix? passed to Begin)
+                // XNA 4.0 uses "_matrix", FNA uses "_matrix" or "transformMatrix"
+                _spriteBatchTransformField = sbType.GetField("_matrix", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? sbType.GetField("transformMatrix", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? sbType.GetField("_transformMatrix", BindingFlags.NonPublic | BindingFlags.Instance);
 
                 _initialized = true;
                 return true;
@@ -639,13 +384,12 @@ namespace TerrariaModder.Core.UI
 
         #region Scissor Clipping
 
-        private static object _graphicsDevice;
-        private static PropertyInfo _scissorRectProperty;
-        private static object _rasterizerStateScissor;
-        private static object _rasterizerStateNormal;
+        private static GraphicsDevice _graphicsDevice;
+        private static RasterizerState _rasterizerStateScissor;
         private static bool _scissorInitialized;
-        private static object _savedScissorRect;
-        private static object _savedRasterizerState;
+        private static Rectangle _savedScissorRect;
+        private static RasterizerState _savedRasterizerState;
+        private static Matrix _savedClipMatrix; // transform in use before BeginClip
         private static bool _clipActive;
 
         /// <summary>
@@ -657,64 +401,24 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                var mainType = typeof(Terraria.Main);
-
                 // Get graphics device
-                var graphicsField = mainType.GetField("graphics", BindingFlags.Public | BindingFlags.Static);
-                if (graphicsField != null)
+                if (Main.graphics != null)
                 {
-                    var graphicsManager = graphicsField.GetValue(null);
-                    if (graphicsManager != null)
-                    {
-                        var gdProp = graphicsManager.GetType().GetProperty("GraphicsDevice");
-                        _graphicsDevice = gdProp?.GetValue(graphicsManager);
-                    }
+                    _graphicsDevice = Main.graphics.GraphicsDevice;
                 }
 
-                if (_graphicsDevice == null)
+                if (_graphicsDevice == null && Main.instance != null)
                 {
-                    // Try instance.GraphicsDevice
-                    if (_mainInstanceField == null)
-                        _mainInstanceField = mainType.GetField("instance", BindingFlags.Public | BindingFlags.Static);
-
-                    if (_mainInstanceField != null)
-                    {
-                        var instance = _mainInstanceField.GetValue(null);
-                        var gdProp = instance?.GetType().GetProperty("GraphicsDevice");
-                        _graphicsDevice = gdProp?.GetValue(instance);
-                    }
+                    _graphicsDevice = Main.instance.GraphicsDevice;
                 }
 
                 if (_graphicsDevice != null)
                 {
-                    _scissorRectProperty = _graphicsDevice.GetType().GetProperty("ScissorRectangle");
-
-                    // Create RasterizerState with ScissorTestEnable = true
-                    var rasterizerStateType = AppDomain.CurrentDomain.GetAssemblies()
-                        .Select(a => a.GetType("Microsoft.Xna.Framework.Graphics.RasterizerState"))
-                        .FirstOrDefault(t => t != null);
-
-                    if (rasterizerStateType != null)
+                    _rasterizerStateScissor = new RasterizerState
                     {
-                        _rasterizerStateScissor = Activator.CreateInstance(rasterizerStateType);
-                        var scissorEnableProp = rasterizerStateType.GetProperty("ScissorTestEnable");
-                        var cullModeProp = rasterizerStateType.GetProperty("CullMode");
-
-                        if (scissorEnableProp != null)
-                            scissorEnableProp.SetValue(_rasterizerStateScissor, true);
-
-                        // Set CullMode to None to match Terraria's default
-                        if (cullModeProp != null)
-                        {
-                            var cullModeType = cullModeProp.PropertyType;
-                            var noneValue = Enum.Parse(cullModeType, "None");
-                            cullModeProp.SetValue(_rasterizerStateScissor, noneValue);
-                        }
-
-                        // Get CullNone for restoring
-                        _rasterizerStateNormal = rasterizerStateType.GetProperty("CullNone", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-                    }
-
+                        ScissorTestEnable = true,
+                        CullMode = CullMode.None
+                    };
                 }
 
                 _scissorInitialized = true;
@@ -743,28 +447,10 @@ namespace TerrariaModder.Core.UI
                 // Safety check: verify SpriteBatch is in a valid state before manipulating it
                 if (_spriteBatch == null) return;
 
-                // Refresh transform matrix BEFORE touching SpriteBatch state
-                var mainType2 = typeof(Terraria.Main);
-                var gameViewMatrixField = mainType2.GetField("GameViewMatrix", BindingFlags.Public | BindingFlags.Static);
-                if (gameViewMatrixField != null)
-                {
-                    var gameViewMatrix = gameViewMatrixField.GetValue(null);
-                    if (gameViewMatrix != null)
-                    {
-                        var transformProp = gameViewMatrix.GetType().GetProperty("TransformationMatrix", BindingFlags.Public | BindingFlags.Instance);
-                        _mainTransformMatrix = transformProp?.GetValue(gameViewMatrix);
-                    }
-                }
-
-                // Use identity matrix as fallback when transform isn't available (e.g., title screen)
-                var clipTransform = _mainTransformMatrix ?? _identityMatrix;
-                if (clipTransform == null || _spriteBatchBegin == null ||
-                    _spriteSortModeDeferred == null || _blendStateAlphaBlend == null ||
-                    _mainDefaultSamplerState == null || _depthStencilStateNone == null ||
-                    _rasterizerStateScissor == null)
-                {
-                    return;
-                }
+                // Capture the current transform BEFORE ending the batch so we can restore it.
+                // Using GameViewMatrix here was wrong — it's the world-space camera transform,
+                // not the UI transform, causing all clipped content to be offset on menus and in-world.
+                _savedClipMatrix = GetCurrentSpriteBatchMatrix();
 
                 // End current batch so we can restart with scissor rasterizer
                 if (_spriteBatchBeginCalled != null)
@@ -772,35 +458,32 @@ namespace TerrariaModder.Core.UI
                     bool beginCalled = (bool)_spriteBatchBeginCalled.GetValue(_spriteBatch);
                     if (beginCalled)
                     {
-                        _spriteBatchEnd?.Invoke(_spriteBatch, null);
+                        _spriteBatch.End();
                     }
                 }
 
                 // Save current scissor rect
-                _savedScissorRect = _scissorRectProperty?.GetValue(_graphicsDevice);
+                _savedScissorRect = _graphicsDevice.ScissorRectangle;
 
                 // Save current rasterizer state
-                var rasterizerStateProp = _graphicsDevice.GetType().GetProperty("RasterizerState");
-                _savedRasterizerState = rasterizerStateProp?.GetValue(_graphicsDevice);
+                _savedRasterizerState = _graphicsDevice.RasterizerState;
 
                 // Set new scissor rect
-                var newScissor = _rectangleCtor.Invoke(new object[] { x, y, width, height });
-                _scissorRectProperty?.SetValue(_graphicsDevice, newScissor);
+                _graphicsDevice.ScissorRectangle = new Rectangle(x, y, width, height);
 
                 // Set rasterizer state with scissor test enabled
-                rasterizerStateProp?.SetValue(_graphicsDevice, _rasterizerStateScissor);
+                _graphicsDevice.RasterizerState = _rasterizerStateScissor;
 
-                // Begin batch with scissor-enabled rasterizer
-                _spriteBatchBegin.Invoke(_spriteBatch, new object[]
-                {
-                    _spriteSortModeDeferred,
-                    _blendStateAlphaBlend,
-                    _mainDefaultSamplerState,
-                    _depthStencilStateNone,
+                // Begin batch with scissor-enabled rasterizer, preserving the UI transform
+                _spriteBatch.Begin(
+                    SpriteSortMode.Deferred,
+                    BlendState.AlphaBlend,
+                    Main.DefaultSamplerState,
+                    DepthStencilState.None,
                     _rasterizerStateScissor,
                     null,
-                    clipTransform
-                });
+                    _savedClipMatrix
+                );
 
                 _clipActive = true;
             }
@@ -834,37 +517,31 @@ namespace TerrariaModder.Core.UI
                     bool beginCalled = (bool)_spriteBatchBeginCalled.GetValue(_spriteBatch);
                     if (beginCalled)
                     {
-                        _spriteBatchEnd?.Invoke(_spriteBatch, null);
+                        _spriteBatch.End();
                     }
                 }
 
                 // Restore scissor rect
-                if (_savedScissorRect != null)
-                    _scissorRectProperty?.SetValue(_graphicsDevice, _savedScissorRect);
+                _graphicsDevice.ScissorRectangle = _savedScissorRect;
 
                 // Restore rasterizer state
-                var rasterizerStateProp = _graphicsDevice?.GetType().GetProperty("RasterizerState");
                 if (_savedRasterizerState != null)
-                    rasterizerStateProp?.SetValue(_graphicsDevice, _savedRasterizerState);
+                    _graphicsDevice.RasterizerState = _savedRasterizerState;
 
-                // Begin normal batch again
-                var matrix = _mainTransformMatrix ?? _identityMatrix;
-                var rasterizer = _mainRasterizer;
+                // Restore batch with the same transform that was active before BeginClip
+                var rasterizer = Main.Rasterizer;
                 bool restored = false;
-                if (_spriteBatchBegin != null && _spriteSortModeDeferred != null && _blendStateAlphaBlend != null &&
-                    _mainDefaultSamplerState != null && _depthStencilStateNone != null &&
-                    rasterizer != null && matrix != null)
+                if (rasterizer != null)
                 {
-                    _spriteBatchBegin.Invoke(_spriteBatch, new object[]
-                    {
-                        _spriteSortModeDeferred,
-                        _blendStateAlphaBlend,
-                        _mainDefaultSamplerState,
-                        _depthStencilStateNone,
+                    _spriteBatch.Begin(
+                        SpriteSortMode.Deferred,
+                        BlendState.AlphaBlend,
+                        Main.DefaultSamplerState,
+                        DepthStencilState.None,
                         rasterizer,
                         null,
-                        matrix
-                    });
+                        _savedClipMatrix
+                    );
                     restored = true;
                 }
 
@@ -887,6 +564,25 @@ namespace TerrariaModder.Core.UI
         /// Check if scissor clipping is currently active.
         /// </summary>
         public static bool IsClipping => _clipActive;
+
+        /// <summary>
+        /// Read the transform matrix currently in use by the SpriteBatch.
+        /// Returns Matrix.Identity if the batch isn't started or the field can't be read.
+        /// This is the matrix passed to the most recent SpriteBatch.Begin() call.
+        /// </summary>
+        private static Matrix GetCurrentSpriteBatchMatrix()
+        {
+            if (_spriteBatch == null || _spriteBatchTransformField == null)
+                return Matrix.Identity;
+            try
+            {
+                // The field is Matrix? (nullable) in XNA 4.0; null means Identity was used
+                var raw = _spriteBatchTransformField.GetValue(_spriteBatch);
+                if (raw is Matrix m) return m;
+            }
+            catch { }
+            return Matrix.Identity;
+        }
 
         #endregion
 
@@ -923,49 +619,39 @@ namespace TerrariaModder.Core.UI
                 }
 
                 // Try simple Begin first (no arguments)
-                var simpleBegin = _spriteBatchType?.GetMethod("Begin", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-                if (simpleBegin != null)
+                try
                 {
-                    simpleBegin.Invoke(_spriteBatch, null);
+                    _spriteBatch.Begin();
                     _weCalledBegin = true;
                     return;
                 }
+                catch
+                {
+                    // Simple Begin failed, try complex Begin
+                }
 
-                // Fall back to complex Begin if simple doesn't exist
-                if (_spriteBatchBegin != null)
+                // Fall back to complex Begin
                 {
                     // Refresh transform matrix (it can change)
-                    var mainType = typeof(Terraria.Main);
-                    var gameViewMatrixField = mainType.GetField("GameViewMatrix", BindingFlags.Public | BindingFlags.Static);
-                    if (gameViewMatrixField != null)
-                    {
-                        var gameViewMatrix = gameViewMatrixField.GetValue(null);
-                        if (gameViewMatrix != null)
-                        {
-                            var transformProp = gameViewMatrix.GetType().GetProperty("TransformationMatrix", BindingFlags.Public | BindingFlags.Instance);
-                            _mainTransformMatrix = transformProp?.GetValue(gameViewMatrix);
-                        }
-                    }
+                    var matrix = Main.GameViewMatrix?.TransformationMatrix ?? Matrix.Identity;
+                    var rasterizer = Main.Rasterizer;
 
-                    if (_spriteSortModeDeferred != null && _blendStateAlphaBlend != null &&
-                        _mainDefaultSamplerState != null && _depthStencilStateNone != null &&
-                        _mainRasterizer != null && _mainTransformMatrix != null)
+                    if (rasterizer != null)
                     {
-                        _spriteBatchBegin.Invoke(_spriteBatch, new object[]
-                        {
-                            _spriteSortModeDeferred,
-                            _blendStateAlphaBlend,
-                            _mainDefaultSamplerState,
-                            _depthStencilStateNone,
-                            _mainRasterizer,
+                        _spriteBatch.Begin(
+                            SpriteSortMode.Deferred,
+                            BlendState.AlphaBlend,
+                            Main.DefaultSamplerState,
+                            DepthStencilState.None,
+                            rasterizer,
                             null, // Effect
-                            _mainTransformMatrix
-                        });
+                            matrix
+                        );
                         _weCalledBegin = true;
                     }
                     else if (!_beginDrawErrorLogged)
                     {
-                        _log?.Warn($"[UI] BeginDraw missing state: sort={_spriteSortModeDeferred != null} blend={_blendStateAlphaBlend != null} sampler={_mainDefaultSamplerState != null} depth={_depthStencilStateNone != null} rast={_mainRasterizer != null} matrix={_mainTransformMatrix != null}");
+                        _log?.Warn($"[UI] BeginDraw missing state: rasterizer={rasterizer != null}");
                         _beginDrawErrorLogged = true;
                     }
                 }
@@ -986,11 +672,11 @@ namespace TerrariaModder.Core.UI
         /// </summary>
         public static void EndDraw()
         {
-            if (_weCalledBegin && _spriteBatchEnd != null && _spriteBatch != null)
+            if (_weCalledBegin && _spriteBatch != null)
             {
                 try
                 {
-                    _spriteBatchEnd.Invoke(_spriteBatch, null);
+                    _spriteBatch.End();
                 }
                 catch { }
             }
@@ -1005,11 +691,7 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                var simpleBegin = _spriteBatchType?.GetMethod("Begin", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-                if (simpleBegin != null)
-                {
-                    simpleBegin.Invoke(_spriteBatch, null);
-                }
+                _spriteBatch?.Begin();
             }
             catch { }
         }
@@ -1024,9 +706,9 @@ namespace TerrariaModder.Core.UI
             try
             {
                 bool beginCalled = (bool)_spriteBatchBeginCalled.GetValue(_spriteBatch);
-                if (beginCalled && _spriteBatchEnd != null)
+                if (beginCalled)
                 {
-                    _spriteBatchEnd.Invoke(_spriteBatch, null);
+                    _spriteBatch.End();
                 }
             }
             catch { }
@@ -1042,13 +724,13 @@ namespace TerrariaModder.Core.UI
         public static void DrawRect(int x, int y, int width, int height, byte r, byte g, byte b, byte a = 255)
         {
             if (!EnsureInitialized()) return;
-            if (_magicPixel == null || _drawTextureRect == null || _spriteBatch == null) return;
+            if (_magicPixel == null || _spriteBatch == null) return;
 
             try
             {
-                var rect = _rectangleCtor.Invoke(new object[] { x, y, width, height });
-                var color = _colorCtorRgba.Invoke(new object[] { (int)r, (int)g, (int)b, (int)a });
-                _drawTextureRect.Invoke(_spriteBatch, new[] { _magicPixel, rect, color });
+                var rect = new Rectangle(x, y, width, height);
+                var color = new Color((int)r, (int)g, (int)b, (int)a);
+                _spriteBatch.Draw(_magicPixel, rect, color);
             }
             catch (Exception ex)
             {
@@ -1085,9 +767,11 @@ namespace TerrariaModder.Core.UI
                 // Try Utils.DrawBorderString first (more reliable)
                 if (_utilsDrawBorderString == null)
                 {
-                    var utilsType = typeof(Terraria.Main).Assembly.GetType("Terraria.Utils");
+                    var utilsType = typeof(Main).Assembly.GetType("Terraria.Utils");
                     if (utilsType != null)
                     {
+                        // Find the DrawBorderString method - we use reflection because its signature
+                        // includes DynamicSpriteFont (a ReLogic type not visible at compile time)
                         _utilsDrawBorderString = utilsType.GetMethods(BindingFlags.Public | BindingFlags.Static)
                             .FirstOrDefault(m => m.Name == "DrawBorderString" && m.GetParameters().Length >= 4);
                     }
@@ -1095,8 +779,8 @@ namespace TerrariaModder.Core.UI
 
                 if (_utilsDrawBorderString != null)
                 {
-                    var pos = _vector2Ctor.Invoke(new object[] { (float)x, (float)y });
-                    var color = _colorCtorRgba.Invoke(new object[] { (int)r, (int)g, (int)b, (int)a });
+                    var pos = new Vector2(x, y);
+                    var color = new Color((int)r, (int)g, (int)b, (int)a);
 
                     // Utils.DrawBorderString(SpriteBatch, string, Vector2, Color, ...)
                     var parameters = _utilsDrawBorderString.GetParameters();
@@ -1109,23 +793,18 @@ namespace TerrariaModder.Core.UI
                     else if (parameters.Length >= 5)
                     {
                         // Has scale parameter
-                        args = new object[] { _spriteBatch, text, pos, color, 1f };
-                        if (parameters.Length >= 6)
+                        var fullArgs = new object[parameters.Length];
+                        fullArgs[0] = _spriteBatch;
+                        fullArgs[1] = text;
+                        fullArgs[2] = pos;
+                        fullArgs[3] = color;
+                        fullArgs[4] = 1f; // scale
+                        for (int i = 5; i < parameters.Length; i++)
                         {
-                            // Pad with defaults
-                            var fullArgs = new object[parameters.Length];
-                            fullArgs[0] = _spriteBatch;
-                            fullArgs[1] = text;
-                            fullArgs[2] = pos;
-                            fullArgs[3] = color;
-                            fullArgs[4] = 1f; // scale
-                            for (int i = 5; i < parameters.Length; i++)
-                            {
-                                fullArgs[i] = parameters[i].HasDefaultValue ? parameters[i].DefaultValue :
-                                    (parameters[i].ParameterType.IsValueType ? Activator.CreateInstance(parameters[i].ParameterType) : null);
-                            }
-                            args = fullArgs;
+                            fullArgs[i] = parameters[i].HasDefaultValue ? parameters[i].DefaultValue :
+                                (parameters[i].ParameterType.IsValueType ? Activator.CreateInstance(parameters[i].ParameterType) : null);
                         }
+                        args = fullArgs;
                     }
                     else
                     {
@@ -1136,15 +815,30 @@ namespace TerrariaModder.Core.UI
                     return;
                 }
 
-                // Fallback to direct font drawing
-                if (_font != null && _drawString != null)
+                // Fallback to direct font drawing via extension method (reflection)
+                if (_font != null)
                 {
-                    var pos = _vector2Ctor.Invoke(new object[] { (float)x, (float)y });
-                    var color = _colorCtorRgba.Invoke(new object[] { (int)r, (int)g, (int)b, (int)a });
-                    var zero = _vector2Ctor.Invoke(new object[] { 0f, 0f });
-                    var one = _vector2Ctor.Invoke(new object[] { 1f, 1f });
+                    Type extensionType = null;
+                    foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        extensionType = asm.GetType("ReLogic.Graphics.DynamicSpriteFontExtensionMethods");
+                        if (extensionType != null) break;
+                    }
 
-                    _drawString.Invoke(null, new object[] { _spriteBatch, _font, text, pos, color, 0f, zero, one, 0, 0f });
+                    if (extensionType != null)
+                    {
+                        var drawString = extensionType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                            .FirstOrDefault(m => m.Name == "DrawString" && m.GetParameters().Length >= 5);
+
+                        if (drawString != null)
+                        {
+                            var pos = new Vector2(x, y);
+                            var color = new Color((int)r, (int)g, (int)b, (int)a);
+                            var zero = Vector2.Zero;
+                            var one = Vector2.One;
+                            drawString.Invoke(null, new object[] { _spriteBatch, _font, text, pos, color, 0f, zero, one, 0, 0f });
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -1182,7 +876,7 @@ namespace TerrariaModder.Core.UI
             {
                 if (_utilsDrawBorderString == null)
                 {
-                    var utilsType = typeof(Terraria.Main).Assembly.GetType("Terraria.Utils");
+                    var utilsType = typeof(Main).Assembly.GetType("Terraria.Utils");
                     if (utilsType != null)
                     {
                         _utilsDrawBorderString = utilsType.GetMethods(BindingFlags.Public | BindingFlags.Static)
@@ -1192,8 +886,8 @@ namespace TerrariaModder.Core.UI
 
                 if (_utilsDrawBorderString != null)
                 {
-                    var pos = _vector2Ctor.Invoke(new object[] { (float)x, (float)y });
-                    var color = _colorCtorRgba.Invoke(new object[] { (int)r, (int)g, (int)b, (int)a });
+                    var pos = new Vector2(x, y);
+                    var color = new Color((int)r, (int)g, (int)b, (int)a);
 
                     var parameters = _utilsDrawBorderString.GetParameters();
                     object[] args;
@@ -1277,13 +971,17 @@ namespace TerrariaModder.Core.UI
         {
             if (string.IsNullOrEmpty(text)) return 0;
 
-            if (_font != null && _measureString != null && _vector2XField != null)
+            if (_font != null && _measureString != null)
             {
                 try
                 {
                     var result = _measureString.Invoke(_font, new object[] { text });
                     if (result != null)
-                        return (int)System.Math.Ceiling((float)_vector2XField.GetValue(result));
+                    {
+                        // Result is a Vector2 — extract X component
+                        var v = (Vector2)result;
+                        return (int)System.Math.Ceiling(v.X);
+                    }
                 }
                 catch { }
             }
@@ -1296,15 +994,13 @@ namespace TerrariaModder.Core.UI
 
         #region Item Drawing
 
-        private static object _itemTextureAssets;
-        private static Type _assetType;
-        private static PropertyInfo _assetValueProp;
-        private static PropertyInfo _assetIsLoadedProp;
-        private static MethodInfo _assetRequestMethod;
-        private static MethodInfo _loadItemMethod;
-        private static MethodInfo _drawTextureScaled;
         private static bool _itemDrawingInitialized;
         private static bool _itemDrawingFailed;
+
+        // Cached item texture array and asset accessors (ReLogic types, accessed via reflection)
+        private static object _itemTextureAssets;
+        private static PropertyInfo _assetValueProp;
+        private static PropertyInfo _assetIsLoadedProp;
 
         /// <summary>
         /// Draw a Terraria item texture at the specified position.
@@ -1342,42 +1038,16 @@ namespace TerrariaModder.Core.UI
                 {
                     try
                     {
-                        // Call Main.instance.LoadItem(itemType) to trigger loading
-                        if (_mainInstanceField == null)
-                            _mainInstanceField = typeof(Terraria.Main).GetField("instance", BindingFlags.Public | BindingFlags.Static);
-
-                        if (_loadItemMethod == null)
-                            _loadItemMethod = typeof(Terraria.Main).GetMethod("LoadItem", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(int) }, null);
-
-                        if (_mainInstanceField != null && _loadItemMethod != null)
-                        {
-                            var mainInstance = _mainInstanceField.GetValue(null);
-                            if (mainInstance != null)
-                            {
-                                _loadItemMethod.Invoke(mainInstance, new object[] { itemType });
-                            }
-                        }
+                        Main.instance?.LoadItem(itemType);
                     }
                     catch { }
-
-                    // Fallback: try asset's own Request method
-                    if (_assetRequestMethod != null)
-                    {
-                        try { _assetRequestMethod.Invoke(asset, null); } catch { }
-                    }
                 }
 
-                var texture = _assetValueProp.GetValue(asset);
+                var texture = _assetValueProp.GetValue(asset) as Texture2D;
                 if (texture == null) return;
 
-                // Get texture dimensions
-                var texType = texture.GetType();
-                var widthProp = texType.GetProperty("Width");
-                var heightProp = texType.GetProperty("Height");
-                if (widthProp == null || heightProp == null) return;
-
-                int texWidth = (int)widthProp.GetValue(texture);
-                int texHeight = (int)heightProp.GetValue(texture);
+                int texWidth = texture.Width;
+                int texHeight = texture.Height;
 
                 // Some items have animation frames (multiple rows stacked vertically)
                 // Need to calculate the correct frame height to show just one frame
@@ -1387,21 +1057,16 @@ namespace TerrariaModder.Core.UI
                 int frameCount = 1;
                 try
                 {
-                    var mainType = typeof(Terraria.Main);
-                    var itemAnimationsField = mainType.GetField("itemAnimations", BindingFlags.Public | BindingFlags.Static);
-                    if (itemAnimationsField != null)
+                    var itemAnimationsArray = Main.itemAnimations;
+                    if (itemAnimationsArray != null && itemType < itemAnimationsArray.Length)
                     {
-                        var itemAnimationsArray = itemAnimationsField.GetValue(null) as Array;
-                        if (itemAnimationsArray != null && itemType < itemAnimationsArray.Length)
+                        var anim = itemAnimationsArray[itemType];
+                        if (anim != null)
                         {
-                            var animValue = itemAnimationsArray.GetValue(itemType);
-                            if (animValue != null)
+                            frameCount = anim.FrameCount;
+                            if (frameCount > 1)
                             {
-                                frameCount = (int)animValue;
-                                if (frameCount > 1)
-                                {
-                                    frameHeight = texHeight / frameCount;
-                                }
+                                frameHeight = texHeight / frameCount;
                             }
                         }
                     }
@@ -1438,86 +1103,23 @@ namespace TerrariaModder.Core.UI
                 int drawX = x + (width - drawWidth) / 2;
                 int drawY = y + (height - drawHeight) / 2;
 
-                // Find Draw method with scale parameter
-                // Signature: Draw(Texture2D, Vector2 position, Rectangle? sourceRect, Color, float rotation, Vector2 origin, float scale, SpriteEffects, float layerDepth)
-                if (_drawTextureScaled == null)
-                {
-                    var texture2dType = texture.GetType();
-                    var spriteEffectsType = AppDomain.CurrentDomain.GetAssemblies()
-                        .Select(a => a.GetType("Microsoft.Xna.Framework.Graphics.SpriteEffects"))
-                        .FirstOrDefault(t => t != null);
+                // Draw with scale parameter
+                var pos = new Vector2(drawX, drawY);
+                var color = new Color(255, 255, 255, (int)alpha);
+                var origin = Vector2.Zero;
+                var sourceRect = new Rectangle(0, 0, texWidth, frameHeight);
 
-                    if (spriteEffectsType != null)
-                    {
-                        _drawTextureScaled = _spriteBatchType.GetMethods()
-                            .FirstOrDefault(m =>
-                                m.Name == "Draw" &&
-                                m.GetParameters().Length == 9 &&
-                                m.GetParameters()[0].ParameterType == texture2dType &&
-                                m.GetParameters()[6].ParameterType == typeof(float));
-                    }
-                }
-
-                if (_drawTextureScaled != null)
-                {
-                    var pos = _vector2Ctor.Invoke(new object[] { (float)drawX, (float)drawY });
-                    var color = _colorCtorRgba.Invoke(new object[] { 255, 255, 255, (int)alpha });
-                    var origin = _vector2Ctor.Invoke(new object[] { 0f, 0f });
-
-                    // Get SpriteEffects.None
-                    var spriteEffectsType = _drawTextureScaled.GetParameters()[7].ParameterType;
-                    var spriteEffectsNone = Enum.Parse(spriteEffectsType, "None");
-
-                    // Source rectangle for first frame
-                    var sourceRect = _rectangleCtor.Invoke(new object[] { 0, 0, texWidth, frameHeight });
-
-                    // Make it nullable
-                    var nullableRectType = typeof(Nullable<>).MakeGenericType(_rectangleType);
-                    var nullableRect = Activator.CreateInstance(nullableRectType, sourceRect);
-
-                    _drawTextureScaled.Invoke(_spriteBatch, new object[]
-                    {
-                        texture,
-                        pos,
-                        nullableRect,
-                        color,
-                        0f, // rotation
-                        origin,
-                        scale,
-                        spriteEffectsNone,
-                        0f // layer depth
-                    });
-                }
-                else
-                {
-                    // Fallback: use simpler Draw method with destination rectangle
-                    var destRect = _rectangleCtor.Invoke(new object[] { drawX, drawY, drawWidth, drawHeight });
-                    var sourceRect = _rectangleCtor.Invoke(new object[] { 0, 0, texWidth, frameHeight });
-                    var color = _colorCtorRgba.Invoke(new object[] { 255, 255, 255, (int)alpha });
-
-                    // Find Draw(Texture2D, Rectangle dest, Rectangle? source, Color)
-                    var texture2dType = texture.GetType();
-                    var drawWithSource = _spriteBatchType.GetMethods()
-                        .FirstOrDefault(m =>
-                            m.Name == "Draw" &&
-                            m.GetParameters().Length == 4 &&
-                            m.GetParameters()[0].ParameterType == texture2dType &&
-                            m.GetParameters()[1].ParameterType == _rectangleType);
-
-                    if (drawWithSource != null)
-                    {
-                        // Make source nullable
-                        var nullableRectType = typeof(Nullable<>).MakeGenericType(_rectangleType);
-                        var nullableSource = Activator.CreateInstance(nullableRectType, sourceRect);
-
-                        drawWithSource.Invoke(_spriteBatch, new object[] { texture, destRect, nullableSource, color });
-                    }
-                    else
-                    {
-                        // Ultimate fallback: Draw with just dest rect and color
-                        _drawTextureRect?.Invoke(_spriteBatch, new object[] { texture, destRect, color });
-                    }
-                }
+                _spriteBatch.Draw(
+                    texture,
+                    pos,
+                    sourceRect,
+                    color,
+                    0f, // rotation
+                    origin,
+                    scale,
+                    SpriteEffects.None,
+                    0f // layer depth
+                );
             }
             catch (Exception ex)
             {
@@ -1536,8 +1138,8 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                // Get TextureAssets.Item array
-                var textureAssetsType = typeof(Terraria.Main).Assembly.GetType("Terraria.GameContent.TextureAssets");
+                // Get TextureAssets.Item array via reflection (Asset<T> is a ReLogic type)
+                var textureAssetsType = typeof(Main).Assembly.GetType("Terraria.GameContent.TextureAssets");
                 if (textureAssetsType == null)
                 {
                     _itemDrawingFailed = true;
@@ -1560,30 +1162,16 @@ namespace TerrariaModder.Core.UI
                     return false;
                 }
 
-                // Get Asset<Texture2D>.Value property and loading methods
+                // Get Asset<Texture2D>.Value property and IsLoaded
                 var itemArray = _itemTextureAssets as Array;
                 if (itemArray != null && itemArray.Length > 0)
                 {
                     var firstAsset = itemArray.GetValue(1); // Index 0 might be null/empty
                     if (firstAsset != null)
                     {
-                        _assetType = firstAsset.GetType();
-                        _assetValueProp = _assetType.GetProperty("Value");
-
-                        // Get IsLoaded property to check if texture is ready
-                        _assetIsLoadedProp = _assetType.GetProperty("IsLoaded");
-
-                        // Get Request method to trigger lazy loading
-                        // Try different possible method names
-                        _assetRequestMethod = _assetType.GetMethod("Request", BindingFlags.Public | BindingFlags.Instance);
-                        if (_assetRequestMethod == null)
-                            _assetRequestMethod = _assetType.GetMethod("Wait", BindingFlags.Public | BindingFlags.Instance);
-                        if (_assetRequestMethod == null)
-                        {
-                            // Try getting the value - this should trigger loading as a side effect
-                            // Some Asset implementations load on first access
-                        }
-
+                        var assetType = firstAsset.GetType();
+                        _assetValueProp = assetType.GetProperty("Value");
+                        _assetIsLoadedProp = assetType.GetProperty("IsLoaded");
                     }
                 }
 
@@ -1609,7 +1197,6 @@ namespace TerrariaModder.Core.UI
 
         #region Texture Loading & Drawing
 
-        private static MethodInfo _fromStreamMethod;
         private static bool _textureLoadingInitialized;
         private static bool _textureLoadingFailed;
         private static readonly Dictionary<string, object> _textureCache = new Dictionary<string, object>();
@@ -1637,10 +1224,10 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                object texture;
+                Texture2D texture;
                 using (var stream = System.IO.File.OpenRead(pngPath))
                 {
-                    texture = _fromStreamMethod.Invoke(null, new object[] { _graphicsDevice, stream });
+                    texture = Texture2D.FromStream(_graphicsDevice, stream);
                 }
 
                 if (texture == null)
@@ -1669,18 +1256,15 @@ namespace TerrariaModder.Core.UI
         {
             if (texture == null) return;
             if (!EnsureInitialized()) return;
-            if (_drawTextureRect == null || _spriteBatch == null) return;
+            if (_spriteBatch == null) return;
 
             try
             {
-                // Get texture dimensions
-                var texType = texture.GetType();
-                var widthProp = texType.GetProperty("Width");
-                var heightProp = texType.GetProperty("Height");
-                if (widthProp == null || heightProp == null) return;
+                var tex = texture as Texture2D;
+                if (tex == null) return;
 
-                int texWidth = (int)widthProp.GetValue(texture);
-                int texHeight = (int)heightProp.GetValue(texture);
+                int texWidth = tex.Width;
+                int texHeight = tex.Height;
                 if (texWidth <= 0 || texHeight <= 0) return;
 
                 // Calculate scale to fit within bounds while maintaining aspect ratio
@@ -1695,10 +1279,10 @@ namespace TerrariaModder.Core.UI
                 int drawX = x + (width - drawWidth) / 2;
                 int drawY = y + (height - drawHeight) / 2;
 
-                var destRect = _rectangleCtor.Invoke(new object[] { drawX, drawY, drawWidth, drawHeight });
-                var color = _colorCtorRgba.Invoke(new object[] { 255, 255, 255, (int)alpha });
+                var destRect = new Rectangle(drawX, drawY, drawWidth, drawHeight);
+                var color = new Color(255, 255, 255, (int)alpha);
 
-                _drawTextureRect.Invoke(_spriteBatch, new object[] { texture, destRect, color });
+                _spriteBatch.Draw(tex, destRect, color);
             }
             catch (Exception ex)
             {
@@ -1713,47 +1297,16 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                // Find Texture2D type
-                Type texture2dType = null;
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    texture2dType = asm.GetType("Microsoft.Xna.Framework.Graphics.Texture2D");
-                    if (texture2dType != null) break;
-                }
-                if (texture2dType == null) { _textureLoadingFailed = true; return false; }
-
-                // Find GraphicsDevice type
-                var gdType = texture2dType.Assembly.GetType("Microsoft.Xna.Framework.Graphics.GraphicsDevice");
-                if (gdType == null) { _textureLoadingFailed = true; return false; }
-
-                // Find FromStream(GraphicsDevice, Stream)
-                _fromStreamMethod = texture2dType.GetMethod("FromStream",
-                    BindingFlags.Public | BindingFlags.Static, null,
-                    new[] { gdType, typeof(System.IO.Stream) }, null);
-                if (_fromStreamMethod == null) { _textureLoadingFailed = true; return false; }
-
-                // Get GraphicsDevice from Main
-                var mainType = typeof(Terraria.Main);
-                var graphicsProp = mainType.GetProperty("graphics", BindingFlags.Public | BindingFlags.Static);
-                if (graphicsProp != null)
-                {
-                    var gm = graphicsProp.GetValue(null);
-                    if (gm != null)
-                    {
-                        var gdProp = gm.GetType().GetProperty("GraphicsDevice");
-                        _graphicsDevice = gdProp?.GetValue(gm);
-                    }
-                }
-
+                // Get GraphicsDevice
                 if (_graphicsDevice == null)
                 {
-                    var instField = mainType.GetField("instance", BindingFlags.Public | BindingFlags.Static);
-                    var inst = instField?.GetValue(null);
-                    if (inst != null)
-                    {
-                        var gdProp = inst.GetType().GetProperty("GraphicsDevice");
-                        _graphicsDevice = gdProp?.GetValue(inst);
-                    }
+                    if (Main.graphics != null)
+                        _graphicsDevice = Main.graphics.GraphicsDevice;
+                }
+
+                if (_graphicsDevice == null && Main.instance != null)
+                {
+                    _graphicsDevice = Main.instance.GraphicsDevice;
                 }
 
                 if (_graphicsDevice == null) return false; // Not ready yet, retry later
@@ -1786,7 +1339,7 @@ namespace TerrariaModder.Core.UI
                 try
                 {
                     EnsureInitialized();
-                    return _mouseXField != null ? (int)_mouseXField.GetValue(null) : 0;
+                    return Main.mouseX;
                 }
                 catch { return 0; }
             }
@@ -1802,7 +1355,7 @@ namespace TerrariaModder.Core.UI
                 try
                 {
                     EnsureInitialized();
-                    return _mouseYField != null ? (int)_mouseYField.GetValue(null) : 0;
+                    return Main.mouseY;
                 }
                 catch { return 0; }
             }
@@ -1818,7 +1371,7 @@ namespace TerrariaModder.Core.UI
                 try
                 {
                     EnsureInitialized();
-                    return _mouseLeftField != null && (bool)_mouseLeftField.GetValue(null);
+                    return Main.mouseLeft;
                 }
                 catch { return false; }
             }
@@ -1834,8 +1387,7 @@ namespace TerrariaModder.Core.UI
                 try
                 {
                     EnsureInitialized();
-                    if (_mouseLeftField == null || _mouseLeftReleaseField == null) return false;
-                    return (bool)_mouseLeftField.GetValue(null) && (bool)_mouseLeftReleaseField.GetValue(null);
+                    return Main.mouseLeft && Main.mouseLeftRelease;
                 }
                 catch { return false; }
             }
@@ -1851,7 +1403,7 @@ namespace TerrariaModder.Core.UI
                 try
                 {
                     EnsureInitialized();
-                    return _mouseRightField != null && (bool)_mouseRightField.GetValue(null);
+                    return Main.mouseRight;
                 }
                 catch { return false; }
             }
@@ -1867,8 +1419,7 @@ namespace TerrariaModder.Core.UI
                 try
                 {
                     EnsureInitialized();
-                    if (_mouseRightField == null || _mouseRightReleaseField == null) return false;
-                    return (bool)_mouseRightField.GetValue(null) && (bool)_mouseRightReleaseField.GetValue(null);
+                    return Main.mouseRight && Main.mouseRightRelease;
                 }
                 catch { return false; }
             }
@@ -1878,12 +1429,8 @@ namespace TerrariaModder.Core.UI
         {
             get
             {
-                try
-                {
-                    EnsureInitialized();
-                    return _mouseMiddleField != null && (bool)_mouseMiddleField.GetValue(null);
-                }
-                catch { return false; }
+                // mouseMiddle does not exist in vanilla Terraria
+                return false;
             }
         }
 
@@ -1891,13 +1438,8 @@ namespace TerrariaModder.Core.UI
         {
             get
             {
-                try
-                {
-                    EnsureInitialized();
-                    if (_mouseMiddleField == null || _mouseMiddleReleaseField == null) return false;
-                    return (bool)_mouseMiddleField.GetValue(null) && (bool)_mouseMiddleReleaseField.GetValue(null);
-                }
-                catch { return false; }
+                // mouseMiddle does not exist in vanilla Terraria
+                return false;
             }
         }
 
@@ -1908,7 +1450,7 @@ namespace TerrariaModder.Core.UI
                 try
                 {
                     EnsureInitialized();
-                    return _screenWidthField != null ? (int)_screenWidthField.GetValue(null) : 1920;
+                    return Main.screenWidth;
                 }
                 catch { return 1920; }
             }
@@ -1921,7 +1463,7 @@ namespace TerrariaModder.Core.UI
                 try
                 {
                     EnsureInitialized();
-                    return _screenHeightField != null ? (int)_screenHeightField.GetValue(null) : 1080;
+                    return Main.screenHeight;
                 }
                 catch { return 1080; }
             }
@@ -1938,8 +1480,7 @@ namespace TerrariaModder.Core.UI
 
                 try
                 {
-                    if (_scrollWheelDeltaForUIField != null)
-                        return (int)_scrollWheelDeltaForUIField.GetValue(null);
+                    return PlayerInput.ScrollWheelDeltaForUI;
                 }
                 catch { }
                 return 0;
@@ -2004,15 +1545,8 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                _blockMouseField?.SetValue(null, block);
-
-                var playerArray = _playerArrayField?.GetValue(null) as Array;
-                if (_myPlayerField != null && playerArray != null)
-                {
-                    int myPlayer = (int)_myPlayerField.GetValue(null);
-                    var player = playerArray.GetValue(myPlayer);
-                    _mouseInterfaceField?.SetValue(player, block);
-                }
+                Main.blockMouse = block;
+                Main.player[Main.myPlayer].mouseInterface = block;
             }
             catch { }
         }
@@ -2080,28 +1614,23 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                _blockInputField?.SetValue(null, block);
-                _mainPlayerInputWritingTextField?.SetValue(null, block);
+                Main.blockInput = block;
+                PlayerInput.WritingText = block;
 
-                var playerArray = _playerArrayField?.GetValue(null) as Array;
-                if (_myPlayerField != null && playerArray != null)
+                var player = Main.player[Main.myPlayer];
+
+                if (block && player != null)
                 {
-                    int myPlayer = (int)_myPlayerField.GetValue(null);
-                    var player = playerArray.GetValue(myPlayer);
-
-                    if (block && player != null)
-                    {
-                        _controlUpField?.SetValue(player, false);
-                        _controlDownField?.SetValue(player, false);
-                        _controlLeftField?.SetValue(player, false);
-                        _controlRightField?.SetValue(player, false);
-                        _controlJumpField?.SetValue(player, false);
-                        _controlUseItemField?.SetValue(player, false);
-                        _controlUseTileField?.SetValue(player, false);
-                        _controlThrowField?.SetValue(player, false);
-                        _controlHookField?.SetValue(player, false);
-                        _controlMountField?.SetValue(player, false);
-                    }
+                    player.controlUp = false;
+                    player.controlDown = false;
+                    player.controlLeft = false;
+                    player.controlRight = false;
+                    player.controlJump = false;
+                    player.controlUseItem = false;
+                    player.controlUseTile = false;
+                    player.controlThrow = false;
+                    player.controlHook = false;
+                    player.controlMount = false;
                 }
             }
             catch { }
@@ -2136,7 +1665,7 @@ namespace TerrariaModder.Core.UI
                 // Set WritingText early to block hotbar keys BEFORE PlayerInput.UpdateInput
                 try
                 {
-                    _mainPlayerInputWritingTextField?.SetValue(null, true);
+                    PlayerInput.WritingText = true;
                 }
                 catch { }
 
@@ -2156,7 +1685,7 @@ namespace TerrariaModder.Core.UI
         /// </summary>
         public static void ConsumeClick()
         {
-            try { _mouseLeftReleaseField?.SetValue(null, false); } catch { }
+            try { Main.mouseLeftRelease = false; } catch { }
         }
 
         /// <summary>
@@ -2172,20 +1701,12 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                var playerArray = _playerArrayField?.GetValue(null) as Array;
-                if (_myPlayerField != null && playerArray != null)
-                {
-                    int myPlayer = (int)_myPlayerField.GetValue(null);
-                    var player = playerArray.GetValue(myPlayer);
-                    _mouseInterfaceField?.SetValue(player, true);
-                }
+                Main.player[Main.myPlayer].mouseInterface = true;
             }
             catch { }
         }
 
         #region Inventory Control
-
-        private static FieldInfo _playerInventoryField;
 
         /// <summary>
         /// Open the player's inventory.
@@ -2194,9 +1715,7 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                if (_playerInventoryField == null)
-                    _playerInventoryField = typeof(Terraria.Main).GetField("playerInventory", BindingFlags.Public | BindingFlags.Static);
-                _playerInventoryField?.SetValue(null, true);
+                Main.playerInventory = true;
             }
             catch { }
         }
@@ -2208,9 +1727,7 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                if (_playerInventoryField == null)
-                    _playerInventoryField = typeof(Terraria.Main).GetField("playerInventory", BindingFlags.Public | BindingFlags.Static);
-                _playerInventoryField?.SetValue(null, false);
+                Main.playerInventory = false;
             }
             catch { }
         }
@@ -2224,9 +1741,7 @@ namespace TerrariaModder.Core.UI
             {
                 try
                 {
-                    if (_playerInventoryField == null)
-                        _playerInventoryField = typeof(Terraria.Main).GetField("playerInventory", BindingFlags.Public | BindingFlags.Static);
-                    return _playerInventoryField != null && (bool)_playerInventoryField.GetValue(null);
+                    return Main.playerInventory;
                 }
                 catch { return false; }
             }
@@ -2390,8 +1905,7 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                if (_uiScaleField != null)
-                    return (float)_uiScaleField.GetValue(null);
+                return Main.UIScale;
             }
             catch { }
             return 1f;
@@ -2407,11 +1921,7 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                if (_playerInputMouseXField != null && _playerInputMouseYField != null)
-                {
-                    return ((int)_playerInputMouseXField.GetValue(null),
-                            (int)_playerInputMouseYField.GetValue(null));
-                }
+                return (PlayerInput.MouseX, PlayerInput.MouseY);
             }
             catch { }
             // Fallback — may be wrong during Update if zoom transforms are active
@@ -2557,8 +2067,8 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                _scrollWheelDeltaForUIField?.SetValue(null, 0);
-                _scrollWheelDeltaField?.SetValue(null, 0);
+                PlayerInput.ScrollWheelDeltaForUI = 0;
+                PlayerInput.ScrollWheelDelta = 0;
             }
             catch { }
         }
@@ -2568,7 +2078,7 @@ namespace TerrariaModder.Core.UI
         /// </summary>
         public static void ConsumeRightClick()
         {
-            try { _mouseRightReleaseField?.SetValue(null, false); } catch { }
+            try { Main.mouseRightRelease = false; } catch { }
         }
 
         /// <summary>
@@ -2576,7 +2086,7 @@ namespace TerrariaModder.Core.UI
         /// </summary>
         public static void ConsumeMiddleClick()
         {
-            try { _mouseMiddleReleaseField?.SetValue(null, false); } catch { }
+            // mouseMiddle does not exist in vanilla Terraria — no-op
         }
 
         public static bool IsMouseOver(int x, int y, int width, int height)
@@ -2589,14 +2099,6 @@ namespace TerrariaModder.Core.UI
 
         #region Text Input
 
-        private static FieldInfo _writingTextField;
-        private static PropertyInfo _writingTextProp;
-        private static FieldInfo _currentInputTextTakerOverrideField;
-        private static MethodInfo _handleIMEMethod;
-        private static FieldInfo _mainInstanceField;
-        private static MethodInfo _getInputTextMethod;
-        private static MethodInfo _clrInputMethod;
-        private static FieldInfo _inputTextField;
         private static object _inputTextTaker; // Persistent object for CurrentInputTextTakerOverride
 
         /// <summary>
@@ -2607,33 +2109,13 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                var mainType = typeof(Terraria.Main);
-                var playerInputType = mainType.Assembly.GetType("Terraria.GameInput.PlayerInput");
-
                 // Set PlayerInput.WritingText = true
-                if (_writingTextField == null && _writingTextProp == null && playerInputType != null)
-                {
-                    _writingTextField = playerInputType.GetField("WritingText", BindingFlags.Public | BindingFlags.Static);
-                    if (_writingTextField == null)
-                        _writingTextProp = playerInputType.GetProperty("WritingText", BindingFlags.Public | BindingFlags.Static);
-                }
-
-                if (_writingTextField != null)
-                    _writingTextField.SetValue(null, true);
-                else if (_writingTextProp != null)
-                    _writingTextProp.SetValue(null, true);
+                PlayerInput.WritingText = true;
 
                 // Set Main.CurrentInputTextTakerOverride to prevent chat from stealing input
-                if (_currentInputTextTakerOverrideField == null)
-                    _currentInputTextTakerOverrideField = mainType.GetField("CurrentInputTextTakerOverride", BindingFlags.Public | BindingFlags.Static);
-
-                if (_currentInputTextTakerOverrideField != null)
-                {
-                    // Use a persistent object (not string) for the override
-                    if (_inputTextTaker == null)
-                        _inputTextTaker = new object();
-                    _currentInputTextTakerOverrideField.SetValue(null, _inputTextTaker);
-                }
+                if (_inputTextTaker == null)
+                    _inputTextTaker = new object();
+                Main.CurrentInputTextTakerOverride = _inputTextTaker;
             }
             catch { }
         }
@@ -2645,12 +2127,8 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                if (_writingTextField != null)
-                    _writingTextField.SetValue(null, false);
-                else if (_writingTextProp != null)
-                    _writingTextProp.SetValue(null, false);
-
-                _currentInputTextTakerOverrideField?.SetValue(null, null);
+                PlayerInput.WritingText = false;
+                Main.CurrentInputTextTakerOverride = null;
             }
             catch { }
         }
@@ -2662,20 +2140,7 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                var mainType = typeof(Terraria.Main);
-
-                if (_mainInstanceField == null)
-                    _mainInstanceField = mainType.GetField("instance", BindingFlags.Public | BindingFlags.Static);
-
-                if (_handleIMEMethod == null)
-                    _handleIMEMethod = mainType.GetMethod("HandleIME", BindingFlags.Public | BindingFlags.Instance);
-
-                if (_mainInstanceField != null && _handleIMEMethod != null)
-                {
-                    var instance = _mainInstanceField.GetValue(null);
-                    if (instance != null)
-                        _handleIMEMethod.Invoke(instance, null);
-                }
+                Main.instance?.HandleIME();
             }
             catch { }
         }
@@ -2687,14 +2152,10 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                if (_clrInputMethod == null)
-                    _clrInputMethod = typeof(Terraria.Main).GetMethod("clrInput", BindingFlags.Public | BindingFlags.Static);
-                _clrInputMethod?.Invoke(null, null);
+                Main.clrInput();
             }
             catch { }
         }
-
-        private static FieldInfo _inputTextEscapeField;
 
         /// <summary>
         /// Check if Escape was pressed during text input. Clears the flag after checking.
@@ -2703,16 +2164,10 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                if (_inputTextEscapeField == null)
-                    _inputTextEscapeField = typeof(Terraria.Main).GetField("inputTextEscape", BindingFlags.Public | BindingFlags.Static);
-
-                if (_inputTextEscapeField != null)
-                {
-                    bool result = (bool)_inputTextEscapeField.GetValue(null);
-                    if (result)
-                        _inputTextEscapeField.SetValue(null, false); // Clear the flag
-                    return result;
-                }
+                bool result = Main.inputTextEscape;
+                if (result)
+                    Main.inputTextEscape = false; // Clear the flag
+                return result;
             }
             catch { }
             return false;
@@ -2725,49 +2180,12 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
-                var mainType = typeof(Terraria.Main);
-
                 // Make sure we have override set
-                if (_currentInputTextTakerOverrideField == null)
-                    _currentInputTextTakerOverrideField = mainType.GetField("CurrentInputTextTakerOverride", BindingFlags.Public | BindingFlags.Static);
-
-                if (_currentInputTextTakerOverrideField != null && _currentInputTextTakerOverrideField.GetValue(null) != null)
+                if (Main.CurrentInputTextTakerOverride != null)
                 {
-                    // Try Main.GetInputText(string, bool) first
-                    if (_getInputTextMethod == null)
-                    {
-                        _getInputTextMethod = mainType.GetMethod("GetInputText", BindingFlags.Public | BindingFlags.Static,
-                            null, new[] { typeof(string), typeof(bool) }, null);
-                        if (_getInputTextMethod == null)
-                        {
-                            _getInputTextMethod = mainType.GetMethod("GetInputText", BindingFlags.Public | BindingFlags.Static,
-                                null, new[] { typeof(string) }, null);
-                        }
-                    }
-
-                    if (_getInputTextMethod != null)
-                    {
-                        var parms = _getInputTextMethod.GetParameters();
-                        string result;
-                        if (parms.Length == 2)
-                            result = (string)_getInputTextMethod.Invoke(null, new object[] { currentText, false });
-                        else
-                            result = (string)_getInputTextMethod.Invoke(null, new object[] { currentText });
-
-                        if (result != null)
-                            return result;
-                    }
-
-                    // Fallback to Main.inputText field
-                    if (_inputTextField == null)
-                        _inputTextField = mainType.GetField("inputText", BindingFlags.Public | BindingFlags.Static);
-
-                    if (_inputTextField != null)
-                    {
-                        string inputText = (string)_inputTextField.GetValue(null);
-                        if (inputText != null && inputText != currentText)
-                            return inputText;
-                    }
+                    string result = Main.GetInputText(currentText, false);
+                    if (result != null)
+                        return result;
                 }
             }
             catch { }

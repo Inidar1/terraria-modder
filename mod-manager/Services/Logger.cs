@@ -2,24 +2,35 @@ using System.IO;
 
 namespace TerrariaModManager.Services;
 
-public static class Logger
+public class Logger
 {
-    private static readonly string LogPath = Path.Combine(SettingsService.AppDataDir, "app.log");
-    private static readonly object Lock = new();
+    private readonly string _logPath;
+    private readonly object _lock = new();
 
-    public static void Info(string message) => Write("INFO", message);
-    public static void Warn(string message) => Write("WARN", message);
-    public static void Error(string message) => Write("ERROR", message);
-    public static void Error(string message, Exception ex) => Write("ERROR", $"{message}: {ex.Message}");
+    public Logger(SettingsService settings)
+    {
+        _logPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "TerrariaModManager", "app.log");
+        
+        // Ensure directory exists
+        var dir = Path.GetDirectoryName(_logPath);
+        if (dir != null) Directory.CreateDirectory(dir);
+    }
 
-    public static string ReadTail(int lines = 100)
+    public void Info(string message) => Write("INFO", message);
+    public void Warn(string message) => Write("WARN", message);
+    public void Error(string message) => Write("ERROR", message);
+    public void Error(string message, Exception ex) => Write("ERROR", $"{message}: {ex}");
+
+    public string ReadTail(int lines = 100)
     {
         try
         {
-            lock (Lock)
+            lock (_lock)
             {
-                if (!File.Exists(LogPath)) return "(no log file)";
-                var allLines = File.ReadAllLines(LogPath);
+                if (!File.Exists(_logPath)) return "(no log file)";
+                var allLines = File.ReadAllLines(_logPath);
                 var start = Math.Max(0, allLines.Length - lines);
                 return string.Join(Environment.NewLine, allLines[start..]);
             }
@@ -30,27 +41,27 @@ public static class Logger
         }
     }
 
-    public static void Clear()
+    public void Clear()
     {
         try
         {
-            lock (Lock)
+            lock (_lock)
             {
-                if (File.Exists(LogPath))
-                    File.WriteAllText(LogPath, "");
+                if (File.Exists(_logPath))
+                    File.WriteAllText(_logPath, "");
             }
         }
         catch { }
     }
 
-    private static void Write(string level, string message)
+    private void Write(string level, string message)
     {
         try
         {
-            lock (Lock)
+            lock (_lock)
             {
                 var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{level}] {message}";
-                File.AppendAllText(LogPath, line + Environment.NewLine);
+                File.AppendAllText(_logPath, line + Environment.NewLine);
             }
         }
         catch { }

@@ -3,7 +3,7 @@
         xmlns:vm="using:TerrariaModManager.ViewModels"
         xmlns:v="using:TerrariaModManager.Views"
         x:Class="TerrariaModManager.Views.MainWindow"
-        Title="TerrariaModder Manager" Width="1100" Height="700"
+        Title="TerrariaModder Vault" Width="1100" Height="700"
         MinWidth="800" MinHeight="500"
         WindowStartupLocation="CenterScreen">
 
@@ -36,19 +36,55 @@
                 <StackPanel DockPanel.Dock="Top" Margin="16,20,16,24">
                     <TextBlock Text="TerrariaModder" FontSize="16" FontWeight="Bold"
                                Foreground="{StaticResource AccentBrush}"/>
-                    <TextBlock Text="Manager" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                    <TextBlock Text="Vault" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                Margin="0,2,0,0"/>
                 </StackPanel>
 
                 <!-- Launch + version at bottom -->
                 <StackPanel DockPanel.Dock="Bottom" Margin="8,0,8,12">
                     <Button Content="Launch Modded" Classes="primary"
-                            Command="{Binding LaunchModdedCommand}" Margin="0,0,0,4"/>
+                            Command="{Binding LaunchModdedCommand}" Margin="0,0,0,4"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
                     <Button Content="Launch Vanilla" Classes="primary"
-                            Command="{Binding LaunchVanillaCommand}" Margin="0,0,0,8"/>
+                            Command="{Binding LaunchVanillaCommand}" Margin="0,0,0,8"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
                     <TextBlock Text="v0.1.0" Foreground="{StaticResource TextSecondaryBrush}"
                                FontSize="11" Margin="8,0,0,0"/>
                 </StackPanel>
+
+                <!-- nxm:// status alert — clickable only when not registered -->
+                <Button DockPanel.Dock="Top" Command="{Binding RegisterNxmCommand}"
+                        IsVisible="{Binding !IsNxmRegistered}"
+                        ToolTip.Tip="Makes the 'Download: Vortex' button on Nexus Mods open this app automatically."
+                        Margin="8,0,8,12" Padding="10,6" CornerRadius="6" Cursor="Hand"
+                        Background="{StaticResource BgDarkBrush}"
+                        BorderBrush="{Binding NxmStatusColor}" BorderThickness="1"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
+                    <StackPanel>
+                        <TextBlock Text="{Binding NxmStatusHeader}"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   FontSize="10" HorizontalAlignment="Center"/>
+                        <TextBlock Text="{Binding NxmStatusValue}"
+                                   Foreground="{Binding NxmStatusColor}"
+                                   FontSize="12" FontWeight="Bold" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <!-- nxm:// status — non-interactive when registered -->
+                <Border DockPanel.Dock="Top"
+                        IsVisible="{Binding IsNxmRegistered}"
+                        ToolTip.Tip="Makes the 'Download: Vortex' button on Nexus Mods open this app automatically."
+                        Margin="8,0,8,12" Padding="10,6" CornerRadius="6"
+                        Background="{StaticResource BgDarkBrush}"
+                        BorderBrush="{Binding NxmStatusColor}" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock Text="{Binding NxmStatusHeader}"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   FontSize="10" HorizontalAlignment="Center"/>
+                        <TextBlock Text="{Binding NxmStatusValue}"
+                                   Foreground="{Binding NxmStatusColor}"
+                                   FontSize="12" FontWeight="Bold" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
 
                 <!-- Nav buttons -->
                 <StackPanel Margin="4,0">

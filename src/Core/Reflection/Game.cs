@@ -1,11 +1,12 @@
 using System;
+using Microsoft.Xna.Framework;
 using Terraria;
 
 namespace TerrariaModder.Core.Reflection
 {
     /// <summary>
     /// Convenience accessors for common game state.
-    /// Uses direct Terraria references where possible, reflection for XNA types.
+    /// Uses direct Terraria and XNA references.
     /// </summary>
     public static class Game
     {
@@ -49,7 +50,7 @@ namespace TerrariaModder.Core.Reflection
         public static float UIScale => Main.UIScale;
 
         /// <summary>Current screen position (top-left corner in world coordinates).</summary>
-        public static Vec2 ScreenPosition => Vec2.FromXna(GameAccessor.TryGetMainField<object>("screenPosition"));
+        public static Vector2 ScreenPosition => Main.screenPosition;
 
         /// <summary>Mouse X in screen coordinates.</summary>
         public static int MouseX => Main.mouseX;
@@ -58,10 +59,10 @@ namespace TerrariaModder.Core.Reflection
         public static int MouseY => Main.mouseY;
 
         /// <summary>Mouse position in screen coordinates.</summary>
-        public static Vec2 MouseScreen => new Vec2(Main.mouseX, Main.mouseY);
+        public static Vector2 MouseScreen => new Vector2(Main.mouseX, Main.mouseY);
 
         /// <summary>Mouse position in world coordinates.</summary>
-        public static Vec2 MouseWorld => Vec2.FromXna(GameAccessor.TryGetStaticProperty<object>(TypeFinder.Main, "MouseWorld"));
+        public static Vector2 MouseWorld => Main.MouseWorld;
 
         /// <summary>True if left mouse button is pressed.</summary>
         public static bool MouseLeft => Main.mouseLeft;
@@ -111,24 +112,24 @@ namespace TerrariaModder.Core.Reflection
         public static Player LocalPlayer => Main.LocalPlayer;
 
         /// <summary>Local player position.</summary>
-        public static Vec2 PlayerPosition
+        public static Vector2 PlayerPosition
         {
             get
             {
                 var player = LocalPlayer;
-                if (player == null) return Vec2.Zero;
-                return Vec2.FromXna(GameAccessor.TryGetField<object>(player, "position"));
+                if (player == null) return Vector2.Zero;
+                return player.position;
             }
         }
 
         /// <summary>Local player center position.</summary>
-        public static Vec2 PlayerCenter
+        public static Vector2 PlayerCenter
         {
             get
             {
                 var player = LocalPlayer;
-                if (player == null) return Vec2.Zero;
-                return Vec2.FromXna(GameAccessor.TryGetProperty<object>(player, "Center"));
+                if (player == null) return Vector2.Zero;
+                return player.Center;
             }
         }
 
@@ -192,10 +193,10 @@ namespace TerrariaModder.Core.Reflection
         #region Utility
 
         /// <summary>Convert tile coordinates to world coordinates.</summary>
-        public static Vec2 TileToWorld(int tileX, int tileY) => new Vec2(tileX * 16, tileY * 16);
+        public static Vector2 TileToWorld(int tileX, int tileY) => new Vector2(tileX * 16, tileY * 16);
 
         /// <summary>Convert world coordinates to tile coordinates.</summary>
-        public static (int x, int y) WorldToTile(Vec2 worldPos) => ((int)(worldPos.X / 16), (int)(worldPos.Y / 16));
+        public static (int x, int y) WorldToTile(Vector2 worldPos) => ((int)(worldPos.X / 16), (int)(worldPos.Y / 16));
 
         /// <summary>Get tile at world position.</summary>
         public static Tile GetTile(int tileX, int tileY)
@@ -209,32 +210,14 @@ namespace TerrariaModder.Core.Reflection
 
         #region Actions
 
-        private static System.Reflection.MethodInfo _newTextMethod;
-        private static System.Reflection.MethodInfo _placeTileMethod;
-        private static Type _worldGenType;
-
         /// <summary>
         /// Show a chat message to the local player.
         /// </summary>
-        /// <param name="text">Message text</param>
-        /// <param name="r">Red (0-255)</param>
-        /// <param name="g">Green (0-255)</param>
-        /// <param name="b">Blue (0-255)</param>
         public static void ShowMessage(string text, byte r = 255, byte g = 255, byte b = 255)
         {
             try
             {
-                if (_newTextMethod == null)
-                {
-                    var mainType = TypeFinder.Main;
-                    if (mainType == null) return;
-
-                    _newTextMethod = mainType.GetMethod("NewText",
-                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
-                        null, new[] { typeof(string), typeof(byte), typeof(byte), typeof(byte) }, null);
-                }
-
-                _newTextMethod?.Invoke(null, new object[] { text, r, g, b });
+                Main.NewText(text, r, g, b);
             }
             catch { }
         }
@@ -242,35 +225,11 @@ namespace TerrariaModder.Core.Reflection
         /// <summary>
         /// Place a tile at the specified position.
         /// </summary>
-        /// <param name="tileX">Tile X coordinate</param>
-        /// <param name="tileY">Tile Y coordinate</param>
-        /// <param name="tileType">Tile type ID (e.g., 4 for torch)</param>
-        /// <param name="style">Tile style variant (default 0)</param>
-        /// <returns>True if tile was placed successfully</returns>
         public static bool PlaceTile(int tileX, int tileY, int tileType, int style = 0)
         {
             try
             {
-                if (_worldGenType == null)
-                {
-                    var mainType = TypeFinder.Main;
-                    if (mainType == null) return false;
-                    _worldGenType = mainType.Assembly.GetType("Terraria.WorldGen");
-                }
-
-                if (_placeTileMethod == null && _worldGenType != null)
-                {
-                    _placeTileMethod = _worldGenType.GetMethod("PlaceTile",
-                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
-                        null, new[] { typeof(int), typeof(int), typeof(int),
-                                      typeof(bool), typeof(bool), typeof(int), typeof(int) }, null);
-                }
-
-                if (_placeTileMethod == null) return false;
-
-                // Parameters: x, y, type, mute=false, forced=false, plr=myPlayer, style
-                return (bool)_placeTileMethod.Invoke(null,
-                    new object[] { tileX, tileY, tileType, false, false, Main.myPlayer, style });
+                return WorldGen.PlaceTile(tileX, tileY, tileType, false, false, Main.myPlayer, style);
             }
             catch
             {

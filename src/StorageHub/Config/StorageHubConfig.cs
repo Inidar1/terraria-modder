@@ -361,7 +361,7 @@ namespace StorageHub.Config
             var tierMatch = System.Text.RegularExpressions.Regex.Match(json, @"""tier""\s*:\s*(\d+)");
             if (tierMatch.Success && int.TryParse(tierMatch.Groups[1].Value, out int tier))
             {
-                Tier = tier;
+                Tier = Math.Max(0, Math.Min(4, tier));
             }
 
             // Parse registered chests

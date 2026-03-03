@@ -2,11 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Terraria;
+using Terraria.ID;
 using TerrariaModder.Core.UI;
 using TerrariaModder.Core.Logging;
 using StorageHub.Storage;
 using StorageHub.Config;
 using StorageHub.Debug;
+using StorageHub.Shared;
+using StorageHub.Relay;
 using TerrariaModder.Core.UI.Widgets;
 
 namespace StorageHub.UI.Tabs
@@ -25,6 +29,7 @@ namespace StorageHub.UI.Tabs
         private readonly ILogger _log;
         private readonly IStorageProvider _storage;
         private readonly StorageHubConfig _config;
+        private readonly RangeCalculator _rangeCalc;
 
         // UI components
         private readonly TextInput _searchBar = new TextInput("Search...", 200);
@@ -35,27 +40,14 @@ namespace StorageHub.UI.Tabs
         private static int[] _shimmerTransformToItem;  // Direct transforms (torch -> aether torch)
         private static int[] _isCrafted;                // Recipe index for crafted items (decrafting)
         private static bool _shimmerDataLoaded;
+        private static int _shimmerLoadAttempts;
         private static Dictionary<int, string> _itemNames = new Dictionary<int, string>();
         private static Dictionary<int, string> _prefixNames = new Dictionary<int, string>();
 
-        // Recipe data for decrafting
-        private static Array _recipes;
-        private static FieldInfo _recipeCreateItemField;
-        private static FieldInfo _recipeRequiredItemField;
-        private static FieldInfo _recipeAlchemyField;
-        private static FieldInfo _customShimmerResultsField;
-
-        // Reflection for shimmer
-        private static Type _mainType;
-        private static Type _itemType;
-        private static FieldInfo _itemTypeField;
-        private static FieldInfo _itemStackField;
-        private static FieldInfo _itemPrefixField;
-        private static MethodInfo _itemSetDefaultsMethod;
+        // Recipe data for decrafting — accessed via Main.recipe directly
 
         // Additional shimmer data
         private static bool[] _commonCoin;           // ItemID.Sets.CommonCoin - coins for Coin Luck
-        private static FieldInfo _makeNPCField;      // item.makeNPC - NPC spawn items
         private static Dictionary<int, short> _makeNPCCache = new Dictionary<int, short>();  // Cache makeNPC values
         private static Dictionary<short, string> _npcNames = new Dictionary<short, string>(); // NPC ID -> name
 
@@ -69,13 +61,7 @@ namespace StorageHub.UI.Tabs
         private static int[] _shimmerCountsAsItem;   // ItemID.Sets.ShimmerCountsAsItem - item aliasing
         private static int[] _shimmerCountsAsItemForDecraft; // ItemID.Sets.ShimmerCountsAsItemForDecraft
 
-        // Boss state reflection
-        private static Type _npcType;
-        private static FieldInfo _downedBoss3Field;      // NPC.downedBoss3 (Skeletron)
-        private static FieldInfo _downedGolemBossField;  // NPC.downedGolemBoss
-        private static FieldInfo _downedMoonlordField;   // NPC.downedMoonlord
-        private static Type _worldGenType;
-        private static FieldInfo _crimsonField;          // WorldGen.crimson
+        // Boss state: NPC/WorldGen fields accessed directly (public statics)
 
         // Cached data
         private List<ShimmerableItemGroup> _shimmerableGroups = new List<ShimmerableItemGroup>();
@@ -89,6 +75,10 @@ namespace StorageHub.UI.Tabs
 
         // Blocked items (itemId << 16 | prefix)
         private HashSet<long> _blockedItems = new HashSet<long>();
+
+        // Storage count cache (rebuilt once per Draw frame)
+        private Dictionary<int, int> _storageCountCache;
+        private bool _storageCountCacheValid;
 
         // RNG for alchemy decraft discount (vanilla: each ingredient unit has 1/3 chance to vanish)
         private static readonly Random _alchemyRng = new Random();
@@ -108,11 +98,12 @@ namespace StorageHub.UI.Tabs
         /// </summary>
         public Action OnStorageModified { get; set; }
 
-        public ShimmerTab(ILogger log, IStorageProvider storage, StorageHubConfig config)
+        public ShimmerTab(ILogger log, IStorageProvider storage, StorageHubConfig config, RangeCalculator rangeCalc)
         {
             _log = log;
             _storage = storage;
             _config = config;
+            _rangeCalc = rangeCalc;
 
             if (!_shimmerDataLoaded)
             {
@@ -127,197 +118,25 @@ namespace StorageHub.UI.Tabs
         {
             try
             {
-                _mainType = Type.GetType("Terraria.Main, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Main");
-                _itemType = Type.GetType("Terraria.Item, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Item");
+                // Load ItemID.Sets shimmer arrays directly
+                _shimmerTransformToItem = ItemID.Sets.ShimmerTransformToItem;
+                _isCrafted = ItemID.Sets.IsCrafted;
+                _commonCoin = ItemID.Sets.CommonCoin;
+                _shimmerPostMoonlord = ItemID.Sets.ShimmerPostMoonlord;
+                _isCraftedCrimson = ItemID.Sets.IsCraftedCrimson;
+                _isCraftedCorruption = ItemID.Sets.IsCraftedCorruption;
+                _shimmerCountsAsItem = ItemID.Sets.ShimmerCountsAsItem;
+                _shimmerCountsAsItemForDecraft = ItemID.Sets.ShimmerCountsAsItemForDecraft;
 
-                if (_itemType != null)
-                {
-                    _itemTypeField = _itemType.GetField("type", BindingFlags.Public | BindingFlags.Instance);
-                    _itemStackField = _itemType.GetField("stack", BindingFlags.Public | BindingFlags.Instance);
-                    _itemPrefixField = _itemType.GetField("prefix", BindingFlags.Public | BindingFlags.Instance);
-                    // SetDefaults has signature: SetDefaults(int Type, ItemVariant variant = null)
-                    // GetMethod with just typeof(int) won't match a 2-param method, so search by name
-                    foreach (var m in _itemType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-                    {
-                        if (m.Name == "SetDefaults")
-                        {
-                            var p = m.GetParameters();
-                            if (p.Length >= 1 && p[0].ParameterType == typeof(int))
-                            {
-                                _itemSetDefaultsMethod = m;
-                                break;
-                            }
-                        }
-                    }
-                }
+                _log.Debug($"Loaded shimmer transform data: {_shimmerTransformToItem?.Length ?? 0} entries");
+                _log.Debug($"Loaded IsCrafted data: {_isCrafted?.Length ?? 0} entries");
 
-                // Try to get ItemID.Sets.ShimmerTransformToItem and IsCrafted
-                var itemIdType = Type.GetType("Terraria.ID.ItemID, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.ID.ItemID");
+                // Load NPCID.Sets.ShimmerTransformToNPC for critter shimmer transforms
+                _shimmerTransformToNPC = NPCID.Sets.ShimmerTransformToNPC;
+                _log.Debug($"Loaded ShimmerTransformToNPC data: {_shimmerTransformToNPC?.Length ?? 0} entries");
 
-                if (itemIdType != null)
-                {
-                    var setsType = itemIdType.GetNestedType("Sets", BindingFlags.Public | BindingFlags.Static);
-                    if (setsType != null)
-                    {
-                        // Direct transforms (e.g., Torch -> Aether Torch)
-                        var shimmerField = setsType.GetField("ShimmerTransformToItem", BindingFlags.Public | BindingFlags.Static);
-                        if (shimmerField != null)
-                        {
-                            _shimmerTransformToItem = shimmerField.GetValue(null) as int[];
-                            if (_shimmerTransformToItem != null)
-                            {
-                                _log.Debug($"Loaded shimmer transform data: {_shimmerTransformToItem.Length} entries");
-                            }
-                        }
-
-                        // Crafted items (for decrafting - e.g., Durendal -> Hallowed Bars)
-                        var isCraftedField = setsType.GetField("IsCrafted", BindingFlags.Public | BindingFlags.Static);
-                        if (isCraftedField != null)
-                        {
-                            _isCrafted = isCraftedField.GetValue(null) as int[];
-                            if (_isCrafted != null)
-                            {
-                                _log.Debug($"Loaded IsCrafted data: {_isCrafted.Length} entries");
-                            }
-                        }
-
-                        // Common coins (for Coin Luck effect)
-                        var commonCoinField = setsType.GetField("CommonCoin", BindingFlags.Public | BindingFlags.Static);
-                        if (commonCoinField != null)
-                        {
-                            _commonCoin = commonCoinField.GetValue(null) as bool[];
-                            if (_commonCoin != null)
-                            {
-                                _log.Debug($"Loaded CommonCoin data: {_commonCoin.Length} entries");
-                            }
-                        }
-
-                        // Post-Moonlord transform locks
-                        var postMoonlordField = setsType.GetField("ShimmerPostMoonlord", BindingFlags.Public | BindingFlags.Static);
-                        if (postMoonlordField != null)
-                        {
-                            _shimmerPostMoonlord = postMoonlordField.GetValue(null) as bool[];
-                            if (_shimmerPostMoonlord != null)
-                            {
-                                _log.Debug($"Loaded ShimmerPostMoonlord data: {_shimmerPostMoonlord.Length} entries");
-                            }
-                        }
-
-                        // World evil variant recipe indices
-                        var isCraftedCrimsonField = setsType.GetField("IsCraftedCrimson", BindingFlags.Public | BindingFlags.Static);
-                        if (isCraftedCrimsonField != null)
-                        {
-                            _isCraftedCrimson = isCraftedCrimsonField.GetValue(null) as int[];
-                            if (_isCraftedCrimson != null)
-                            {
-                                _log.Debug($"Loaded IsCraftedCrimson data: {_isCraftedCrimson.Length} entries");
-                            }
-                        }
-
-                        var isCraftedCorruptionField = setsType.GetField("IsCraftedCorruption", BindingFlags.Public | BindingFlags.Static);
-                        if (isCraftedCorruptionField != null)
-                        {
-                            _isCraftedCorruption = isCraftedCorruptionField.GetValue(null) as int[];
-                            if (_isCraftedCorruption != null)
-                            {
-                                _log.Debug($"Loaded IsCraftedCorruption data: {_isCraftedCorruption.Length} entries");
-                            }
-                        }
-
-                        // Item aliasing arrays
-                        var shimmerCountsAsItemField = setsType.GetField("ShimmerCountsAsItem", BindingFlags.Public | BindingFlags.Static);
-                        if (shimmerCountsAsItemField != null)
-                        {
-                            _shimmerCountsAsItem = shimmerCountsAsItemField.GetValue(null) as int[];
-                            if (_shimmerCountsAsItem != null)
-                            {
-                                _log.Debug($"Loaded ShimmerCountsAsItem data: {_shimmerCountsAsItem.Length} entries");
-                            }
-                        }
-
-                        var shimmerCountsAsItemForDecraftField = setsType.GetField("ShimmerCountsAsItemForDecraft", BindingFlags.Public | BindingFlags.Static);
-                        if (shimmerCountsAsItemForDecraftField != null)
-                        {
-                            _shimmerCountsAsItemForDecraft = shimmerCountsAsItemForDecraftField.GetValue(null) as int[];
-                            if (_shimmerCountsAsItemForDecraft != null)
-                            {
-                                _log.Debug($"Loaded ShimmerCountsAsItemForDecraft data: {_shimmerCountsAsItemForDecraft.Length} entries");
-                            }
-                        }
-                    }
-                }
-
-                // Load NPC boss state fields
-                _npcType = Type.GetType("Terraria.NPC, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.NPC");
-                if (_npcType != null)
-                {
-                    _downedBoss3Field = _npcType.GetField("downedBoss3", BindingFlags.Public | BindingFlags.Static);
-                    _downedGolemBossField = _npcType.GetField("downedGolemBoss", BindingFlags.Public | BindingFlags.Static);
-                    _downedMoonlordField = _npcType.GetField("downedMoonlord", BindingFlags.Public | BindingFlags.Static);
-                    _log.Debug($"Loaded NPC boss state fields: Boss3={_downedBoss3Field != null}, Golem={_downedGolemBossField != null}, Moonlord={_downedMoonlordField != null}");
-
-                    // Load NPCID.Sets.ShimmerTransformToNPC for critter shimmer transforms
-                    var npcidType = Type.GetType("Terraria.ID.NPCID, Terraria")
-                        ?? Assembly.Load("Terraria").GetType("Terraria.ID.NPCID");
-                    if (npcidType != null)
-                    {
-                        var npcSetsType = npcidType.GetNestedType("Sets", BindingFlags.Public | BindingFlags.Static);
-                        if (npcSetsType != null)
-                        {
-                            var shimmerTransformField = npcSetsType.GetField("ShimmerTransformToNPC", BindingFlags.Public | BindingFlags.Static);
-                            if (shimmerTransformField != null)
-                            {
-                                _shimmerTransformToNPC = shimmerTransformField.GetValue(null) as int[];
-                                if (_shimmerTransformToNPC != null)
-                                {
-                                    _log.Debug($"Loaded ShimmerTransformToNPC data: {_shimmerTransformToNPC.Length} entries");
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Load WorldGen.crimson field for world evil variant
-                _worldGenType = Type.GetType("Terraria.WorldGen, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.WorldGen");
-                if (_worldGenType != null)
-                {
-                    _crimsonField = _worldGenType.GetField("crimson", BindingFlags.Public | BindingFlags.Static);
-                    _log.Debug($"Loaded WorldGen.crimson field: {_crimsonField != null}");
-                }
-
-                // Get makeNPC field for critter/NPC spawn items
-                if (_itemType != null)
-                {
-                    _makeNPCField = _itemType.GetField("makeNPC", BindingFlags.Public | BindingFlags.Instance);
-                    if (_makeNPCField != null)
-                    {
-                        _log.Debug("Loaded makeNPC field");
-                    }
-                }
-
-                // Load recipe data for decrafting
-                var recipeField = _mainType?.GetField("recipe", BindingFlags.Public | BindingFlags.Static);
-                if (recipeField != null)
-                {
-                    _recipes = recipeField.GetValue(null) as Array;
-                    if (_recipes != null && _recipes.Length > 0)
-                    {
-                        var recipeType = _recipes.GetValue(0)?.GetType();
-                        if (recipeType != null)
-                        {
-                            _recipeCreateItemField = recipeType.GetField("createItem", BindingFlags.Public | BindingFlags.Instance);
-                            _recipeRequiredItemField = recipeType.GetField("requiredItem", BindingFlags.Public | BindingFlags.Instance);
-                            _recipeAlchemyField = recipeType.GetField("alchemy", BindingFlags.Public | BindingFlags.Instance);
-                            _customShimmerResultsField = recipeType.GetField("customShimmerResults", BindingFlags.Public | BindingFlags.Instance);
-                            _log.Debug($"Loaded recipe data: {_recipes.Length} recipes (alchemy: {_recipeAlchemyField != null}, customShimmer: {_customShimmerResultsField != null})");
-                        }
-                    }
-                }
+                // Verify recipe data is available
+                _log.Debug($"Recipe data available: {Main.recipe?.Length ?? 0} recipes");
 
                 // Load prefix names via reflection
                 LoadPrefixNames();
@@ -326,15 +145,11 @@ namespace StorageHub.UI.Tabs
             }
             catch (Exception ex)
             {
-                _log.Error($"Failed to load shimmer data: {ex.Message}");
+                _shimmerLoadAttempts++;
+                _log.Error($"Failed to load shimmer data (attempt {_shimmerLoadAttempts}/3): {ex.Message}");
                 // Clear all partially-loaded fields to avoid inconsistent state
                 _shimmerTransformToItem = null;
                 _isCrafted = null;
-                _recipes = null;
-                _recipeCreateItemField = null;
-                _recipeRequiredItemField = null;
-                _recipeAlchemyField = null;
-                _customShimmerResultsField = null;
                 _commonCoin = null;
                 _shimmerPostMoonlord = null;
                 _isCraftedCrimson = null;
@@ -342,7 +157,12 @@ namespace StorageHub.UI.Tabs
                 _shimmerCountsAsItem = null;
                 _shimmerCountsAsItemForDecraft = null;
                 _shimmerTransformToNPC = null;
-                _shimmerDataLoaded = true; // Don't retry - everything null = nothing shimmerable
+                if (_shimmerLoadAttempts >= 3)
+                {
+                    _shimmerDataLoaded = true; // Stop retrying after 3 failures
+                    _log.Error("[Shimmer] Max load attempts reached, shimmer tab disabled");
+                }
+                // else _shimmerDataLoaded stays false, will retry on next constructor call
             }
         }
 
@@ -353,10 +173,7 @@ namespace StorageHub.UI.Tabs
         {
             try
             {
-                var prefixIdType = Type.GetType("Terraria.ID.PrefixID, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.ID.PrefixID");
-
-                if (prefixIdType != null)
+                var prefixIdType = typeof(PrefixID);
                 {
                     var fields = prefixIdType.GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
                     foreach (var field in fields)
@@ -429,52 +246,14 @@ namespace StorageHub.UI.Tabs
         /// <summary>
         /// Get whether the current world is crimson.
         /// </summary>
-        private bool IsCrimsonWorld()
-        {
-            try
-            {
-                if (_crimsonField != null)
-                    return (bool)_crimsonField.GetValue(null);
-            }
-            catch { }
-            return false;
-        }
+        private bool IsCrimsonWorld() => WorldGen.crimson;
 
         /// <summary>
         /// Get boss defeat state.
         /// </summary>
-        private bool HasDefeatedSkeletron()
-        {
-            try
-            {
-                if (_downedBoss3Field != null)
-                    return (bool)_downedBoss3Field.GetValue(null);
-            }
-            catch { }
-            return false;
-        }
-
-        private bool HasDefeatedGolem()
-        {
-            try
-            {
-                if (_downedGolemBossField != null)
-                    return (bool)_downedGolemBossField.GetValue(null);
-            }
-            catch { }
-            return false;
-        }
-
-        private bool HasDefeatedMoonLord()
-        {
-            try
-            {
-                if (_downedMoonlordField != null)
-                    return (bool)_downedMoonlordField.GetValue(null);
-            }
-            catch { }
-            return false;
-        }
+        private bool HasDefeatedSkeletron() => NPC.downedBoss3;
+        private bool HasDefeatedGolem() => NPC.downedGolemBoss;
+        private bool HasDefeatedMoonLord() => NPC.downedMoonlord;
 
         /// <summary>
         /// Check if an item's transform is locked (post-Moonlord items).
@@ -530,15 +309,16 @@ namespace StorageHub.UI.Tabs
         /// </summary>
         private bool IsRecipeIndexDecraftLocked(int recipeIndex)
         {
-            if (recipeIndex < 0 || _recipes == null || recipeIndex >= _recipes.Length)
+            var recipes = Main.recipe;
+            if (recipeIndex < 0 || recipes == null || recipeIndex >= recipes.Length)
                 return false;
 
             try
             {
-                var recipe = _recipes.GetValue(recipeIndex);
+                var recipe = recipes[recipeIndex];
                 if (recipe == null) return false;
 
-                var requiredItems = _recipeRequiredItemField?.GetValue(recipe) as Array;
+                var requiredItems = recipe.requiredItem;
                 if (requiredItems == null) return false;
 
                 // Check for post-Skeletron ingredient (Bone = 154)
@@ -546,7 +326,7 @@ namespace StorageHub.UI.Tabs
                 foreach (var reqItem in requiredItems)
                 {
                     if (reqItem == null) continue;
-                    int reqType = (int)_itemTypeField.GetValue(reqItem);
+                    int reqType = ((Item)reqItem).type;
 
                     // Bone (154) - requires Skeletron defeated
                     if (reqType == 154 && !HasDefeatedSkeletron())
@@ -605,18 +385,7 @@ namespace StorageHub.UI.Tabs
             return false;
         }
 
-        /// <summary>
-        /// Invoke Item.SetDefaults on an item instance, handling both 1-param and 2-param overloads.
-        /// </summary>
-        private void InvokeSetDefaults(object item, int type)
-        {
-            if (_itemSetDefaultsMethod == null) return;
-            var paramCount = _itemSetDefaultsMethod.GetParameters().Length;
-            if (paramCount == 1)
-                _itemSetDefaultsMethod.Invoke(item, new object[] { type });
-            else
-                _itemSetDefaultsMethod.Invoke(item, new object[] { type, null });
-        }
+        // InvokeSetDefaults is provided by ReflectionCache.InvokeSetDefaults(item, type)
 
         /// <summary>
         /// Get the makeNPC value for an item (what NPC it spawns when used/shimmered).
@@ -629,12 +398,9 @@ namespace StorageHub.UI.Tabs
             short result = 0;
             try
             {
-                if (_itemType != null && _makeNPCField != null && _itemSetDefaultsMethod != null)
-                {
-                    var tempItem = Activator.CreateInstance(_itemType);
-                    InvokeSetDefaults(tempItem, itemId);
-                    result = (short)(_makeNPCField.GetValue(tempItem) ?? 0);
-                }
+                var tempItem = new Item();
+                tempItem.SetDefaults(itemId);
+                result = tempItem.makeNPC;
             }
             catch
             {
@@ -772,26 +538,27 @@ namespace StorageHub.UI.Tabs
         {
             var result = new List<DecraftIngredient>();
 
-            if (_recipes == null)
+            var recipes = Main.recipe;
+            if (recipes == null)
                 return result;
 
             // Use item aliasing for decrafting
             int decraftEquiv = GetShimmerEquivalentType(itemId, forDecrafting: true);
             int recipeIndex = GetDecraftingRecipeIndex(decraftEquiv);
-            if (recipeIndex < 0 || recipeIndex >= _recipes.Length)
+            if (recipeIndex < 0 || recipeIndex >= recipes.Length)
                 return result;
 
             try
             {
-                var recipe = _recipes.GetValue(recipeIndex);
+                var recipe = recipes[recipeIndex];
                 if (recipe == null) return result;
 
                 // Get how many items the recipe creates
-                var createItem = _recipeCreateItemField?.GetValue(recipe);
+                var createItem = recipe.createItem;
                 int createStack = 1;
-                if (createItem != null && _itemStackField != null)
+                if (createItem != null)
                 {
-                    createStack = (int)_itemStackField.GetValue(createItem);
+                    createStack = createItem.stack;
                     if (createStack <= 0) createStack = 1;
                 }
 
@@ -800,23 +567,19 @@ namespace StorageHub.UI.Tabs
                 if (decraftCount <= 0) return result;
 
                 // Check for custom shimmer results (overrides normal recipe ingredients for some items)
-                System.Collections.IList customResults = null;
-                if (_customShimmerResultsField != null)
-                {
-                    customResults = _customShimmerResultsField.GetValue(recipe) as System.Collections.IList;
-                }
+                System.Collections.IList customResults = recipe.customShimmerResults;
 
                 if (customResults != null && customResults.Count > 0)
                 {
                     // Use custom shimmer results instead of normal recipe ingredients
                     foreach (var customItem in customResults)
                     {
-                        if (customItem == null) continue;
+                        if (customItem is not Item ci) continue;
 
-                        int itemType = (int)_itemTypeField.GetValue(customItem);
+                        int itemType = ci.type;
                         if (itemType <= 0) continue;
 
-                        int itemStack = (int)_itemStackField.GetValue(customItem);
+                        int itemStack = ci.stack;
                         if (itemStack <= 0) itemStack = 1;
 
                         result.Add(new DecraftIngredient
@@ -829,17 +592,17 @@ namespace StorageHub.UI.Tabs
                 else
                 {
                     // Use normal recipe ingredients
-                    var requiredItems = _recipeRequiredItemField?.GetValue(recipe) as Array;
+                    var requiredItems = recipe.requiredItem;
                     if (requiredItems == null) return result;
 
                     foreach (var reqItem in requiredItems)
                     {
-                        if (reqItem == null) continue;
+                        if (reqItem is not Item ri) continue;
 
-                        int reqType = (int)_itemTypeField.GetValue(reqItem);
+                        int reqType = ri.type;
                         if (reqType <= 0) continue;
 
-                        int reqStack = (int)_itemStackField.GetValue(reqItem);
+                        int reqStack = ri.stack;
                         if (reqStack <= 0) reqStack = 1;
 
                         result.Add(new DecraftIngredient
@@ -864,19 +627,20 @@ namespace StorageHub.UI.Tabs
         /// </summary>
         private bool IsAlchemyRecipe(int itemId)
         {
-            if (_recipes == null || _recipeAlchemyField == null)
+            var recipes = Main.recipe;
+            if (recipes == null)
                 return false;
 
             int decraftEquiv = GetShimmerEquivalentType(itemId, forDecrafting: true);
             int recipeIndex = GetDecraftingRecipeIndex(decraftEquiv);
-            if (recipeIndex < 0 || recipeIndex >= _recipes.Length)
+            if (recipeIndex < 0 || recipeIndex >= recipes.Length)
                 return false;
 
             try
             {
-                var recipe = _recipes.GetValue(recipeIndex);
+                var recipe = recipes[recipeIndex];
                 if (recipe == null) return false;
-                return (bool)_recipeAlchemyField.GetValue(recipe);
+                return recipe.alchemy;
             }
             catch
             {
@@ -914,24 +678,24 @@ namespace StorageHub.UI.Tabs
         /// </summary>
         private int GetDecraftInputCount(int itemId)
         {
-            if (_recipes == null)
+            var recipes = Main.recipe;
+            if (recipes == null)
                 return 1;
 
             int decraftEquiv = GetShimmerEquivalentType(itemId, forDecrafting: true);
             int recipeIndex = GetDecraftingRecipeIndex(decraftEquiv);
-            if (recipeIndex < 0 || recipeIndex >= _recipes.Length)
+            if (recipeIndex < 0 || recipeIndex >= recipes.Length)
                 return 1;
 
             try
             {
-                var recipe = _recipes.GetValue(recipeIndex);
+                var recipe = recipes[recipeIndex];
                 if (recipe == null) return 1;
 
-                var createItem = _recipeCreateItemField?.GetValue(recipe);
-                if (createItem != null && _itemStackField != null)
+                var createItem = recipe.createItem;
+                if (createItem != null)
                 {
-                    int createStack = (int)_itemStackField.GetValue(createItem);
-                    return createStack > 0 ? createStack : 1;
+                    return createItem.stack > 0 ? createItem.stack : 1;
                 }
             }
             catch { }
@@ -966,6 +730,9 @@ namespace StorageHub.UI.Tabs
                 DrawLocked(x, y, width, height);
                 return;
             }
+
+            // Invalidate per-frame caches
+            _storageCountCacheValid = false;
 
             // Reset deferred tooltip
             _shimmerTooltipText = null;
@@ -1360,15 +1127,11 @@ namespace StorageHub.UI.Tabs
             try
             {
                 // Try to get NPC name via reflection
-                var npcType = Type.GetType("Terraria.NPC, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.NPC");
-
-                if (npcType != null)
                 {
-                    var tempNPC = Activator.CreateInstance(npcType);
+                    var tempNPC = new NPC();
                     // NPC.SetDefaults has 2 params: (int Type, NPCSpawnParams spawnparams = default)
                     // GetMethod with just typeof(int) won't find it — search by name + param count
-                    var setDefaultsMethod = npcType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                    var setDefaultsMethod = typeof(NPC).GetMethods(BindingFlags.Public | BindingFlags.Instance)
                         .FirstOrDefault(m => m.Name == "SetDefaults" &&
                             m.GetParameters().Length >= 1 &&
                             m.GetParameters()[0].ParameterType == typeof(int));
@@ -1383,18 +1146,14 @@ namespace StorageHub.UI.Tabs
                         setDefaultsMethod.Invoke(tempNPC, args);
                     }
 
-                    var givenNameField = npcType.GetField("GivenName", BindingFlags.Public | BindingFlags.Instance);
-                    var fullNameProp = npcType.GetProperty("FullName", BindingFlags.Public | BindingFlags.Instance);
-                    var typeNameProp = npcType.GetProperty("TypeName", BindingFlags.Public | BindingFlags.Instance);
+                    var givenNameField = typeof(NPC).GetField("GivenName", BindingFlags.Public | BindingFlags.Instance);
+                    var fullNameProp = typeof(NPC).GetProperty("FullName", BindingFlags.Public | BindingFlags.Instance);
+                    var typeNameProp = typeof(NPC).GetProperty("TypeName", BindingFlags.Public | BindingFlags.Instance);
 
                     name = typeNameProp?.GetValue(tempNPC)?.ToString()
                         ?? fullNameProp?.GetValue(tempNPC)?.ToString()
                         ?? givenNameField?.GetValue(tempNPC)?.ToString()
                         ?? $"NPC #{npcId}";
-                }
-                else
-                {
-                    name = $"NPC #{npcId}";
                 }
             }
             catch
@@ -2051,18 +1810,12 @@ namespace StorageHub.UI.Tabs
                     _log.Info($"[Shimmer] Alchemy discount applied to {item.Name} decraft");
                 }
 
-                // Guard: if alchemy discount removed ALL ingredients, return original items
+                // If alchemy discount removed ALL ingredients, the shimmer still consumed the input
+                // (vanilla behavior: items are lost to shimmer regardless of alchemy outcome)
                 if (ingredients.Count == 0)
                 {
-                    _log.Warn($"[Shimmer] Alchemy discount removed all ingredients for {item.Name} - returning items");
-                    int alchemyReturnDeposited = _storage.DepositItem(taken, out _);
-                    if (alchemyReturnDeposited < taken.Stack)
-                    {
-                        int alchemyLost = taken.Stack - alchemyReturnDeposited;
-                        _log.Error($"[Shimmer] Could not fully return items to storage after empty alchemy discount ({alchemyReturnDeposited}/{taken.Stack}), spawning {alchemyLost} in inventory");
-                        PlaceShimmerResultToInventory(taken.ItemId, alchemyLost);
-                    }
-                    return;
+                    _log.Info($"[Shimmer] Alchemy discount consumed all ingredients for {item.Name} - no output produced (vanilla behavior)");
+                    // Fall through to post-shimmer cleanup (reset amount, refresh, etc.)
                 }
 
                 placed = true;
@@ -2172,7 +1925,7 @@ namespace StorageHub.UI.Tabs
         {
             try
             {
-                var player = GetLocalPlayer();
+                var player = ReflectionCache.GetLocalPlayer();
                 if (player == null)
                 {
                     _log.Error("[Shimmer] Could not get local player");
@@ -2187,17 +1940,17 @@ namespace StorageHub.UI.Tabs
                 var quickSpawnItemMethod = playerType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
                     .FirstOrDefault(m => m.Name == "QuickSpawnItem" &&
                         m.GetParameters().Length == 2 &&
-                        m.GetParameters()[1].ParameterType == _itemType);
+                        m.GetParameters()[1].ParameterType == typeof(Item));
 
-                if (quickSpawnItemMethod != null && _itemSetDefaultsMethod != null)
+                if (quickSpawnItemMethod != null)
                 {
                     object source = CreateEntitySource(player);
                     if (source != null)
                     {
                         // Create item with SetDefaults (no prefix) and set stack
-                        var resultItem = Activator.CreateInstance(_itemType);
-                        InvokeSetDefaults(resultItem, itemId);
-                        _itemStackField.SetValue(resultItem, stack);
+                        var resultItem = new Item();
+                        resultItem.SetDefaults(itemId);
+                        resultItem.stack = stack;
                         quickSpawnItemMethod.Invoke(player, new object[] { source, resultItem });
                         _log.Debug($"[Shimmer] QuickSpawnItem(Item) succeeded for {stack}x item {itemId}");
                         return true;
@@ -2244,23 +1997,13 @@ namespace StorageHub.UI.Tabs
         {
             try
             {
-                // Try EntitySourceID.PlayerDropItemOnDeath or similar
-                var entitySourceIdType = Type.GetType("Terraria.DataStructures.EntitySourceID, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.DataStructures.EntitySourceID");
-
                 // Try creating EntitySource_Parent(player) which is most generic
-                var entitySourceParentType = Type.GetType("Terraria.DataStructures.EntitySource_Parent, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.DataStructures.EntitySource_Parent");
-
-                if (entitySourceParentType != null)
+                var entitySourceParentType = typeof(Terraria.DataStructures.EntitySource_Parent);
                 {
                     // Constructor takes IEntitySourceTarget (interface), not Entity (class).
                     // Player extends Entity which implements IEntitySourceTarget, so passing player works.
-                    var iEntitySourceTarget = Type.GetType("Terraria.DataStructures.IEntitySourceTarget, Terraria")
-                        ?? Assembly.Load("Terraria").GetType("Terraria.DataStructures.IEntitySourceTarget");
-                    var ctor = iEntitySourceTarget != null
-                        ? entitySourceParentType.GetConstructor(new[] { iEntitySourceTarget })
-                        : null;
+                    var iEntitySourceTarget = typeof(Terraria.IEntitySourceTarget);
+                    var ctor = entitySourceParentType.GetConstructor(new[] { iEntitySourceTarget });
                     if (ctor != null)
                     {
                         return ctor.Invoke(new[] { player });
@@ -2268,8 +2011,7 @@ namespace StorageHub.UI.Tabs
                 }
 
                 // Try EntitySource_ByItemSourceId
-                var entitySourceByItemType = Type.GetType("Terraria.DataStructures.EntitySource_ByItemSourceId, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.DataStructures.EntitySource_ByItemSourceId");
+                var entitySourceByItemType = typeof(Terraria.DataStructures.EntitySource_ByItemSourceId);
 
                 if (entitySourceByItemType != null)
                 {
@@ -2297,15 +2039,11 @@ namespace StorageHub.UI.Tabs
         /// <summary>
         /// Fallback: Place item directly into inventory slot.
         /// </summary>
-        private bool PlaceItemDirectly(object player, int itemId, int stack)
+        private bool PlaceItemDirectly(Player player, int itemId, int stack)
         {
             try
             {
-                var playerType = player.GetType();
-                var inventoryField = playerType.GetField("inventory", BindingFlags.Public | BindingFlags.Instance);
-                if (inventoryField == null) return false;
-
-                var inventory = inventoryField.GetValue(player) as Array;
+                var inventory = player.inventory;
                 if (inventory == null) return false;
 
                 int remaining = stack;
@@ -2313,48 +2051,36 @@ namespace StorageHub.UI.Tabs
                 // First pass: try to stack with existing items of same type
                 for (int i = 0; i < 50 && remaining > 0; i++)
                 {
-                    var invItem = inventory.GetValue(i);
-                    if (invItem == null) continue;
-
-                    int invType = (int)_itemTypeField.GetValue(invItem);
-                    if (invType != itemId) continue;
+                    var invItem = inventory[i];
+                    if (invItem == null || invItem.type != itemId) continue;
 
                     // Don't stack items with different prefixes (modifiers)
-                    var invPrefixVal = _itemPrefixField?.GetValue(invItem);
-                    int invPrefix = invPrefixVal != null ? Convert.ToInt32(invPrefixVal) : 0;
-                    if (invPrefix != 0) continue; // Shimmer results are always unprefixed
+                    if (invItem.prefix != 0) continue; // Shimmer results are always unprefixed
 
-                    int invStack = (int)_itemStackField.GetValue(invItem);
-                    var maxStackField = _itemType.GetField("maxStack", BindingFlags.Public | BindingFlags.Instance);
-                    int maxStack = maxStackField != null ? (int)maxStackField.GetValue(invItem) : 9999;
-                    if (maxStack <= 0) maxStack = 9999;
-                    if (invStack >= maxStack) continue;
+                    int maxStack = ReflectionCache.GetItemMaxStack(invItem);
+                    if (invItem.stack >= maxStack) continue;
 
-                    int canAdd = Math.Min(remaining, maxStack - invStack);
-                    _itemStackField.SetValue(invItem, invStack + canAdd);
+                    int canAdd = Math.Min(remaining, maxStack - invItem.stack);
+                    invItem.stack += canAdd;
                     remaining -= canAdd;
                 }
 
                 // Second pass: find empty slots
                 for (int i = 0; i < 50 && remaining > 0; i++)
                 {
-                    var invItem = inventory.GetValue(i);
+                    var invItem = inventory[i];
+                    if (invItem != null && invItem.type != 0) continue;
+
                     if (invItem == null)
                     {
-                        invItem = Activator.CreateInstance(_itemType);
-                        if (invItem == null) continue;
-                        inventory.SetValue(invItem, i);
+                        inventory[i] = new Item();
+                        invItem = inventory[i];
                     }
 
-                    var invTypeVal = _itemTypeField?.GetValue(invItem);
-                    if (invTypeVal != null && (int)invTypeVal != 0) continue;
-
-                    InvokeSetDefaults(invItem, itemId);
-                    var maxStackField = _itemType.GetField("maxStack", BindingFlags.Public | BindingFlags.Instance);
-                    int maxStack = maxStackField != null ? (int)maxStackField.GetValue(invItem) : 9999;
-                    if (maxStack <= 0) maxStack = 9999;
+                    invItem.SetDefaults(itemId);
+                    int maxStack = ReflectionCache.GetItemMaxStack(invItem);
                     int toPlace = Math.Min(remaining, maxStack);
-                    _itemStackField.SetValue(invItem, toPlace);
+                    invItem.stack = toPlace;
                     remaining -= toPlace;
                 }
 
@@ -2373,29 +2099,7 @@ namespace StorageHub.UI.Tabs
             }
         }
 
-        /// <summary>
-        /// Get the local player via reflection.
-        /// </summary>
-        private object GetLocalPlayer()
-        {
-            try
-            {
-                var playerArrayField = _mainType.GetField("player", BindingFlags.Public | BindingFlags.Static);
-                var myPlayerField = _mainType.GetField("myPlayer", BindingFlags.Public | BindingFlags.Static);
-
-                if (playerArrayField == null || myPlayerField == null) return null;
-
-                int myPlayer = (int)myPlayerField.GetValue(null);
-                var players = playerArrayField.GetValue(null) as Array;
-                if (players == null || myPlayer < 0 || myPlayer >= players.Length) return null;
-
-                return players.GetValue(myPlayer);
-            }
-            catch
-            {
-                return null;
-            }
-        }
+        // GetLocalPlayer() is provided by ReflectionCache.GetLocalPlayer()
 
         /// <summary>
         /// Get item name by ID (uses cache).
@@ -2408,31 +2112,9 @@ namespace StorageHub.UI.Tabs
 
             try
             {
-                if (_itemType == null)
-                {
-                    // Can't resolve - return empty, icon will suffice
-                    name = "";
-                    _itemNames[itemId] = name;
-                    return name;
-                }
-
-                // Create temporary item to get name
-                var tempItem = Activator.CreateInstance(_itemType);
-                if (tempItem == null)
-                {
-                    name = "";
-                    _itemNames[itemId] = name;
-                    return name;
-                }
-
-                if (_itemSetDefaultsMethod != null)
-                {
-                    InvokeSetDefaults(tempItem, itemId);
-                }
-
-                var nameProp = _itemType.GetProperty("Name", BindingFlags.Public | BindingFlags.Instance);
-                var nameVal = nameProp?.GetValue(tempItem);
-                name = nameVal?.ToString() ?? "";
+                // Create temporary item via ReflectionCache and get its name
+                var tempItem = ReflectionCache.CreateItem(itemId);
+                name = tempItem != null ? ReflectionCache.GetItemName(tempItem) : "";
 
                 _itemNames[itemId] = name;
                 return name;
@@ -2448,17 +2130,33 @@ namespace StorageHub.UI.Tabs
 
         /// <summary>
         /// Get total count of an item type in storage.
+        /// Uses a per-frame cache to avoid calling GetAllItems() for every item.
         /// </summary>
         private int GetStorageCount(int itemId)
         {
-            var allItems = _storage.GetAllItems();
-            int total = 0;
-            foreach (var item in allItems)
+            if (!_storageCountCacheValid)
             {
-                if (item.ItemId == itemId)
-                    total += item.Stack;
+                // Build cache from all items once per frame
+                if (_storageCountCache == null)
+                    _storageCountCache = new Dictionary<int, int>();
+                else
+                    _storageCountCache.Clear();
+
+                var allItems = _rangeCalc != null
+                    ? _rangeCalc.FilterItemsByRange(_storage.GetAllItems())
+                    : _storage.GetAllItems();
+                foreach (var item in allItems)
+                {
+                    if (item.IsEmpty) continue;
+                    if (_storageCountCache.ContainsKey(item.ItemId))
+                        _storageCountCache[item.ItemId] += item.Stack;
+                    else
+                        _storageCountCache[item.ItemId] = item.Stack;
+                }
+                _storageCountCacheValid = true;
             }
-            return total;
+
+            return _storageCountCache.TryGetValue(itemId, out int count) ? count : 0;
         }
 
         private bool IsBlocked(ItemSnapshot item)
@@ -2486,9 +2184,11 @@ namespace StorageHub.UI.Tabs
         {
             _shimmerableGroups.Clear();
 
-            // Get all items from storage
-            var allItems = _storage.GetAllItems();
-            _log.Debug($"[Shimmer] RefreshItems: {allItems.Count} total items from storage");
+            // Get items in range from storage
+            var allItems = _rangeCalc != null
+                ? _rangeCalc.FilterItemsByRange(_storage.GetAllItems())
+                : _storage.GetAllItems();
+            _log.Debug($"[Shimmer] RefreshItems: {allItems.Count} in-range items from storage");
 
             // Group items by ItemId
             var groupDict = new Dictionary<int, ShimmerableItemGroup>();

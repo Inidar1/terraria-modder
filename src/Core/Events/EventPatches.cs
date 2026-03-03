@@ -54,6 +54,7 @@ namespace TerrariaModder.Core.Events
 
                     // Patch ItemSlot.Handle to prevent click-through on modal UIs
                     PatchItemSlotHandle();
+
                 }
 
                 // Patch HandleUseRequest to fix SpriteBatch state corruption
@@ -237,6 +238,12 @@ namespace TerrariaModder.Core.Events
                 _log?.Warn($"[Events] Failed to patch DrawCursor: {ex.Message}");
             }
         }
+
+        // Menu click-through prevention: save click state before DrawMenu consumes it,
+        // restore in DrawCursor_Prefix so our panels can process clicks
+        private static bool _menuClickSaved;
+        private static bool _savedMouseLeftRelease;
+        private static bool _savedMouseRightRelease;
 
         private static void PatchHandleUseRequest()
         {
@@ -447,7 +454,22 @@ namespace TerrariaModder.Core.Events
                 // end it now before vanilla code tries to Begin again (prevents cascading errors)
                 EnsureSpriteBatchClean(__instance);
 
-                if (Main.gameMenu) return;
+                if (Main.gameMenu)
+                {
+                    // Menu click-through prevention: when a mod panel is open, save the click
+                    // state then consume it. DrawMenu runs next (can't click vanilla buttons).
+                    // DrawCursor_Prefix restores it so our panels can process clicks.
+                    _menuClickSaved = false;
+                    if (UIRenderer.IsBlocking)
+                    {
+                        _savedMouseLeftRelease = Main.mouseLeftRelease;
+                        _savedMouseRightRelease = Main.mouseRightRelease;
+                        Main.mouseLeftRelease = false;
+                        Main.mouseRightRelease = false;
+                        _menuClickSaved = true;
+                    }
+                    return;
+                }
                 FrameEvents.FirePreDraw();
             }
             catch (Exception ex)
@@ -516,6 +538,15 @@ namespace TerrariaModder.Core.Events
         {
             try
             {
+                // Restore click state that was consumed in DoDraw_Prefix for menu click-through prevention.
+                // This lets our panels process clicks even though vanilla menu buttons were blocked.
+                if (_menuClickSaved)
+                {
+                    Main.mouseLeftRelease = _savedMouseLeftRelease;
+                    Main.mouseRightRelease = _savedMouseRightRelease;
+                    _menuClickSaved = false;
+                }
+
                 // Fire UI overlay event (for non-panel draw subscribers)
                 FrameEvents.FireUIOverlay();
 
@@ -675,15 +706,12 @@ namespace TerrariaModder.Core.Events
             {
                 if (__instance.whoAmI != Main.myPlayer) return;
 
-                // Use reflection to get position (Vector2) to avoid XNA dependency
-                var pos = Vec2.FromXna(GameAccessor.TryGetField<object>(__instance, "position"));
-
                 PlayerEvents.FirePlayerSpawn(new PlayerSpawnEventArgs
                 {
                     PlayerIndex = __instance.whoAmI,
                     Player = __instance,
-                    SpawnX = (int)pos.X,
-                    SpawnY = (int)pos.Y
+                    SpawnX = (int)__instance.position.X,
+                    SpawnY = (int)__instance.position.Y
                 });
             }
             catch (Exception ex)

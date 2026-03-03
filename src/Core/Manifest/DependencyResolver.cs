@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using TerrariaModder.Core.Logging;
 
 namespace TerrariaModder.Core.Manifest
@@ -82,7 +84,7 @@ namespace TerrariaModder.Core.Manifest
                 .Where(m => !result.Incompatibilities.ContainsKey(m.Id))
                 .ToList();
 
-            // Step 2: Build dependency graph (including optional deps that are present)
+            // Step 2: Build dependency graph (including optional deps and soft ordering)
             var graph = new Dictionary<string, HashSet<string>>();
             foreach (var manifest in validMods)
             {
@@ -97,8 +99,32 @@ namespace TerrariaModder.Core.Manifest
                     }
                 }
 
+                // Add load_after as soft ordering edges (only if target is present)
+                foreach (var afterId in manifest.LoadAfter)
+                {
+                    if (available.Contains(afterId) && !result.MissingDependencies.ContainsKey(afterId))
+                    {
+                        deps.Add(afterId);
+                    }
+                }
+
                 graph[manifest.Id] = deps;
             }
+
+            // Second pass: apply load_before as reverse edges (target depends on this)
+            foreach (var manifest in validMods)
+            {
+                foreach (var beforeId in manifest.LoadBefore)
+                {
+                    if (graph.ContainsKey(beforeId))
+                    {
+                        graph[beforeId].Add(manifest.Id);
+                    }
+                }
+            }
+
+            // Apply user-defined load order from load-order.json (soft edges)
+            ApplyUserLoadOrder(graph, validMods);
 
             // Step 3: Detect circular dependencies
             var cycles = FindCycles(graph);
@@ -126,6 +152,105 @@ namespace TerrariaModder.Core.Manifest
                 .Select(id => manifestById[id])
                 .ToList();
 
+            return result;
+        }
+
+        /// <summary>
+        /// Apply user-defined load order from load-order.json as soft ordering edges.
+        /// Each consecutive pair in the saved order gets an edge: later mod depends on earlier mod.
+        /// Only applies edges between mods that are both present in the graph.
+        /// </summary>
+        private void ApplyUserLoadOrder(Dictionary<string, HashSet<string>> graph, List<ModManifest> validMods)
+        {
+            var orderPath = GetLoadOrderPath(validMods);
+            if (orderPath == null || !File.Exists(orderPath)) return;
+
+            try
+            {
+                string json = File.ReadAllText(orderPath);
+                var order = ExtractOrderArray(json);
+                if (order == null || order.Count < 2) return;
+
+                // Filter to mods actually in the graph
+                var validOrder = order.Where(id => graph.ContainsKey(id)).ToList();
+
+                // Add edges: each mod in the list should load after the previous one
+                for (int i = 1; i < validOrder.Count; i++)
+                {
+                    graph[validOrder[i]].Add(validOrder[i - 1]);
+                }
+
+                _log.Info($"Applied user load order from load-order.json ({validOrder.Count} mods)");
+            }
+            catch (Exception ex)
+            {
+                _log.Warn($"Failed to read load-order.json: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Get the path to load-order.json based on Core's folder location.
+        /// </summary>
+        private static string GetLoadOrderPath(List<ModManifest> validMods)
+        {
+            // Find any mod's folder to derive the core folder path
+            // Mods are in TerrariaModder/mods/{modid}/, core is at TerrariaModder/core/
+            if (validMods.Count == 0) return null;
+            var modsDir = Path.GetDirectoryName(validMods[0].FolderPath);
+            if (modsDir == null) return null;
+            var rootDir = Path.GetDirectoryName(modsDir);
+            if (rootDir == null) return null;
+            return Path.Combine(rootDir, "core", "load-order.json");
+        }
+
+        /// <summary>
+        /// Get the load-order.json path from a known core folder path.
+        /// </summary>
+        public static string GetLoadOrderPathFromCore(string coreFolder)
+        {
+            return Path.Combine(coreFolder, "load-order.json");
+        }
+
+        /// <summary>
+        /// Save user-defined load order to load-order.json.
+        /// </summary>
+        public static void SaveLoadOrder(string coreFolder, List<string> modIds)
+        {
+            var path = GetLoadOrderPathFromCore(coreFolder);
+            var items = string.Join(", ", modIds.Select(id => $"\"{id}\""));
+            var json = "{\n  \"order\": [" + items + "]\n}";
+            File.WriteAllText(path, json);
+        }
+
+        /// <summary>
+        /// Load user-defined load order from load-order.json.
+        /// </summary>
+        public static List<string> LoadUserOrder(string coreFolder)
+        {
+            var path = GetLoadOrderPathFromCore(coreFolder);
+            if (!File.Exists(path)) return null;
+            try
+            {
+                string json = File.ReadAllText(path);
+                return ExtractOrderArray(json);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static List<string> ExtractOrderArray(string json)
+        {
+            var result = new List<string>();
+            var match = Regex.Match(json, "\"order\"\\s*:\\s*\\[([^\\]]*)\\]");
+            if (!match.Success) return result;
+
+            var stringMatches = Regex.Matches(match.Groups[1].Value, "\"([^\"]+)\"");
+            foreach (Match m in stringMatches)
+            {
+                result.Add(m.Groups[1].Value);
+            }
             return result;
         }
 

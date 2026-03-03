@@ -1,0 +1,34 @@
+# TerrariaModder Code Owners
+#
+# These owners are automatically requested for review when a PR
+# touches their files. Update usernames as you assign mod ownership.
+#
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Framework core — owner review required
+/src/Core/                      @Inidar
+
+# Mods — assign contributors as they take ownership
+/src/AdminPanel/                @Inidar
+/src/AutoBuffs/                 @Inidar
+/src/DebugTools/                @Inidar
+/src/FpsUnlocked/               @Inidar
+/src/ItemSpawner/               @Inidar
+/src/PetChests/                 @Inidar
+/src/QuickKeys/                 @Inidar
+/src/SeedLab/                   @Inidar
+/src/SkipIntro/                 @Inidar
+/src/StorageHub/                @Inidar
+/src/WhipStacking/              @Inidar
+
+# Build and setup scripts
+/build.bat                      @Inidar
+/deploy.bat                     @Inidar
+/setup.bat                      @Inidar
+
+# Docs and wiki
+/docs/                          @Inidar
+/CONTRIBUTING.md                @Inidar
+
+# Mod template
+/templates/                     @Inidar
