@@ -17,3 +17,6 @@ Thumbs.db
 # Local reference repos (not part of this project)
 MagicStorage/
 .tools/
+
+# Local helper script not intended for version control
+scripts/sync_storagehub_textures.py
