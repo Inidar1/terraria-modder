@@ -210,12 +210,52 @@ namespace TerrariaModder.Core.Manifest
         {
             if (string.IsNullOrEmpty(value)) return value;
 
-            return value
-                .Replace("\\\"", "\"")
-                .Replace("\\\\", "\\")
-                .Replace("\\n", "\n")
-                .Replace("\\r", "\r")
-                .Replace("\\t", "\t");
+            // Fast path: no backslash means nothing to unescape
+            if (!value.Contains("\\")) return value;
+
+            var sb = new System.Text.StringBuilder(value.Length);
+            int i = 0;
+            while (i < value.Length)
+            {
+                if (value[i] == '\\' && i + 1 < value.Length)
+                {
+                    char next = value[i + 1];
+                    switch (next)
+                    {
+                        case '"':  sb.Append('"');  i += 2; break;
+                        case '\\': sb.Append('\\'); i += 2; break;
+                        case 'n':  sb.Append('\n'); i += 2; break;
+                        case 'r':  sb.Append('\r'); i += 2; break;
+                        case 't':  sb.Append('\t'); i += 2; break;
+                        case '/':  sb.Append('/');  i += 2; break;
+                        case 'b':  sb.Append('\b'); i += 2; break;
+                        case 'f':  sb.Append('\f'); i += 2; break;
+                        case 'u' when i + 5 < value.Length:
+                            string hex = value.Substring(i + 2, 4);
+                            if (int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out int codePoint))
+                            {
+                                sb.Append((char)codePoint);
+                                i += 6;
+                            }
+                            else
+                            {
+                                sb.Append(value[i]);
+                                i++;
+                            }
+                            break;
+                        default:
+                            sb.Append(value[i]);
+                            i++;
+                            break;
+                    }
+                }
+                else
+                {
+                    sb.Append(value[i]);
+                    i++;
+                }
+            }
+            return sb.ToString();
         }
 
         private static string ExtractObject(string json, string key)

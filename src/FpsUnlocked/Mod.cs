@@ -70,7 +70,7 @@ namespace FpsUnlocked
                 _log.Info("KeyframeStore allocated");
 
                 // Initialize interpolator save/restore arrays
-                Interpolator.Initialize();
+                Interpolator.Initialize(_log);
                 _log.Info("Interpolator initialized");
 
                 // Apply all 7 Harmony patches

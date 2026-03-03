@@ -2,6 +2,7 @@ using System;
 using System.Reflection;
 using Microsoft.Xna.Framework;
 using Terraria;
+using TerrariaModder.Core.Logging;
 
 namespace FpsUnlocked
 {
@@ -44,6 +45,14 @@ namespace FpsUnlocked
         // Guard: only restore if apply succeeded this frame
         private static bool _applied;
 
+        // Logger (for pylon-fix diagnostics)
+        private static ILogger _log;
+
+        // Tracks what position was written during Apply — used in RestorePlayers to detect
+        // teleports that happen during DoDraw (e.g., pylon confirms via UI inside DoDraw)
+        private static float[] _writtenPlayerX;
+        private static float[] _writtenPlayerY;
+
         private const float PI = 3.14159265f;
         private const float TWO_PI = 6.2831853f;
 
@@ -53,8 +62,9 @@ namespace FpsUnlocked
         // 256px = 16 tiles — generous for fast projectiles, catches teleports.
         private const float TELEPORT_DIST_SQ = 256f * 256f; // 65536
 
-        public static void Initialize()
+        public static void Initialize(ILogger log = null)
         {
+            _log = log;
             int maxP = ReflectionCache.MaxPlayers;
             int maxN = ReflectionCache.MaxNpcs;
             int maxPr = ReflectionCache.MaxProjectiles;
@@ -92,6 +102,10 @@ namespace FpsUnlocked
 
             // Saved player shadowPos (3 entries * 2 floats each)
             _savedPlayerShadowPos = new float[maxP * 6];
+
+            // Written position tracking (for pylon-fix in RestorePlayers)
+            _writtenPlayerX = new float[maxP];
+            _writtenPlayerY = new float[maxP];
 
             // Dust customData offset
             _savedDustCustom = new float[maxD * 2];
@@ -180,6 +194,8 @@ namespace FpsUnlocked
                 // Apply interpolated values
                 ReflectionCache.SetPlayerPosX(p, interpX);
                 ReflectionCache.SetPlayerPosY(p, interpY);
+                _writtenPlayerX[i] = interpX;
+                _writtenPlayerY[i] = interpY;
                 ReflectionCache.SetPlayerGfxOffY(p, Lerp(KeyframeStore.PlayerBegin[offset + 2], KeyframeStore.PlayerEnd[offset + 2], t));
                 ReflectionCache.SetPlayerHeadRot(p, AngleLerp(KeyframeStore.PlayerBegin[offset + 3], KeyframeStore.PlayerEnd[offset + 3], t));
                 ReflectionCache.SetPlayerBodyRot(p, AngleLerp(KeyframeStore.PlayerBegin[offset + 4], KeyframeStore.PlayerEnd[offset + 4], t));
@@ -232,6 +248,21 @@ namespace FpsUnlocked
                 if (KeyframeStore.PlayerSkip[i]) continue;
 
                 int offset = i * KeyframeStore.PlayerStride;
+
+                // Pylon-fix: if position changed during DoDraw (e.g. pylon confirm fires
+                // inside DoDraw UI), keep the new position rather than restoring the old one.
+                float currentX = ReflectionCache.PlayerPosX(p);
+                float currentY = ReflectionCache.PlayerPosY(p);
+                if (Math.Abs(currentX - _writtenPlayerX[i]) > 1f ||
+                    Math.Abs(currentY - _writtenPlayerY[i]) > 1f)
+                {
+                    _log?.Info($"[pylon-fix] Teleport during DoDraw preserved! " +
+                        $"saved=({_savedPlayer[offset]:F1},{_savedPlayer[offset + 1]:F1}), " +
+                        $"written=({_writtenPlayerX[i]:F1},{_writtenPlayerY[i]:F1}), " +
+                        $"current=({currentX:F1},{currentY:F1})");
+                    continue;
+                }
+
                 ReflectionCache.SetPlayerPosX(p, _savedPlayer[offset + 0]);
                 ReflectionCache.SetPlayerPosY(p, _savedPlayer[offset + 1]);
                 ReflectionCache.SetPlayerGfxOffY(p, _savedPlayer[offset + 2]);
