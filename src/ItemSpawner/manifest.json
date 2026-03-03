@@ -1,7 +1,7 @@
 {
   "id": "item-spawner",
   "name": "Item Spawner",
-  "version": "1.1.0",
+  "version": "1.1.0-hotfix",
   "framework_version": ">=0.2.0",
   "author": "Inidar",
   "description": "In-game item spawner UI for testing and creative mode",

@@ -1,7 +1,7 @@
 {
   "id": "randomizer",
   "name": "Randomizer",
-  "version": "1.0.0",
+  "version": "1.0.0-hotfix",
   "framework_version": ">=0.2.0",
   "author": "Inidar",
   "description": "Randomize chests, drops, recipes, shops, spawns, and more with a seed system for reproducible chaos",
