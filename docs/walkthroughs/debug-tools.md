@@ -195,10 +195,9 @@ The console handle is available immediately (`GetConsoleWindow()`), but the game
 ```csharp
 public static void OnGameReady()
 {
-    // Game window handle via reflection
-    var instance = mainType.GetField("instance").GetValue(null);
-    var window = mainType.GetProperty("Window").GetValue(instance);
-    _gameHandle = (IntPtr)window.GetType().GetProperty("Handle").GetValue(window);
+    // Game window handle via direct access (Main.instance is public)
+    if (Main.instance?.Window != null)
+        _gameHandle = Main.instance.Window.Handle;
 
     if (_startHidden)
         Hide();

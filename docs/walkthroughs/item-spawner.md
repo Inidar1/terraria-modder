@@ -36,9 +36,7 @@ private static void BuildCatalog()
 
     _catalog = new List<ItemInfo>();
 
-    // Note: ItemLoader is tModLoader-specific. For vanilla, use a fixed upper bound
-    // or retrieve dynamically via reflection (e.g., ItemID.Count field)
-    int itemCount = 5500; // Conservative upper bound for Terraria 1.4.5
+    int itemCount = ItemID.Count; // Total number of items in Terraria 1.4.5
     for (int i = 1; i < itemCount; i++)
     {
         try
@@ -213,14 +211,13 @@ Two spawn modes: cursor (default) places item on mouse, inventory places in firs
 private void SpawnToCursor(int itemType, int stack)
 {
     // Place item directly on mouse cursor (like picking up an item)
-    var mouseItem = Main.mouseItem;  // via reflection
+    var mouseItem = Main.mouseItem;
     mouseItem.SetDefaults(itemType);
     mouseItem.stack = stack;
 }
 
 private void SpawnToInventory(int itemType, int stack)
 {
-    // Use Player.QuickSpawnItem via reflection to add to inventory
     Player player = Main.LocalPlayer;
     player.QuickSpawnItem(/* ... */itemType, stack);
 }

@@ -8,7 +8,7 @@ nav_order: 7
 # WhipStacking Walkthrough
 
 **Difficulty:** Intermediate
-**Concepts:** Harmony prefixes, reflection, restoring removed game mechanics, multi-entry state tracking
+**Concepts:** Harmony prefixes, restoring removed game mechanics, multi-entry state tracking, private-field reflection
 
 WhipStacking restores pre-1.4.5 whip tag stacking behavior, allowing multiple whip tags to be active on the same NPC simultaneously.
 
@@ -29,7 +29,7 @@ The core technique is replacing Terraria's single-effect whip model with a per-p
 public class WhipTagEntry
 {
     public int WhipType;                    // Item ID of this whip
-    public object Effect;                   // UniqueTagEffect instance
+    public UniqueTagEffect Effect;          // Direct reference — mods reference Terraria.exe
     public int[] TimeLeftOnNPC;             // Timer per NPC (max 200)
     public int[] ProcTimeLeftOnNPC;         // Proc window per NPC
 
@@ -52,7 +52,7 @@ All 10 patches use the same pattern: prefix that returns `false` to skip vanilla
 [HarmonyPatch]
 public static class TagPatches
 {
-    public static bool TrySetActiveEffect_Prefix(object __instance, int type)
+    public static bool TrySetActiveEffect_Prefix(TagEffectState __instance, int type)
     {
         if (!Enabled) return true;  // Run vanilla when disabled
         try
@@ -81,16 +81,10 @@ foreach (var entry in dict.Values)
 {
     if (entry.TimeLeftOnNPC[npcIdx] <= 0 || entry.Effect == null) continue;
 
-    // Check if this whip's effect can apply
-    bool canRun = (bool)_canRunHitEffects.Invoke(entry.Effect,
-        new object[] { owner, projectile, npc });
-    if (!canRun) continue;
+    // entry.Effect is UniqueTagEffect — direct method calls, no reflection
+    if (!entry.Effect.CanRunHitEffects(owner, projectile, npc)) continue;
 
-    // Apply this whip's damage modification
-    var args = new object[] { owner, projectile, npc, damage, crit };
-    _modifyTaggedHit.Invoke(entry.Effect, args);
-    damage = (int)args[3];  // Read back modified damage
-    crit = (bool)args[4];
+    entry.Effect.ModifyTaggedHit(owner, projectile, npc, ref damage, ref crit);
 }
 ```
 
@@ -124,11 +118,11 @@ The reusable `_toRemove` list avoids allocations per frame.
 When setting a new active whip, update vanilla's internal fields so unpatched code doesn't crash:
 
 ```csharp
-private static void SetActiveEffect(object tagState, int type)
+private static void SetActiveEffect(TagEffectState tagState, int type)
 {
     var effect = GetEffect(type);
-    _effectField.SetValue(tagState, effect);        // Keep vanilla _effect updated
-    _typeSetter.Invoke(tagState, new object[] { type }); // Keep vanilla Type updated
+    _effectField.SetValue(tagState, effect);        // Keep vanilla _effect updated (private field)
+    _typeSetter.Invoke(tagState, new object[] { type }); // Keep vanilla Type updated (private setter)
 
     // Also track in our multi-tag dictionary
     MultiTagState.AddOrUpdateEntry(playerIndex, type, effect);

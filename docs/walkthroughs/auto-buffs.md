@@ -43,7 +43,7 @@ var updateMethod = playerType.GetMethod("Update",
     BindingFlags.Public | BindingFlags.Instance);
 
 _harmony.Patch(updateMethod,
-    postfix: new HarmonyMethod(typeof(Mod), "PlayerUpdate_Postfix"));
+    postfix: new HarmonyMethod(typeof(Mod), "PlayerUpdatePostfix"));
 ```
 
 ### 2. Throttled Scanning
@@ -54,9 +54,9 @@ Don't scan every frame - that's 60 operations per second. The actual code uses 1
 private const int SCAN_CADENCE_TICKS = 10;
 private static int _tickCounter = 0;
 
-public static void PlayerUpdate_Postfix(Player __instance)
+public static void PlayerUpdatePostfix(Player __instance, int i)
 {
-    if (__instance.whoAmI != Main.myPlayer) return;
+    if (i != Main.myPlayer) return;
 
     if (++_tickCounter < SCAN_CADENCE_TICKS) return;
     _tickCounter = 0;
@@ -74,8 +74,8 @@ Scan a circular area around the player:
 ```csharp
 private static void ScanForFurniture(Player player, int scanRadius)
 {
-    int playerTileX = (int)(player.Center.X / 16f);
-    int playerTileY = (int)(player.Center.Y / 16f);
+    int playerTileX = (int)(player.position.X / 16f);
+    int playerTileY = (int)(player.position.Y / 16f);
     int radiusSq = scanRadius * scanRadius;
 
     int minX = Math.Max(0, playerTileX - scanRadius);
@@ -99,9 +99,9 @@ private static void ScanForFurniture(Player player, int scanRadius)
             if (dxSq + dy * dy > radiusSq) continue;
 
             Tile tile = Main.tile[x, y];
-            if (!tile.HasTile) continue;
+            if (!tile.active()) continue;
 
-            CheckTileForBuff(player, tile.TileType);
+            CheckTileForBuff(player, tile.type);
         }
     }
 }
@@ -195,7 +195,7 @@ Sugar Rush is reapplied when its duration falls below 2 seconds, ensuring it sta
 ## Simplified Code Structure
 
 > **Note:** This is simplified pseudocode for illustration. The actual implementation
-> uses reflection-based tile access and a `BuffScanner` helper class. Method signatures
+> uses a `BuffScanner` helper class with additional throttling logic. Method signatures
 > and patterns differ from production code.
 
 ```csharp
@@ -218,12 +218,12 @@ public class Mod : IMod
         var method = typeof(Terraria.Player).GetMethod("Update",
             BindingFlags.Public | BindingFlags.Instance);
         _harmony.Patch(method,
-            postfix: new HarmonyMethod(typeof(Mod), nameof(PlayerUpdate_Postfix)));
+            postfix: new HarmonyMethod(typeof(Mod), nameof(PlayerUpdatePostfix)));
     }
 
-    public static void PlayerUpdate_Postfix(Player __instance)
+    public static void PlayerUpdatePostfix(Player __instance, int i)
     {
-        if (__instance.whoAmI != Main.myPlayer) return;
+        if (i != Main.myPlayer) return;
 
         if (++_tickCounter < 10) return;  // Every 10 ticks
         _tickCounter = 0;
@@ -233,8 +233,8 @@ public class Mod : IMod
 
     private static void ScanAndApplyBuffs(Player player)
     {
-        int cx = (int)(player.Center.X / 16f);
-        int cy = (int)(player.Center.Y / 16f);
+        int cx = (int)(player.position.X / 16f);
+        int cy = (int)(player.position.Y / 16f);
         int radius = 40;  // Configurable scan radius (default 40, range 5-100)
 
         for (int x = cx - radius; x <= cx + radius; x++)
@@ -245,9 +245,9 @@ public class Mod : IMod
                 if (y < 0 || y >= Main.maxTilesY) continue;
 
                 Tile tile = Main.tile[x, y];
-                if (tile.HasTile && IsFurnitureWeTrack(tile.TileType))
+                if (tile.active() && IsFurnitureWeTrack(tile.type))
                 {
-                    ApplyBuff(player, tile.TileType);
+                    ApplyBuff(player, tile.type);
                 }
             }
         }

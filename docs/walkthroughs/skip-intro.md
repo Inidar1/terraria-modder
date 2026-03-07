@@ -32,29 +32,30 @@ public static void OnGameReady()
 
 This is the recommended pattern for all mods that apply manual patches. The injector discovers `OnGameReady()` on your types automatically, no registration needed.
 
-### 2. Finding Game Types via Reflection
+### 2. Accessing Terraria Types
 
-We need to access Terraria's internal fields:
+Mods reference Terraria.exe directly — use `typeof(Main)` and access public fields normally. Only private members need `BindingFlags` reflection:
 
 ```csharp
-var mainType = Type.GetType("Terraria.Main, Terraria")
-    ?? Assembly.Load("Terraria").GetType("Terraria.Main");
+using Terraria;
 
-_showSplashField = mainType.GetField("showSplash",
-    BindingFlags.Public | BindingFlags.Static);
+// Public field: direct access
+bool stillSplashing = Main.showSplash;
 
-_isAsyncLoadCompleteField = mainType.GetField("_isAsyncLoadComplete",
+// Private field: requires reflection
+_isAsyncLoadCompleteField = typeof(Main).GetField("_isAsyncLoadComplete",
     BindingFlags.NonPublic | BindingFlags.Static);
-```
 
-We try multiple approaches because field accessibility can vary.
+_splashCounterField = typeof(Main).GetField("splashCounter",
+    BindingFlags.NonPublic | BindingFlags.Instance);
+```
 
 ### 3. Postfix Patch
 
 A postfix runs after the original method:
 
 ```csharp
-var doUpdateMethod = mainType.GetMethod("DoUpdate",
+var doUpdateMethod = typeof(Main).GetMethod("DoUpdate",
     BindingFlags.NonPublic | BindingFlags.Instance);
 
 var postfix = typeof(Mod).GetMethod("DoUpdate_Postfix",
@@ -65,10 +66,10 @@ _harmony.Patch(doUpdateMethod, postfix: new HarmonyMethod(postfix));
 
 The postfix signature:
 ```csharp
-public static void DoUpdate_Postfix(object __instance)
+public static void DoUpdate_Postfix(Main __instance)
 ```
 
-- `__instance` is the Main instance being updated
+- `__instance` is the Main instance being updated, typed as `Main` since we reference Terraria.exe directly
 - The method must be `public static`
 
 ### 4. One-Time Logic with Guard
@@ -78,7 +79,7 @@ We only want to skip once:
 ```csharp
 private static bool _hasSkipped = false;
 
-public static void DoUpdate_Postfix(object __instance)
+public static void DoUpdate_Postfix(Main __instance)
 {
     if (_hasSkipped) return;  // Don't run again
 
@@ -120,7 +121,7 @@ if (isAsyncLoadComplete)
     }
     else
     {
-        _showSplashField.SetValue(null, false);
+        Main.showSplash = false;  // Public field — direct write
     }
     _hasSkipped = true;
 }
@@ -137,6 +138,7 @@ if (isAsyncLoadComplete)
 using System;
 using System.Reflection;
 using HarmonyLib;
+using Terraria;
 using TerrariaModder.Core;
 using TerrariaModder.Core.Logging;
 
@@ -152,7 +154,7 @@ namespace SkipIntro
         private static Harmony _harmony;
         private static bool _hasSkipped = false;
         private static bool _enabled = true;
-        private static FieldInfo _showSplashField;
+        // Private fields still require reflection:
         private static FieldInfo _isAsyncLoadCompleteField;
         private static FieldInfo _splashCounterField;
 
@@ -169,7 +171,7 @@ namespace SkipIntro
 
         /// <summary>
         /// Called by injector when Main.Initialize() completes.
-        /// Game types are ready -- safe to apply Harmony patches.
+        /// Game types are ready — safe to apply Harmony patches.
         /// </summary>
         public static void OnGameReady()
         {
@@ -179,23 +181,20 @@ namespace SkipIntro
             {
                 _harmony = new Harmony("com.terrariamodder.skipintro");
 
-                var mainType = Type.GetType("Terraria.Main, Terraria")
-                    ?? Assembly.Load("Terraria").GetType("Terraria.Main");
-
-                _showSplashField = mainType.GetField("showSplash",
-                    BindingFlags.Public | BindingFlags.Static);
-                _isAsyncLoadCompleteField = mainType.GetField("_isAsyncLoadComplete",
+                // typeof(Main) works directly — mod references Terraria.exe
+                // Private fields still need BindingFlags reflection
+                _isAsyncLoadCompleteField = typeof(Main).GetField("_isAsyncLoadComplete",
                     BindingFlags.NonPublic | BindingFlags.Static);
-                _splashCounterField = mainType.GetField("splashCounter",
+                _splashCounterField = typeof(Main).GetField("splashCounter",
                     BindingFlags.NonPublic | BindingFlags.Instance);
 
-                var doUpdateMethod = mainType.GetMethod("DoUpdate",
+                var doUpdateMethod = typeof(Main).GetMethod("DoUpdate",
                     BindingFlags.NonPublic | BindingFlags.Instance);
 
                 if (doUpdateMethod != null)
                 {
                     _harmony.Patch(doUpdateMethod,
-                        postfix: new HarmonyMethod(typeof(Mod), "DoUpdate_Postfix"));
+                        postfix: new HarmonyMethod(typeof(Mod), nameof(DoUpdate_Postfix)));
                     _log?.Info("Patched Main.DoUpdate");
                 }
             }
@@ -205,14 +204,15 @@ namespace SkipIntro
             }
         }
 
-        public static void DoUpdate_Postfix(object __instance)
+        // __instance is typed as Main — direct reference, no object casting needed
+        public static void DoUpdate_Postfix(Main __instance)
         {
             if (_hasSkipped) return;
 
             try
             {
-                bool showSplash = (bool)_showSplashField.GetValue(null);
-                if (!showSplash)
+                // Main.showSplash is public — access directly
+                if (!Main.showSplash)
                 {
                     _hasSkipped = true;
                     return;
@@ -226,7 +226,7 @@ namespace SkipIntro
                         if (_splashCounterField != null)
                             _splashCounterField.SetValue(__instance, 99999);
                         else
-                            _showSplashField.SetValue(null, false);
+                            Main.showSplash = false;  // Fallback: direct field write
 
                         _hasSkipped = true;
                         _log?.Info("Intro skipped!");
@@ -251,9 +251,11 @@ namespace SkipIntro
 ## Lessons Learned
 
 1. **Use lifecycle hooks for patches** - Apply manual Harmony patches in `OnGameReady()`
-2. **Use reflection carefully** - Check for null before using fields
-3. **Guard one-time logic** - Use a static bool to prevent repeated execution
-4. **Clean up on unload** - Unpatch and reset static state
-5. **Have fallbacks** - Multiple ways to achieve the same result
+2. **Use `typeof(T)` directly** - Mods reference Terraria.exe; no `Type.GetType()` needed
+3. **Only reflect private members** - Public fields/methods are accessible directly; use `BindingFlags.NonPublic` only for private ones
+4. **Type patch parameters** - Use `Main __instance`, `Player __instance`, etc. — not `object`
+5. **Guard one-time logic** - Use a static bool to prevent repeated execution
+6. **Clean up on unload** - Unpatch and reset static state
+7. **Have fallbacks** - Multiple ways to achieve the same result
 
 For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics).

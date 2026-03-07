@@ -78,10 +78,12 @@ namespace StorageHub.Config
             _currentCharacterName = SanitizeFileName(characterName);
             _log.Info($"[Config] Loading config for world='{worldName}' (sanitized: '{_currentWorldName}'), char='{characterName}' (sanitized: '{_currentCharacterName}')");
 
-            // Load world-specific data
+            // Check if world-char config existed BEFORE loading (migration gate for paintingChestLevel)
             var worldConfigPath = GetWorldConfigPath();
+            bool worldCharConfigExisted = File.Exists(worldConfigPath);
             _log.Debug($"[Config] World config path: {worldConfigPath}");
 
+            // Load per-character per-world data
             if (!TryLoadConfigFile(worldConfigPath, ParseWorldConfig, "world"))
             {
                 _log.Warn($"[Config] No existing world config at {worldConfigPath}, using defaults");
@@ -91,7 +93,15 @@ namespace StorageHub.Config
                 _log.Info($"[Config] Loaded: Tier={Tier}, Chests={RegisteredChests.Count}, Stations={RememberedStations.Count}");
             }
 
-            // Load character-specific data
+            // Load world shared config (painting chest level — shared across all characters in this world)
+            PaintingChestLevel = 0;
+            var worldSharedConfigPath = GetWorldSharedConfigPath();
+            TryLoadConfigFile(worldSharedConfigPath, ParseWorldSharedConfig, "world-shared");
+            int worldSharedLevel = PaintingChestLevel;
+            _log.Info($"[Config] Loaded world shared config: PaintingChestLevel={worldSharedLevel}");
+
+            // Load character config — ParseCharacterConfig reads legacy paintingChestLevel for migration
+            PaintingChestLevel = 0;
             var charConfigPath = GetCharacterConfigPath();
             if (!TryLoadConfigFile(charConfigPath, ParseCharacterConfig, "character"))
             {
@@ -100,6 +110,18 @@ namespace StorageHub.Config
             else
             {
                 _log.Info($"Loaded character config from {charConfigPath}");
+            }
+            int charLevel = PaintingChestLevel;
+
+            // World shared config wins. Only migrate a higher char level if this world was
+            // previously visited — prevents a char with an old level from upgrading every
+            // fresh world they enter.
+            PaintingChestLevel = worldSharedLevel;
+            if (charLevel > worldSharedLevel && worldCharConfigExisted)
+            {
+                PaintingChestLevel = charLevel;
+                _log.Info($"[Config] Migrating paintingChestLevel {worldSharedLevel} → {charLevel} to world shared config");
+                SaveWorldSharedConfig();
             }
         }
 
@@ -191,6 +213,16 @@ namespace StorageHub.Config
                 _log.Error($"Failed to save world config: {ex.Message}");
             }
 
+            // Save world shared config (painting chest level)
+            try
+            {
+                SaveWorldSharedConfig();
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"Failed to save world shared config: {ex.Message}");
+            }
+
             // Save character-specific data
             try
             {
@@ -255,6 +287,11 @@ namespace StorageHub.Config
         private string GetWorldConfigPath()
         {
             return Path.Combine(_modFolder, "worlds", _currentWorldName, $"{_currentCharacterName}.json");
+        }
+
+        private string GetWorldSharedConfigPath()
+        {
+            return Path.Combine(_modFolder, "worlds", _currentWorldName, "world.json");
         }
 
         private string GetCharacterConfigPath()
@@ -334,6 +371,30 @@ namespace StorageHub.Config
             return sb.ToString();
         }
 
+        private string SerializeWorldSharedConfig()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("{");
+            sb.AppendLine($"  \"paintingChestLevel\": {PaintingChestLevel}");
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
+
+        private void SaveWorldSharedConfig()
+        {
+            if (string.IsNullOrEmpty(_currentWorldName)) return;
+            var path = GetWorldSharedConfigPath();
+            SafeWriteFile(path, SerializeWorldSharedConfig());
+            _log.Debug($"Saved world shared config to {path}");
+        }
+
+        private void ParseWorldSharedConfig(string json)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(json, @"""paintingChestLevel""\s*:\s*(\d+)");
+            if (m.Success && int.TryParse(m.Groups[1].Value, out int lvl))
+                PaintingChestLevel = Math.Max(0, Math.Min(4, lvl));
+        }
+
         private string SerializeCharacterConfig()
         {
             var sb = new StringBuilder();
@@ -349,8 +410,7 @@ namespace StorageHub.Config
                 sb.AppendLine($"    \"{key}\": {value}{comma}");
             }
 
-            sb.AppendLine("  },");
-            sb.AppendLine($"  \"paintingChestLevel\": {PaintingChestLevel}");
+            sb.AppendLine("  }");
             sb.AppendLine("}");
             return sb.ToString();
         }

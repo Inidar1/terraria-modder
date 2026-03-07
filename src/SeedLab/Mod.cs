@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using HarmonyLib;
+using SeedLab.Gen;
 using SeedLab.Patches;
 using SeedLab.UI;
 using TerrariaModder.Core;
@@ -62,6 +63,8 @@ namespace SeedLab
             _worldGenOverrideManager = new WorldGenOverrideManager(_log, worldGenConfigPath);
             _panel = new InGamePanel(_log, _featureManager, _presetManager);
             _worldGenPanel = new WorldGenPanel(_log, _worldGenOverrideManager);
+            UnderwaterSurfaceGen.Initialize(_log);
+            GogGen.Initialize(_log);
 
             // Register keybind (works in-world only via KeybindManager)
             context.RegisterKeybind("toggle", "Toggle Panel", "Open/close the Seed Lab panel", "F10", OnToggle);
@@ -131,6 +134,7 @@ namespace SeedLab
         {
             _panel?.Update();
             _worldGenPanel?.Update();
+            if (!Main.gameMenu) GogGen.UpdateSpread();
         }
 
         private void OnDraw()
@@ -176,6 +180,8 @@ namespace SeedLab
                 WorldGenResetPatch.Apply(_harmony, _worldGenOverrideManager, _log);
                 WorldGenPassPatch.Apply(_harmony, _worldGenOverrideManager, _log);
                 FinalizeSecretSeedsPatch.Apply(_harmony, _worldGenOverrideManager, _log);
+                FinalPassPatch.Apply(_harmony, _worldGenOverrideManager, _log);
+                GogMiningPatch.Apply(_harmony, _log);
             }
             catch (Exception ex)
             {

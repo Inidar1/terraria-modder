@@ -3,7 +3,8 @@ namespace SeedLab
     public enum SeedKind
     {
         SpecialSeed,
-        SecretSeed
+        SecretSeed,
+        Custom          // SeedLab-original features, not tied to any vanilla seed
     }
 
     public class WorldGenSeedEntry

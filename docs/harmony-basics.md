@@ -99,8 +99,8 @@ public static void Postfix(Player __instance)
 The return value of the method (postfix only):
 
 ```csharp
-[HarmonyPatch(typeof(Projectile), "IsInteractible")]
-public static class IsInteractiblePatch
+[HarmonyPatch(typeof(Projectile), "IsInteractable")]
+public static class IsInteractablePatch
 {
     [HarmonyPostfix]
     public static void Postfix(Projectile __instance, ref bool __result)
@@ -208,7 +208,7 @@ public class Mod : IMod
         }
     }
 
-    public static void DoUpdate_Postfix(object __instance)
+    public static void DoUpdate_Postfix(Main __instance)
     {
         // Runs after Main.DoUpdate
     }

@@ -24,29 +24,31 @@ QuickKeys is the most complex bundled mod. It provides auto-torch placement, rec
 
 ## Key Concepts
 
-### 1. Extensive Reflection Setup
+### 1. Direct Field and Method Access
 
-QuickKeys needs many game internals:
+QuickKeys accesses game internals directly via the Terraria.exe reference:
 
 ```csharp
-private void InitializeReflection()
-{
-    var playerType = typeof(Player);
+using Terraria;
+using Terraria.ID;
+using Microsoft.Xna.Framework;
 
-    // Fields
-    _inventoryField = playerType.GetField("inventory");
-    _selectedItemField = playerType.GetField("selectedItem");
+// Inventory: direct field access
+Item[] inventory = player.inventory;
+int selectedSlot = player.selectedItem;
 
-    // Methods
-    _itemCheckMethod = playerType.GetMethod("ItemCheck");
+// Item check: direct method call
+player.ItemCheck();
 
-    // Log what we found
-    _log.Info($"inventory field: {_inventoryField != null}");
-    _log.Info($"ItemCheck method: {_itemCheckMethod != null}");
-}
+// selectedItemState.Select() to change active item
+player.selectedItemState.Select(slotIndex);
+
+// Tile set (for torch detection): direct
+bool[] torchSet = TileID.Sets.Torches;
+bool isTorch = torchSet[item.createTile];
 ```
 
-Always log reflection results for debugging.
+No reflection cache needed — all these are public members.
 
 ### 2. Item Slot Swapping
 
@@ -136,7 +138,7 @@ private void PlaceTorch()
     for (int i = 0; i < player.inventory.Length; i++)
     {
         Item item = player.inventory[i];
-        if (item.stack > 0 && TileID.Sets.Torch[item.createTile])
+        if (item.stack > 0 && TileID.Sets.Torches[item.createTile])
         {
             torchItem = item;
             break;
@@ -199,10 +201,6 @@ public void Initialize(ModContext context)
 ```csharp
 public class Mod : IMod
 {
-    // Reflection fields
-    private FieldInfo _inventoryField;
-    // ... more fields
-
     // State for item use restoration
     private int _savedSlot = -1;
     private bool _needsRestore = false;
@@ -212,7 +210,6 @@ public class Mod : IMod
 
     public void Initialize(ModContext context)
     {
-        InitializeReflection();
         RegisterKeybinds(context);
         FrameEvents.OnPostUpdate += OnPostUpdate;
     }
@@ -249,12 +246,12 @@ public class Mod : IMod
 
 ## Lessons Learned
 
-1. **Log reflection results** - Essential for debugging
-2. **Handle read-only properties** - Use inventory swapping
+1. **Access public members directly** - `player.inventory`, `player.ItemCheck()`, `TileID.Sets.Torches` — no reflection needed
+2. **Use `selectedItemState.Select()`** - Cleaner than swapping; falls back to swap if Select fails
 3. **Search full inventory** - Not just hotbar (10 slots)
 4. **Bounds check everything** - Tile access, array access
 5. **Multiplayer sync** - Send tile updates in multiplayer
 6. **Restore state** - Always clean up after temporary changes
-7. **Multiple approaches** - Have fallbacks when reflection fails
+7. **Multiple approaches** - Have fallbacks when the primary method fails
 
 For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics).

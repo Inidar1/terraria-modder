@@ -39,6 +39,16 @@ namespace SeedLab
             };
         }
 
+        /// <summary>Custom SeedLab feature (not tied to any vanilla seed).</summary>
+        public static WGSeedDef Custom(string id, string displayName, string desc, string category = "Misc")
+        {
+            return new WGSeedDef
+            {
+                Id = id, DisplayName = displayName, Kind = SeedKind.Custom,
+                Groups = new[] { new WGFeatureGroupDef(id, displayName, desc, category: category) }
+            };
+        }
+
         private WGSeedDef() { }
     }
 
@@ -481,6 +491,24 @@ namespace SeedLab
                 "Generates team-based spawn points",
                 category: "Misc",
                 mainFlagField: "teamBasedSpawnsSeed"),
+
+            // ================================================================
+            // CUSTOM SEEDLAB FEATURES — handled by FinalPassPatch after worldgen
+            // ================================================================
+            WGSeedDef.Custom("custom_underwater_surface", "Underwater Surface",
+                "Floods the surface with ocean water and adds sand islands with palm trees. " +
+                "A stone seal prevents water from draining underground.",
+                category: "Terrain"),
+
+            WGSeedDef.Custom("gog_enable", "Enable Gog",
+                "The Gog may spawn where a Surface Mushroom Biome borders a Forest. " +
+                "Gog tiles are painted deep blue and slowly spread. " +
+                "Requires Mythril-tier pickaxe to mine.",
+                category: "Biome"),
+
+            WGSeedDef.Custom("gog_spawn", "Gog Spawn",
+                "Forces the starting area to be infected by the Gog regardless of biome layout.",
+                category: "Biome"),
         };
 
         /// <summary>

@@ -35,7 +35,7 @@ private void ApplyPatches()
 
     // Pseudocode - actual implementation uses Harmony.Patch() directly
     // Is the projectile interactable?
-    PatchMethod(projectileType, "IsInteractible");
+    PatchMethod(projectileType, "IsInteractable");
 
     // Can we get a container from it?
     PatchMethod(projectileType, "TryGetContainerIndex");
@@ -80,7 +80,7 @@ This makes ALL cosmetic pets work as piggy banks, not just specific ones like Ch
 Make cosmetic pets appear interactable:
 
 ```csharp
-[HarmonyPatch(typeof(Projectile), "IsInteractible")]
+[HarmonyPatch(typeof(Projectile), "IsInteractable")]
 public static class IsInteractiblePatch
 {
     [HarmonyPostfix]
@@ -139,8 +139,10 @@ private static void OnPetInteract(Projectile pet)
 }
 
 // Close when inventory closes
-public static void PlayerUpdate_Postfix(Player __instance)
+public static void PlayerUpdate_Postfix(Player __instance, int i)
 {
+    if (i != Main.myPlayer) return;
+
     if (_openedViaPet && !Main.playerInventory)
     {
         ClosePiggyBank(__instance);
@@ -216,8 +218,9 @@ public class Mod : IMod
     }
 
     // Patch: Track state each frame
-    public static void PlayerUpdate_Postfix(Player __instance)
+    public static void PlayerUpdate_Postfix(Player __instance, int i)
     {
+        if (i != Main.myPlayer) return;
         if (_cooldown > 0) _cooldown--;
 
         if (_openedViaPet && !Main.playerInventory)

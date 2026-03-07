@@ -31,7 +31,7 @@ namespace SeedLab.UI
         private const int CheckboxSize = 16;
 
         // Tabs
-        private static readonly string[] TabNames = { "By Seed", "By Category", "Presets" };
+        private static readonly string[] TabNames = { "By Seed", "By Category", "Presets", "Custom" };
         private int _activeTab;
 
         // Mode
@@ -42,7 +42,7 @@ namespace SeedLab.UI
 
         // UI components
         private readonly DraggablePanel _panel;
-        private readonly ScrollView[] _scrollViews = { new ScrollView(), new ScrollView(), new ScrollView() };
+        private readonly ScrollView[] _scrollViews = { new ScrollView(), new ScrollView(), new ScrollView(), new ScrollView() };
         private readonly TextInput _presetNameInput;
         private bool _presetNaming;
 
@@ -148,6 +148,7 @@ namespace SeedLab.UI
                     case 0: DrawBySeedContent(sv); break;
                     case 1: DrawByCategoryContent(sv); break;
                     case 2: DrawPresetsContent(sv); break;
+                    case 3: DrawCustomContent(sv); break;
                 }
                 sv.End();
 
@@ -176,6 +177,7 @@ namespace SeedLab.UI
                 case 0: return CalculateBySeedHeight();
                 case 1: return CalculateByCategoryHeight();
                 case 2: return CalculatePresetsHeight();
+                case 3: return CalculateCustomHeight();
                 default: return 100;
             }
         }
@@ -256,6 +258,7 @@ namespace SeedLab.UI
 
             foreach (var seed in WorldGenFeatureCatalog.Seeds)
             {
+                if (seed.Kind == SeedKind.Custom) continue;
                 string category = seed.Kind == SeedKind.SpecialSeed ? "Special Seeds" : "Secret Seeds";
                 if (category != lastCategory)
                 {
@@ -287,6 +290,7 @@ namespace SeedLab.UI
 
             foreach (var seed in WorldGenFeatureCatalog.Seeds)
             {
+                if (seed.Kind == SeedKind.Custom) continue;
                 string category = seed.Kind == SeedKind.SpecialSeed ? "Special Seeds" : "Secret Seeds";
 
                 if (category != lastCategory)
@@ -816,6 +820,38 @@ namespace SeedLab.UI
             public string Description;
             public string SeedId;
             public string[] GroupIds;
+        }
+
+        #endregion
+
+        #region Custom Content
+
+        private int CalculateCustomHeight()
+        {
+            int height = Padding;
+            foreach (var seed in WorldGenFeatureCatalog.Seeds)
+            {
+                if (seed.Kind != SeedKind.Custom) continue;
+                height += GroupRowHeight + RowSpacing;
+            }
+            return height + Padding;
+        }
+
+        private void DrawCustomContent(ScrollView sv)
+        {
+            int contentW = sv.ContentWidth;
+            int relY = Padding;
+
+            foreach (var seed in WorldGenFeatureCatalog.Seeds)
+            {
+                if (seed.Kind != SeedKind.Custom) continue;
+                var group = seed.Groups[0];
+
+                if (IsRowVisible(sv, relY, GroupRowHeight))
+                    DrawGroupCheckbox(sv.ContentX, sv.ContentY + relY, contentW, group.Id, group.DisplayName, group.Description, null);
+
+                relY += GroupRowHeight + RowSpacing;
+            }
         }
 
         #endregion

@@ -1420,7 +1420,7 @@ public class Mod : IMod
 
 ## Game Class
 
-Convenience accessors for common game state. Uses direct Terraria references where possible.
+Convenience accessors for common game state. Uses direct Terraria and XNA references.
 
 ```csharp
 using TerrariaModder.Core.Reflection;
@@ -1449,12 +1449,12 @@ float uiScale = Game.UIScale;
 
 int mouseX = Game.MouseX;
 int mouseY = Game.MouseY;
-Vec2 mouseScreen = Game.MouseScreen;  // Mouse in screen coordinates
-Vec2 mouseWorld = Game.MouseWorld;    // Mouse in world coordinates
+Vector2 mouseScreen = Game.MouseScreen;  // Mouse in screen coordinates
+Vector2 mouseWorld = Game.MouseWorld;    // Mouse in world coordinates
 bool mouseL = Game.MouseLeft;
 bool mouseR = Game.MouseRight;
 
-Vec2 screenPos = Game.ScreenPosition;  // Top-left corner in world coords
+Vector2 screenPos = Game.ScreenPosition;  // Top-left corner in world coords
 ```
 
 ### World
@@ -1477,8 +1477,8 @@ bool rain = Game.Raining;         // True if raining
 ```csharp
 int myIndex = Game.MyPlayerIndex;
 Player player = Game.LocalPlayer;
-Vec2 pos = Game.PlayerPosition;
-Vec2 center = Game.PlayerCenter;
+Vector2 pos = Game.PlayerPosition;
+Vector2 center = Game.PlayerCenter;
 
 int health = Game.PlayerHealth;
 int maxHealth = Game.PlayerMaxHealth;
@@ -1511,7 +1511,7 @@ Projectile[] projectiles = Game.Projectiles;
 
 ```csharp
 // Coordinate conversion
-Vec2 worldPos = Game.TileToWorld(tileX, tileY);
+Vector2 worldPos = Game.TileToWorld(tileX, tileY);
 (int x, int y) = Game.WorldToTile(worldPos);
 
 // Get tile at position
@@ -1529,137 +1529,6 @@ Game.ShowMessage("Hello!", r, g, b);
 
 // Place a tile
 bool success = Game.PlaceTile(tileX, tileY, tileType, style);
-```
-
-## Type Wrappers
-
-Lightweight wrappers for XNA types (no XNA dependency required):
-
-### Vec2
-
-Minimal wrapper for Vector2 to avoid XNA compile-time dependency.
-
-```csharp
-using TerrariaModder.Core.Reflection;
-
-// Construction
-Vec2 pos = new Vec2(100f, 200f);
-Vec2 zero = Vec2.Zero;
-
-// Properties
-float x = pos.X;
-float y = pos.Y;
-
-// Convert from XNA (for reflection results)
-Vec2 fromXna = Vec2.FromXna(xnaVector);
-
-// Comparison
-bool equal = (a == b);
-bool notEqual = (a != b);
-
-// String representation
-string str = pos.ToString();  // "(100.00, 200.00)"
-```
-
-**Constructor:**
-- `Vec2(float x, float y)` - Create with coordinates
-
-**Fields:**
-- `float X` - X coordinate
-- `float Y` - Y coordinate
-
-**Static:**
-- `Vec2.Zero` - (0, 0)
-- `Vec2 FromXna(object)` - Convert from XNA Vector2
-
-**Methods:**
-- `string ToString()` - Returns `"(X, Y)"` format with 2 decimal places
-- `bool Equals(object)` - Value equality comparison
-- `int GetHashCode()` - Hash code based on X and Y
-
-**Operators:** `==`, `!=`
-
-*Note: For math operations (distance, length, etc.), use XNA's Vector2 directly via reflection or calculate manually.*
-
-## TypeFinder
-
-Finds types across loaded assemblies with caching.
-
-```csharp
-using TerrariaModder.Core.Reflection;
-
-// Find by name
-Type type = TypeFinder.Find("Terraria.Main");       // Returns null if not found
-Type type = TypeFinder.FindRequired("Terraria.Main"); // Throws if not found
-bool found = TypeFinder.TryFind("Terraria.Main", out Type type);
-TypeFinder.ClearCache();  // Clear type cache
-```
-
-**Common Type Properties:**
-
-| Property | Type Name |
-|----------|-----------|
-| `TypeFinder.Main` | Terraria.Main |
-| `TypeFinder.Player` | Terraria.Player |
-| `TypeFinder.NPC` | Terraria.NPC |
-| `TypeFinder.Item` | Terraria.Item |
-| `TypeFinder.Projectile` | Terraria.Projectile |
-| `TypeFinder.Tile` | Terraria.Tile |
-| `TypeFinder.WorldGen` | Terraria.WorldGen |
-| `TypeFinder.NetMessage` | Terraria.NetMessage |
-| `TypeFinder.Lang` | Terraria.Lang |
-| `TypeFinder.PlayerInput` | Terraria.GameInput.PlayerInput |
-| `TypeFinder.Vector2` | Microsoft.Xna.Framework.Vector2 |
-| `TypeFinder.Color` | Microsoft.Xna.Framework.Color |
-| `TypeFinder.Rectangle` | Microsoft.Xna.Framework.Rectangle |
-| `TypeFinder.Keyboard` | Microsoft.Xna.Framework.Input.Keyboard |
-| `TypeFinder.Keys` | Microsoft.Xna.Framework.Input.Keys |
-| `TypeFinder.Mouse` | Microsoft.Xna.Framework.Input.Mouse |
-| `TypeFinder.SpriteBatch` | Microsoft.Xna.Framework.Graphics.SpriteBatch |
-| `TypeFinder.Texture2D` | Microsoft.Xna.Framework.Graphics.Texture2D |
-| `TypeFinder.SpriteFont` | Microsoft.Xna.Framework.Graphics.SpriteFont |
-
-## GameAccessor
-
-Safe, cached API for accessing Terraria internals via reflection.
-
-```csharp
-using TerrariaModder.Core.Reflection;
-
-// Field access
-int myPlayer = GameAccessor.GetMainField<int>("myPlayer");
-GameAccessor.SetMainField<int>("someField", value);
-
-T GetStaticField<T>(Type type, string fieldName)
-void SetStaticField<T>(Type type, string fieldName, T value)
-T GetField<T>(object instance, string fieldName)
-void SetField<T>(object instance, string fieldName, T value)
-
-// Property access
-Vec2 mouseWorld = GameAccessor.GetMainProperty<Vec2>("MouseWorld");
-T GetStaticProperty<T>(Type type, string propertyName)
-T GetProperty<T>(object instance, string propertyName)
-void SetProperty<T>(object instance, string propertyName, T value)
-
-// Method invocation
-T InvokeMainMethod<T>(string methodName, params object[] args)
-T InvokeStaticMethod<T>(Type type, string methodName, params object[] args)
-T InvokeMethod<T>(object instance, string methodName, params object[] args)
-void InvokeMethod(object instance, string methodName, params object[] args)  // void overload
-
-// Array access (for 2D arrays like Main.tile)
-T GetArrayElement<T>(object array, params int[] indices)
-void SetArrayElement<T>(object array, T value, params int[] indices)
-```
-
-**Safe Variants (return default instead of throwing):**
-
-```csharp
-T TryGetField<T>(object instance, string fieldName, T defaultValue = default)
-T TryGetStaticField<T>(Type type, string fieldName, T defaultValue = default)
-T TryGetMainField<T>(string fieldName, T defaultValue = default)
-T TryGetProperty<T>(object instance, string propertyName, T defaultValue = default)
-T TryGetStaticProperty<T>(Type type, string propertyName, T defaultValue = default)
 ```
 
 ## ConfigField
@@ -1835,13 +1704,10 @@ public void Initialize(ModContext context)
         Height = 20,
         UpdateEquip = (player) =>
         {
-            // Called every frame while equipped
-            var moveSpeed = player.GetType().GetField("moveSpeed");
-            if (moveSpeed != null)
-            {
-                float current = (float)moveSpeed.GetValue(player);
-                moveSpeed.SetValue(player, current + 0.1f);
-            }
+            // Called every frame while equipped.
+            // player is passed as object — cast to Player for direct access.
+            var p = (Player)player;
+            p.moveSpeed += 0.1f;
         }
     });
 }
@@ -1946,7 +1812,7 @@ public void Initialize(ModContext context)
 
 ### Behavior Hooks
 
-ItemDefinition supports runtime behavior hooks. All Terraria types are passed as `object` to avoid compile-time XNA dependencies. Use reflection or casting as needed.
+ItemDefinition supports runtime behavior hooks. Terraria types are passed as `object` because Core.dll does not reference Terraria.exe directly. In your mod (which does reference Terraria.exe), cast to `Player`, `NPC`, etc. for direct field access.
 
 ```csharp
 context.RegisterItem("eternal-potion", new ItemDefinition

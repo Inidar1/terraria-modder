@@ -8,7 +8,7 @@ nav_order: 6
 # AdminPanel Walkthrough
 
 **Difficulty:** Advanced
-**Concepts:** Custom UI with sliders, Harmony patching, reflection, boss detection
+**Concepts:** Custom UI with sliders, Harmony patching, boss detection
 
 AdminPanel provides a draggable UI with admin/cheat features: god mode, movement speed, health/mana restore, time controls, teleportation, and custom respawn times.
 
@@ -30,30 +30,27 @@ God mode requires a Harmony patch because the game resets immunity flags every f
 
 ```csharp
 private static bool _godModeActive;
-private static FieldInfo _immuneField;
-private static FieldInfo _immuneTimeField;
-private static FieldInfo _immuneNoBlink;
 
-public static void OnGameReady()
+private void ApplyPatches()
 {
     // Patch Player.ResetEffects to maintain immunity
-    var resetEffectsMethod = _playerType.GetMethod("ResetEffects",
+    var resetEffectsMethod = typeof(Player).GetMethod("ResetEffects",
         BindingFlags.Public | BindingFlags.Instance);
 
     _harmony.Patch(resetEffectsMethod,
         postfix: new HarmonyMethod(typeof(Mod), nameof(ResetEffects_Postfix)));
 }
 
-private static void ResetEffects_Postfix(object __instance)
+// __instance is typed as Player — direct field access, no reflection needed
+private static void ResetEffects_Postfix(Player __instance)
 {
     if (!_godModeActive) return;
 
-    var localPlayer = GetLocalPlayer();
-    if (__instance == localPlayer)
+    if (__instance == Main.player[Main.myPlayer])
     {
-        _immuneField?.SetValue(__instance, true);
-        _immuneTimeField?.SetValue(__instance, 2);
-        _immuneNoBlink?.SetValue(__instance, true);
+        __instance.immune = true;
+        __instance.immuneTime = 2;
+        __instance.immuneNoBlink = true;
     }
 }
 ```
@@ -65,34 +62,23 @@ private static void ResetEffects_Postfix(object __instance)
 Custom respawn times need to know if the player died during a boss fight:
 
 ```csharp
-private static bool DetectBossFight(object player)
+private static bool DetectBossFight(Player player)
 {
-    var playerCenter = _playerCenterProp.GetValue(player);
-    float playerX = (float)_vector2XField.GetValue(playerCenter);
-    float playerY = (float)_vector2YField.GetValue(playerCenter);
+    Vector2 playerCenter = player.Center;
 
-    var npcs = (Array)_npcArrayField.GetValue(null);
-    for (int i = 0; i < Math.Min(npcs.Length, 200); i++)
+    for (int i = 0; i < Math.Min(Main.npc.Length, 200); i++)
     {
-        var npc = npcs.GetValue(i);
-        if (npc == null) continue;
-
-        bool active = (bool)_npcActiveField.GetValue(npc);
-        if (!active) continue;
-
-        bool isBoss = (bool)_npcBossField.GetValue(npc);
-        int npcTypeId = (int)_npcTypeField.GetValue(npc);
+        NPC npc = Main.npc[i];
+        if (npc == null || !npc.active) continue;
 
         // Boss OR Eater of Worlds segments (13,14,15), exclude Martian Saucer (395)
-        if ((isBoss || npcTypeId == 13 || npcTypeId == 14 || npcTypeId == 15)
-            && npcTypeId != 395)
+        if ((npc.boss || npc.type == 13 || npc.type == 14 || npc.type == 15)
+            && npc.type != 395)
         {
-            var npcCenter = _npcCenterProp.GetValue(npc);
-            float npcX = (float)_vector2XField.GetValue(npcCenter);
-            float npcY = (float)_vector2YField.GetValue(npcCenter);
-
+            Vector2 npcCenter = npc.Center;
             // Vanilla uses Manhattan distance < 4000 pixels
-            if (Math.Abs(playerX - npcX) + Math.Abs(playerY - npcY) < 4000f)
+            if (Math.Abs(playerCenter.X - npcCenter.X)
+                + Math.Abs(playerCenter.Y - npcCenter.Y) < 4000f)
                 return true;
         }
     }
@@ -112,26 +98,22 @@ private static readonly int[] BossRespawnSeconds = { 2, 5, 7, 10, 20, 30, 45, 60
 private static float _normalRespawnMult = 1.0f;
 private static float _bossRespawnMult = 1.0f;
 
-private static void UpdateDead_Postfix(object __instance)
+private static void UpdateDead_Postfix(Player __instance)
 {
-    var localPlayer = GetLocalPlayer();
-    if (__instance != localPlayer) return;
+    if (__instance != Main.player[Main.myPlayer]) return;
 
     _inBossFight = DetectBossFight(__instance);
     float mult = _inBossFight ? _bossRespawnMult : _normalRespawnMult;
 
     if (mult >= 1.0f) return; // No speed-up needed
 
-    int currentTimer = (int)_respawnTimerField.GetValue(__instance);
+    int currentTimer = __instance.respawnTimer;
     if (currentTimer > 0)
     {
         // mult=0.5 means 2x speed, mult=0.25 means 4x speed
         int extraReduction = (int)((1.0f / mult) - 1);
         if (extraReduction > 0)
-        {
-            _respawnTimerField.SetValue(__instance,
-                Math.Max(0, currentTimer - extraReduction));
-        }
+            __instance.respawnTimer = Math.Max(0, currentTimer - extraReduction);
     }
 }
 ```
@@ -142,10 +124,9 @@ Time speed uses a Harmony **postfix** on `Main.UpdateTimeRate` to multiply `dayR
 
 ```csharp
 private static int _timeSpeedMultiplier = 1;
-private static FieldInfo _dayRateField;
 
 // Patch Main.UpdateTimeRate - multiply AFTER vanilla sets dayRate
-var updateTimeRateMethod = _mainType.GetMethod("UpdateTimeRate",
+var updateTimeRateMethod = typeof(Main).GetMethod("UpdateTimeRate",
     BindingFlags.Public | BindingFlags.Static);
 _harmony.Patch(updateTimeRateMethod,
     postfix: new HarmonyMethod(typeof(Mod), nameof(UpdateTimeRate_Postfix)));
@@ -154,11 +135,9 @@ private static void UpdateTimeRate_Postfix()
 {
     if (_timeSpeedMultiplier <= 1) return;
 
-    int current = (int)_dayRateField.GetValue(null);
+    int current = Main.dayRate;
     if (current > 0)  // Don't multiply if frozen (dayRate=0)
-    {
-        _dayRateField.SetValue(null, current * _timeSpeedMultiplier);
-    }
+        Main.dayRate = current * _timeSpeedMultiplier;
 }
 ```
 
@@ -179,26 +158,21 @@ Movement speed uses a Harmony **prefix** on `Player.HorizontalMovement` to multi
 
 ```csharp
 private static int _moveSpeedMultiplier = 1;
-private static FieldInfo _maxRunSpeedField;
-private static FieldInfo _runAccelerationField;
 
 // Patch Player.HorizontalMovement
-var horizontalMovementMethod = _playerType.GetMethod("HorizontalMovement",
+var horizontalMovementMethod = typeof(Player).GetMethod("HorizontalMovement",
     BindingFlags.Public | BindingFlags.Instance);
 _harmony.Patch(horizontalMovementMethod,
     prefix: new HarmonyMethod(typeof(Mod), nameof(HorizontalMovement_Prefix)));
 
-private static void HorizontalMovement_Prefix(object __instance)
+// __instance is typed as Player — direct field access
+private static void HorizontalMovement_Prefix(Player __instance)
 {
     if (_moveSpeedMultiplier <= 1) return;
+    if (__instance != Main.player[Main.myPlayer]) return;
 
-    var localPlayer = GetLocalPlayer();
-    if (__instance != localPlayer) return;
-
-    float maxRun = (float)_maxRunSpeedField.GetValue(__instance);
-    float runAccel = (float)_runAccelerationField.GetValue(__instance);
-    _maxRunSpeedField.SetValue(__instance, maxRun * _moveSpeedMultiplier);
-    _runAccelerationField.SetValue(__instance, runAccel * _moveSpeedMultiplier);
+    __instance.maxRunSpeed *= _moveSpeedMultiplier;
+    __instance.runAcceleration *= _moveSpeedMultiplier;
 }
 ```
 
@@ -225,7 +199,7 @@ The `Slider` handles drag tracking, click-to-seek, thumb hover states, and bound
 The panel itself uses `DraggablePanel` and `StackLayout` with `ButtonAt` for inline button rows:
 
 ```csharp
-private DraggablePanel _panel = new DraggablePanel("admin-panel", "Admin Panel", 380, 560);
+private DraggablePanel _panel = new DraggablePanel("admin-panel", "Admin Panel", 380, 620);
 
 private void DrawPanel()
 {
@@ -261,46 +235,26 @@ private void DrawPanel()
 
 Note the use of `ButtonAt(x, width, label)` for placing multiple buttons on one row; standard `Button()` takes the full layout width.
 
-### 7. Teleportation via Reflection
+### 7. Teleportation
 
-Find the `Player.Teleport` method and invoke it:
+Call `Player.Teleport` directly with a `Vector2` world position:
 
 ```csharp
-private static MethodInfo _teleportMethod;
-private static Type _vector2Type;
-
-// During init, find the method
-foreach (var method in _playerType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-{
-    if (method.Name == "Teleport")
-    {
-        var parms = method.GetParameters();
-        if (parms.Length >= 1 && parms[0].ParameterType.Name == "Vector2")
-        {
-            _teleportMethod = method;
-            _vector2Type = parms[0].ParameterType;
-            break;
-        }
-    }
-}
-
-// Invoke with world coordinates (tiles * 16)
+// Teleport using world coordinates (tile coord × 16)
 private void TeleportPlayer(float worldX, float worldY)
 {
-    var player = GetLocalPlayer();
-    var pos = Activator.CreateInstance(_vector2Type, new object[] { worldX, worldY });
-
-    var parms = _teleportMethod.GetParameters();
-    if (parms.Length == 1)
-        _teleportMethod.Invoke(player, new[] { pos });
-    else if (parms.Length == 2)
-        _teleportMethod.Invoke(player, new object[] { pos, 1 });
-    else if (parms.Length >= 3)
-        _teleportMethod.Invoke(player, new object[] { pos, 1, 0 });
+    Player player = Main.player[Main.myPlayer];
+    player.Teleport(new Vector2(worldX, worldY), 1, 0);
 }
+
+// Convenience helpers using built-in Player methods:
+player.Shellphone_Spawn();        // Spawn point
+player.DemonConch();              // Hell (underworld)
+player.MagicConch();              // Beach (ocean)
+player.TeleportationPotion();     // Random location
 ```
 
-Six teleport destinations: Spawn (world spawn point), Dungeon, Hell (bottom of world), Beach (ocean edge), Bed (player's bed/spawn point), and **Random** (invokes `TeleportationPotion()` for a random position).
+Six teleport destinations: Spawn (world spawn point), Dungeon (coordinate-based), Hell, Beach, Bed (player's bed/spawn point), and **Random** (invokes `TeleportationPotion()` for a random position).
 
 ### 8. Settings Persistence
 
@@ -372,15 +326,10 @@ public class Mod : IMod
     private static bool _godModeActive;
     #endregion
 
-    #region Reflection Cache
-    private static Type _mainType;
-    private static FieldInfo _immuneField;
-    #endregion
-
     #region IMod Implementation
     public void Initialize(ModContext context)
     {
-        _panel = new DraggablePanel("admin-panel", "Admin Panel", 380, 560);
+        _panel = new DraggablePanel("admin-panel", "Admin Panel", 380, 620);
         _panel.RegisterDrawCallback(DrawPanel);
         // ...
     }
@@ -392,10 +341,10 @@ public class Mod : IMod
     #endregion
 
     #region Harmony Patches
-    private static void ResetEffects_Postfix(object __instance) { /* god mode */ }
-    private static void UpdateDead_Postfix(object __instance) { /* respawn time */ }
+    private static void ResetEffects_Postfix(Player __instance) { /* god mode */ }
+    private static void UpdateDead_Postfix(Player __instance) { /* respawn time */ }
     private static void UpdateTimeRate_Postfix() { /* time speed multiplier */ }
-    private static void HorizontalMovement_Prefix(object __instance) { /* move speed */ }
+    private static void HorizontalMovement_Prefix(Player __instance) { /* move speed */ }
     #endregion
 
     #region UI Drawing (uses StackLayout + Slider widgets)
@@ -414,10 +363,10 @@ public class Mod : IMod
 2. **Postfix for state the game resets** - ResetEffects clears immunity, UpdateTimeRate overwrites dayRate; postfix re-applies
 3. **Prefix for pre-calculation injection** - HorizontalMovement prefix multiplies speed before movement math runs
 4. **Match vanilla logic exactly** - Boss detection uses specific NPC types and distance checks
-5. **Separate static and instance state** - Harmony patches need static; UI needs instance
-6. **Persist settings with dirty detection** - Only write config when value actually changes
-7. **Teleport uses world coords** - Multiply tile coordinates by 16
-8. **Handle method overloads** - `Player.Teleport` has multiple signatures
+5. **Type your patch parameters** - Use `Player __instance`, `Main __instance` etc. — no `object` casting needed since mods reference Terraria.exe directly
+6. **Separate static and instance state** - Harmony patches need static; UI needs instance
+7. **Persist settings with dirty detection** - Only write config when value actually changes
+8. **Teleport uses world coords** - Multiply tile coordinates by 16; call `player.Teleport()` directly
 9. **Clean up on unload** - Call `UnregisterDrawCallback()` and reset game state
 
 For more on the Widget Library, see [Core API Reference - Widget Library](../core-api-reference#widget-library).

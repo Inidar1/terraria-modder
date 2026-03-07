@@ -264,13 +264,13 @@ int tileY = (int)(Main.MouseWorld.Y / 16f);
 Tile tile = Main.tile[tileX, tileY];
 
 // Check if solid
-bool isSolid = tile.HasTile && Main.tileSolid[tile.TileType];
+bool isSolid = tile.active() && Main.tileSolid[tile.type];
 
 // Check if empty air
-bool isEmpty = !tile.HasTile;
+bool isEmpty = !tile.active();
 
-// Check tile type
-if (tile.HasTile && tile.TileType == TileID.Torches)
+// Check tile type (tile.type is ushort)
+if (tile.active() && tile.type == TileID.Torches)
 {
     // It's a torch
 }
@@ -321,7 +321,7 @@ private List<Point> FindNearbyFurniture(Player player, int tileType, int range)
                 continue;
 
             Tile tile = Main.tile[x, y];
-            if (tile.HasTile && tile.TileType == tileType)
+            if (tile.active() && tile.type == tileType)
             {
                 found.Add(new Point(x, y));
             }
@@ -491,53 +491,67 @@ for (int i = 0; i < player.inventory.Length; i++)
 
 ## Reflection Patterns
 
-See [Core API Reference](core-api-reference) for the framework's reflection helpers.
+Mods reference Terraria.exe and XNA directly — use types without reflection for all public members. Only use `BindingFlags`-based reflection for **private** members. See [Core API Reference](core-api-reference) for the `Game` class helpers.
 
-### Using GameAccessor
+### Direct Type Access
 
-Safe, cached access to Terraria internals:
+Mods have compile-time references to Terraria and XNA:
 
 ```csharp
-using TerrariaModder.Core.Reflection;
+using Terraria;
+using Terraria.ID;
+using Microsoft.Xna.Framework;
 
-// Get Main fields/properties
-int myPlayer = GameAccessor.GetMainField<int>("myPlayer");
-bool gameMenu = GameAccessor.GetMainField<bool>("gameMenu");
+// Use typeof() directly — no Type.GetType() needed
+var updateMethod = typeof(Player).GetMethod("Update", new Type[] { typeof(int) });
+var privateField = typeof(Main).GetField("_isAsyncLoadComplete",
+    BindingFlags.NonPublic | BindingFlags.Static);
 
-// Get instance fields
-int playerHealth = GameAccessor.GetField<int>(player, "statLife");
-
-// Safe variants - return default instead of throwing
-int safeValue = GameAccessor.TryGetMainField<int>("mightNotExist", defaultValue: 0);
-
-// Invoke methods
-GameAccessor.InvokeMethod(player, "AddBuff", buffType, duration);
-
-// Array access for 2D arrays like Main.tile
-var tile = GameAccessor.GetArrayElement<object>(tileArray, x, y);
+// Public fields and methods: access directly
+Player local = Main.LocalPlayer;
+int health = local.statLife;
+local.AddBuff(BuffID.Ironskin, 3600);
+Vector2 mouseWorld = Main.MouseWorld;
 ```
 
-### Using TypeFinder
+### Reflection for Private Members
 
-Find types across assemblies:
+Only use reflection when a member is private or internal:
+
+```csharp
+// Private instance field
+var ownerField = typeof(TagEffectState).GetField("_owner",
+    BindingFlags.NonPublic | BindingFlags.Instance);
+int owner = (int)ownerField.GetValue(instance);
+
+// Private static field
+var loadCompleteField = typeof(Main).GetField("_isAsyncLoadComplete",
+    BindingFlags.NonPublic | BindingFlags.Static);
+bool ready = (bool)loadCompleteField.GetValue(null);
+```
+
+### Using the Game Class
+
+`TerrariaModder.Core.Reflection.Game` provides convenience accessors for common state:
 
 ```csharp
 using TerrariaModder.Core.Reflection;
 
-// Common types are cached as properties
-Type mainType = TypeFinder.Main;
-Type playerType = TypeFinder.Player;
-Type vector2Type = TypeFinder.Vector2;
-
-// Find other types
-Type customType = TypeFinder.Find("Terraria.ID.ItemID");
-if (customType == null)
+// State checks
+if (Game.InWorld && !Game.InMenu)
 {
-    _log.Warn("Type not found");
+    Player player = Game.LocalPlayer;
+    Vector2 mouse = Game.MouseWorld;
+    bool dayTime = Game.IsDayTime;
 }
 
-// Or throw if required
-Type requiredType = TypeFinder.FindRequired("Terraria.WorldGen");
+// Tile access (bounds-checked)
+Tile tile = Game.GetTile(tileX, tileY);
+Vector2 worldPos = Game.TileToWorld(tileX, tileY);
+
+// UI helpers
+Game.BlockMouse();
+Game.ShowMessage("Hello!", 255, 200, 100);
 ```
 
 ### Input Blocking (Widget Library vs Manual)
@@ -601,4 +615,4 @@ The panel registration system:
 - Tracks multiple panels with dynamic z-order (click-to-focus)
 - Clears player controls when modal is open
 
-For complex reflection needs, study the [QuickKeys Walkthrough](walkthroughs/quick-keys) which demonstrates extensive reflection usage.
+For private-member reflection patterns, see the [SkipIntro Walkthrough](walkthroughs/skip-intro) (private static fields) or [WhipStacking Walkthrough](walkthroughs/whip-stacking) (private instance fields on internal types).
