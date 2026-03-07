@@ -76,7 +76,7 @@ Create `MyFirstMod.csproj`:
 Key settings:
 - `TargetFramework`: Must be `net48`
 - `Private`: Set to `false` to avoid copying framework DLLs into your output
-- `Terraria` reference: Allows using Terraria types directly (e.g., `Main.NewText()`). Optional; advanced mods can use reflection instead (see [Tested Patterns](tested-patterns#reflection-patterns))
+- `Terraria` reference: Allows using Terraria types directly (e.g., `Main.NewText()`). Optional; advanced mods can use reflection instead (see [Tested Patterns](tested-patterns.md#reflection-patterns))
 - `0Harmony` reference: Required for Harmony patching
 
 **Note:** HintPaths assume your mod is in `src/YourMod/` with `Terraria/` alongside `src/`. Adjust paths if your layout differs.
@@ -270,11 +270,11 @@ Look for `[my-first-mod]` entries to see your mod's log messages.
 
 Now that you have a working mod:
 
-1. **Add a UI panel** - Use `DraggablePanel` + `StackLayout` from the [Widget Library](core-api-reference#widget-library) for instant drag, close, z-order
-2. **Add Harmony patches** - See [Harmony Basics](harmony-basics) for patching game behavior. Attribute-based patches are auto-applied; manual patches go in `OnGameReady()` [lifecycle hooks](core-api-reference#injector-lifecycle-hooks)
-3. **Add more features** - See [Tested Patterns](tested-patterns) for common techniques
-4. **Study real mods** - Read the [Mod Walkthroughs](walkthroughs)
-5. **Publish** - See [Publishing Your Mod](publishing-your-mod)
+1. **Add a UI panel** - Use `DraggablePanel` + `StackLayout` from the [Widget Library](core-api-reference.md#widget-library) for instant drag, close, z-order
+2. **Add Harmony patches** - See [Harmony Basics](harmony-basics.md) for patching game behavior. Attribute-based patches are auto-applied; manual patches go in `OnGameReady()` [lifecycle hooks](core-api-reference.md#injector-lifecycle-hooks)
+3. **Add more features** - See [Tested Patterns](tested-patterns.md) for common techniques
+4. **Study real mods** - Read the [Mod Walkthroughs](walkthroughs.md)
+5. **Publish** - See [Publishing Your Mod](publishing-your-mod.md)
 
 ## Common Issues
 

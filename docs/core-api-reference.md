@@ -81,7 +81,7 @@ public class Mod : IMod
 
 **Timing:** `OnContentLoaded` fires BEFORE `OnGameReady` because XNA calls `LoadContent()` from within `Initialize()`. If you need both content and patches ready, use `OnGameReady` since `LoadContent` has already completed by then.
 
-See [Harmony Basics](harmony-basics#how-patches-are-applied) for details on when to use lifecycle hooks vs attribute patches.
+See [Harmony Basics](harmony-basics.md#how-patches-are-applied) for details on when to use lifecycle hooks vs attribute patches.
 
 ## ModContext
 
@@ -1630,7 +1630,7 @@ CommandRegistry.Clear();
 
 ## Harmony
 
-The framework includes Harmony for runtime patching. See [Harmony Basics](harmony-basics) for detailed usage.
+The framework includes Harmony for runtime patching. See [Harmony Basics](harmony-basics.md) for detailed usage.
 
 **Attribute-based patches** are auto-applied by the injector at startup, no `PatchAll()` call needed:
 
@@ -1662,7 +1662,7 @@ public void Unload()
 }
 ```
 
-See also: [Tested Patterns](tested-patterns) for practical examples.
+See also: [Tested Patterns](tested-patterns.md) for practical examples.
 
 ## Custom Assets System
 

@@ -29,9 +29,9 @@ TerrariaModder lets you run mods on Terraria 1.4.5 without waiting for tModLoade
 
 The easiest way is the **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** — the official mod manager. Install it once, then click to add or update any mod. Hit **Run Modded** to launch.
 
-1. [Installation Guide](installation) - Get up and running (Vault or manual)
-2. [Troubleshooting](troubleshooting) - Fix common issues
-3. [Available Mods](available-mods) - What's available
+1. [Installation Guide](installation.md) - Get up and running (Vault or manual)
+2. [Troubleshooting](troubleshooting.md) - Fix common issues
+3. [Available Mods](finding-mods.md) - What's available
 
 ### Available Mods
 
@@ -58,27 +58,27 @@ Press **F6** in-game to configure mods and rebind keys. Changes are saved automa
 
 **Want to create mods?**
 
-1. [Making Your First Mod](making-your-first-mod) - Step-by-step tutorial
-2. [Harmony Basics](harmony-basics) - Runtime patching guide
-3. [Tested Patterns](tested-patterns) - Proven techniques from real mods
-4. [Core API Reference](core-api-reference) - Framework APIs
-5. [The Vault](the-vault) - Making your mod installable via the official mod manager
-6. [Publishing Your Mod](publishing-your-mod) - Distribution guide
+1. [Making Your First Mod](making-your-first-mod.md) - Step-by-step tutorial
+2. [Harmony Basics](harmony-basics.md) - Runtime patching guide
+3. [Tested Patterns](tested-patterns.md) - Proven techniques from real mods
+4. [Core API Reference](core-api-reference.md) - Framework APIs
+5. [The Vault](the-vault.md) - Making your mod installable via the official mod manager
+6. [Publishing Your Mod](publishing-your-mod.md) - Distribution guide
 
 ### Mod Walkthroughs
 
 Learn by studying real, working mods:
 
-- [SkipIntro](walkthroughs/skip-intro) - Harmony patch with lifecycle hooks
-- [AutoBuffs](walkthroughs/auto-buffs) - Tile scanning and buff application
-- [QuickKeys](walkthroughs/quick-keys) - Complex input handling and reflection
-- [PetChests](walkthroughs/pet-chests) - Projectile interaction
-- [ItemSpawner](walkthroughs/item-spawner) - Full UI implementation
-- [StorageHub](walkthroughs/storage-hub) - Multi-tab storage, crafting, shimmer, painting chest, relay network
-- [AdminPanel](walkthroughs/admin-panel) - UI sliders, Harmony patches, boss detection
-- [WhipStacking](walkthroughs/whip-stacking) - Harmony prefixes, restoring removed mechanics
-- [DebugTools](walkthroughs/debug-tools) - HTTP server, console, virtual input, window management
-- [SeedLab](walkthroughs/seed-lab) - World-gen patching, runtime seed feature toggling
+- [SkipIntro](walkthroughs/skip-intro.md) - Harmony patch with lifecycle hooks
+- [AutoBuffs](walkthroughs/auto-buffs.md) - Tile scanning and buff application
+- [QuickKeys](walkthroughs/quick-keys.md) - Complex input handling and reflection
+- [PetChests](walkthroughs/pet-chests.md) - Projectile interaction
+- [ItemSpawner](walkthroughs/item-spawner.md) - Full UI implementation
+- [StorageHub](walkthroughs/storage-hub.md) - Multi-tab storage, crafting, shimmer, painting chest, relay network
+- [AdminPanel](walkthroughs/admin-panel.md) - UI sliders, Harmony patches, boss detection
+- [WhipStacking](walkthroughs/whip-stacking.md) - Harmony prefixes, restoring removed mechanics
+- [DebugTools](walkthroughs/debug-tools.md) - HTTP server, console, virtual input, window management
+- [SeedLab](walkthroughs/seed-lab.md) - World-gen patching, runtime seed feature toggling
 
 ## Requirements
 

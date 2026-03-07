@@ -102,7 +102,7 @@ Publish on [Nexus Mods](https://www.nexusmods.com/terraria) to reach the most pl
 2. Upload your mod zip as the **main file** on the Files tab
 3. Your mod is now available in the Vault
 
-See [The Vault](the-vault) for packaging requirements (zip structure, manifest.json fields, versioning) that ensure your mod installs cleanly through the Vault.
+See [The Vault](the-vault.md) for packaging requirements (zip structure, manifest.json fields, versioning) that ensure your mod installs cleanly through the Vault.
 
 ### GitHub Releases
 
@@ -187,7 +187,7 @@ Users should check:
 
 ## Tips for Success
 
-1. **Publish on Nexus Mods** - Makes your mod available through the [TerrariaModder Vault](the-vault) for one-click installs
+1. **Publish on Nexus Mods** - Makes your mod available through the [TerrariaModder Vault](the-vault.md) for one-click installs
 2. **Clear naming** - Make it obvious what your mod does
 3. **Good documentation** - README with features, installation, keybinds
 4. **Responsive** - Answer questions, fix reported bugs

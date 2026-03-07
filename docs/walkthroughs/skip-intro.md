@@ -258,4 +258,4 @@ namespace SkipIntro
 6. **Clean up on unload** - Unpatch and reset static state
 7. **Have fallbacks** - Multiple ways to achieve the same result
 
-For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics).
+For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics.md).

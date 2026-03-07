@@ -157,4 +157,4 @@ public void OnWorldLoad()
 4. **Hierarchical features**: Grouping features into seeds and groups gives users three levels of control granularity
 5. **State independence**: Runtime and world-gen states are completely separate, preventing confusing interactions
 
-For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics).
+For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics.md).

@@ -67,21 +67,21 @@ No. Client-side mods only affect your own game. Other players don't need anythin
 
 The easiest way is the **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** — the official mod manager. Install it once and it handles Core and all mods for you.
 
-If you prefer manual installs: download TerrariaModder Core and individual mods from [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods). Source code is on [GitHub](https://github.com/Inidar1/terraria-modder). See the [Installation Guide](installation) for step-by-step instructions.
+If you prefer manual installs: download TerrariaModder Core and individual mods from [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods). Source code is on [GitHub](https://github.com/Inidar1/terraria-modder). See the [Installation Guide](installation.md) for step-by-step instructions.
 
 ### How do I update TerrariaModder?
 
 **With the Vault:** It detects new versions and lets you update with one click.
 
-**Manually:** Download the new Core version and extract it over your existing installation. Your mod configs and keybinds are preserved. See [Installation - Updating](installation#updating-terrariamodder) for details.
+**Manually:** Download the new Core version and extract it over your existing installation. Your mod configs and keybinds are preserved. See [Installation - Updating](installation.md#updating-terrariamodder) for details.
 
 ### How do I uninstall TerrariaModder?
 
-Delete `TerrariaInjector.exe` and the `TerrariaModder/` folder from your Terraria directory. Your game returns to vanilla. See [Installation - Uninstalling](installation#uninstalling) for details.
+Delete `TerrariaInjector.exe` and the `TerrariaModder/` folder from your Terraria directory. Your game returns to vanilla. See [Installation - Uninstalling](installation.md#uninstalling) for details.
 
 ### My antivirus flags TerrariaInjector.exe
 
-TerrariaInjector uses DLL injection to load mods, which is a technique that antivirus software sometimes flags. This is a false positive. You can verify the source code on GitHub, or add an exception in your antivirus. See [Troubleshooting](troubleshooting) for more help.
+TerrariaInjector uses DLL injection to load mods, which is a technique that antivirus software sometimes flags. This is a false positive. You can verify the source code on GitHub, or add an exception in your antivirus. See [Troubleshooting](troubleshooting.md) for more help.
 
 ## Modding
 
@@ -98,7 +98,7 @@ Anything you can patch with Harmony. Common examples:
 
 ### What programming language do mods use?
 
-Mods are written in C# targeting .NET Framework 4.8. You'll use [Harmony](https://github.com/pardeike/Harmony) for runtime patching and reflection to access Terraria's internal types. See [Making Your First Mod](making-your-first-mod) to get started.
+Mods are written in C# targeting .NET Framework 4.8. You'll use [Harmony](https://github.com/pardeike/Harmony) for runtime patching and reflection to access Terraria's internal types. See [Making Your First Mod](making-your-first-mod.md) to get started.
 
 ### Do I need the Terraria source code to make mods?
 
@@ -110,4 +110,4 @@ TerrariaModder logs to `TerrariaModder/core/logs/terrariamodder.log`. Use `_log.
 
 ### Can I distribute mods I create?
 
-Yes. Publishing on [Nexus Mods](https://www.nexusmods.com/terraria) makes your mod automatically installable through the [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159), which is how most players install mods. See [The Vault](the-vault) for packaging requirements and the [Publishing Guide](publishing-your-mod) for the full distribution guide.
+Yes. Publishing on [Nexus Mods](https://www.nexusmods.com/terraria) makes your mod automatically installable through the [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159), which is how most players install mods. See [The Vault](the-vault.md) for packaging requirements and the [Publishing Guide](publishing-your-mod.md) for the full distribution guide.

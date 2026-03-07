@@ -259,5 +259,5 @@ No manual event subscriptions for `OnUIOverlay` or `OnPostUpdate`. `DraggablePan
 7. **Shift modifier** - Hold Shift to change spawn destination (cursor vs inventory)
 8. **Clean up in Unload** - Call `UnregisterDrawCallback()`
 
-For more on the Widget Library, see [Core API Reference - Widget Library](../core-api-reference#widget-library).
-For UIRenderer details, see [Core API Reference - UIRenderer](../core-api-reference#uirenderer).
+For more on the Widget Library, see [Core API Reference - Widget Library](../core-api-reference.md#widget-library).
+For UIRenderer details, see [Core API Reference - UIRenderer](../core-api-reference.md#uirenderer).

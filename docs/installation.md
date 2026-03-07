@@ -176,4 +176,4 @@ Check `TerrariaModder/core/logs/terrariamodder.log` for errors.
 2. Try removing recently added mods
 3. Verify Terraria version is 1.4.5
 
-See [Troubleshooting](troubleshooting) for more solutions.
+See [Troubleshooting](troubleshooting.md) for more solutions.

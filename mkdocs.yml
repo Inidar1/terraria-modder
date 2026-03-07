@@ -53,6 +53,7 @@ nav:
     - Harmony Basics: harmony-basics.md
     - Core API Reference: core-api-reference.md
     - Tested Patterns: tested-patterns.md
+    - The Vault: the-vault.md
     - Publishing Your Mod: publishing-your-mod.md
   - Mod Walkthroughs:
     - Overview: walkthroughs.md

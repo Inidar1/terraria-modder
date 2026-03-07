@@ -250,4 +250,4 @@ The mod registers commands accessible via console or HTTP:
 4. **Wrap subsystem cleanup in try/catch**: One failure shouldn't prevent others from cleaning up
 5. **CSRF matters even on localhost**: Reject `Origin` headers to prevent malicious websites from controlling your game
 
-For more on reflection patterns, see [Tested Patterns](../tested-patterns).
+For more on reflection patterns, see [Tested Patterns](../tested-patterns.md).

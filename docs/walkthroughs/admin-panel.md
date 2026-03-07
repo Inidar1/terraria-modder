@@ -369,5 +369,5 @@ public class Mod : IMod
 8. **Teleport uses world coords** - Multiply tile coordinates by 16; call `player.Teleport()` directly
 9. **Clean up on unload** - Call `UnregisterDrawCallback()` and reset game state
 
-For more on the Widget Library, see [Core API Reference - Widget Library](../core-api-reference#widget-library).
-For Harmony patching patterns, see [Harmony Basics](../harmony-basics).
+For more on the Widget Library, see [Core API Reference - Widget Library](../core-api-reference.md#widget-library).
+For Harmony patching patterns, see [Harmony Basics](../harmony-basics.md).

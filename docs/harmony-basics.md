@@ -448,6 +448,6 @@ Manual patching is useful when:
 ## Further Reading
 
 - [Harmony Documentation](https://harmony.pardeike.net/articles/intro.html)
-- [SkipIntro Walkthrough](walkthroughs/skip-intro) - Simple postfix example
-- [AutoBuffs Walkthrough](walkthroughs/auto-buffs) - Player.Update patching
-- [PetChests Walkthrough](walkthroughs/pet-chests) - Multiple coordinated patches
+- [SkipIntro Walkthrough](walkthroughs/skip-intro.md) - Simple postfix example
+- [AutoBuffs Walkthrough](walkthroughs/auto-buffs.md) - Player.Update patching
+- [PetChests Walkthrough](walkthroughs/pet-chests.md) - Multiple coordinated patches

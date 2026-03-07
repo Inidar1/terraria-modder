@@ -254,4 +254,4 @@ public class Mod : IMod
 6. **Restore state** - Always clean up after temporary changes
 7. **Multiple approaches** - Have fallbacks when the primary method fails
 
-For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics).
+For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics.md).

@@ -265,4 +265,4 @@ public class Mod : IMod
 6. **Support per-buff config** - Let users enable/disable individual buffs
 7. **Handle special cases** - Sugar Rush needs different duration handling
 
-For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics).
+For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics.md).

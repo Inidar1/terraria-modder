@@ -282,7 +282,7 @@ StorageHub uses its own custom UI components (it predates the Widget Library), p
 | `ItemSlotGrid` | Custom | Grid layout with 44px item slots |
 | `TextUtil` | Widget Library | Text measurement and truncation |
 
-StorageHub implements its own draggable panel with manual drag tracking rather than using the Widget Library's `DraggablePanel`. New mods should use the Widget Library instead; see [Core API Reference](../core-api-reference#widget-library).
+StorageHub implements its own draggable panel with manual drag tracking rather than using the Widget Library's `DraggablePanel`. New mods should use the Widget Library instead; see [Core API Reference](../core-api-reference.md#widget-library).
 
 ## Configuration
 
@@ -306,5 +306,5 @@ StorageHub has several config options beyond the standard `enabled`:
 7. **Station memory at high tiers**: Rewards invested players without making early game trivial
 8. **Relay BFS**: Elegant way to extend range without unlimited access
 
-For more on building mod UIs, see [Core API Reference - Widget Library](../core-api-reference#widget-library).
+For more on building mod UIs, see [Core API Reference - Widget Library](../core-api-reference.md#widget-library).
 For crafting station tile IDs, always verify against the decomp, never guess.

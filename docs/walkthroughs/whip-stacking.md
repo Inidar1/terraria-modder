@@ -152,4 +152,4 @@ private static void SetActiveEffect(TagEffectState tagState, int type)
 4. **Keep vanilla fields updated** - Other code (including other mods) may read vanilla state
 5. **Reset state on world load** - NPC indices get reused, so clear stale timer data
 
-For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics).
+For more on Harmony patching patterns, see [Harmony Basics](../harmony-basics.md).

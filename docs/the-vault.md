@@ -33,7 +33,7 @@ The Vault installs mods from Nexus Mods. To be available through it:
 - Upload your mod zip as the **main file** on the Files tab
 - Add the keyword TerrariaModder (no space) in either mod title or mod description
 
-See [Publishing Your Mod](publishing-your-mod) for the full packaging guide.
+See [Publishing Your Mod](publishing-your-mod.md) for the full packaging guide.
 
 ### 2. Correct Zip Structure
 

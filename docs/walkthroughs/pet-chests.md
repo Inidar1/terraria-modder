@@ -25,7 +25,7 @@ This mod patches several methods to intercept projectile interaction:
 > **Note:** The code examples below are simplified for clarity. The actual
 > implementation uses a `PetInteraction` helper class with more complex state
 > management. The `PatchMethod()` call shown is pseudocode - see the source code
-> or [Harmony Basics](../harmony-basics) for actual patching patterns.
+> or [Harmony Basics](../harmony-basics.md) for actual patching patterns.
 
 ```csharp
 private void ApplyPatches()
@@ -253,4 +253,4 @@ public class Mod : IMod
 5. **Clean up on inventory close** - Watch for UI state changes
 6. **Pet array identification** - Use `Main.projPet[]` and `ProjectileID.Sets.LightPet` to identify pet projectiles
 
-For more on coordinating multiple Harmony patches, see [Harmony Basics](../harmony-basics).
+For more on coordinating multiple Harmony patches, see [Harmony Basics](../harmony-basics.md).

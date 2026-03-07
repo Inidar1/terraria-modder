@@ -8,7 +8,7 @@ nav_order: 7
 
 These patterns are extracted from the framework's bundled mods and are proven to work with Terraria 1.4.5.
 
-For comprehensive Harmony documentation, see [Harmony Basics](harmony-basics).
+For comprehensive Harmony documentation, see [Harmony Basics](harmony-basics.md).
 
 ## Harmony Patching
 
@@ -108,7 +108,7 @@ public void Unload()
 Track previous state to detect the moment a key is pressed:
 
 > **Note:** This pattern uses XNA's `Keys` enum directly via `Main.keyState`.
-> For keybind registration, use string key names instead (see [Core API Reference](core-api-reference#keybinds)).
+> For keybind registration, use string key names instead (see [Core API Reference](core-api-reference.md#keybinds)).
 
 ```csharp
 private bool _wasKeyDown = false;
@@ -412,7 +412,7 @@ public void Unload()
 }
 ```
 
-See [Core API Reference - Widget Library](core-api-reference#widget-library) for all available widgets.
+See [Core API Reference - Widget Library](core-api-reference.md#widget-library) for all available widgets.
 
 ### Drawing with UIRenderer (Low-Level)
 
@@ -491,7 +491,7 @@ for (int i = 0; i < player.inventory.Length; i++)
 
 ## Reflection Patterns
 
-Mods reference Terraria.exe and XNA directly — use types without reflection for all public members. Only use `BindingFlags`-based reflection for **private** members. See [Core API Reference](core-api-reference) for the `Game` class helpers.
+Mods reference Terraria.exe and XNA directly — use types without reflection for all public members. Only use `BindingFlags`-based reflection for **private** members. See [Core API Reference](core-api-reference.md) for the `Game` class helpers.
 
 ### Direct Type Access
 
@@ -615,4 +615,4 @@ The panel registration system:
 - Tracks multiple panels with dynamic z-order (click-to-focus)
 - Clears player controls when modal is open
 
-For private-member reflection patterns, see the [SkipIntro Walkthrough](walkthroughs/skip-intro) (private static fields) or [WhipStacking Walkthrough](walkthroughs/whip-stacking) (private instance fields on internal types).
+For private-member reflection patterns, see the [SkipIntro Walkthrough](walkthroughs/skip-intro.md) (private static fields) or [WhipStacking Walkthrough](walkthroughs/whip-stacking.md) (private instance fields on internal types).

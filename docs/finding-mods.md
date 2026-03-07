@@ -157,7 +157,7 @@ Want a mod that doesn't exist?
 2. Post request on forums/Discord
 3. Consider learning to make it yourself!
 
-See [Making Your First Mod](making-your-first-mod) to get started.
+See [Making Your First Mod](making-your-first-mod.md) to get started.
 
 ## Contributing
 

@@ -307,4 +307,4 @@ private void SpawnItem(string itemName)
 
 Asset Experience Mod is currently in early access. Join the [Discord](https://discord.gg/VvVD5EeYsK) to download it and share feedback.
 
-For the full Custom Assets API reference, see [Core API Reference - Custom Assets System](../core-api-reference#custom-assets-system).
+For the full Custom Assets API reference, see [Core API Reference - Custom Assets System](../core-api-reference.md#custom-assets-system).
