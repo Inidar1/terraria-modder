@@ -14,6 +14,17 @@ public class BoolInverterConverter : IValueConverter
         => value is bool b && !b;
 }
 
+public class BoolToExpandIconConverter : IValueConverter
+{
+    public static readonly BoolToExpandIconConverter Instance = new();
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is bool b && b ? "▼" : "▶";
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 public class CountToBoolConverter : IValueConverter
 {
     public static readonly CountToBoolConverter Instance = new();

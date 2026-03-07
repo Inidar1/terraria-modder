@@ -40,7 +40,13 @@ public class NexusApiService : IDisposable
     {
         _http = new HttpClient();
         _http.DefaultRequestHeaders.Add("Application-Name", "TerrariaModder Vault");
-        _http.DefaultRequestHeaders.Add("Application-Version", "0.1.0");
+        _http.DefaultRequestHeaders.Add("Application-Version", GetAppVersion());
+    }
+
+    private static string GetAppVersion()
+    {
+        var v = typeof(NexusApiService).Assembly.GetName().Version;
+        return v != null ? $"{v.Major}.{v.Minor}.{v.Build}" : "0.1.0";
     }
 
     public void SetApiKey(string apiKey)

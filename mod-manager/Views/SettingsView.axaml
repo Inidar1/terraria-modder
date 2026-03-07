@@ -1,120 +1,242 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="TerrariaModManager.Views.SettingsView">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel MaxWidth="800" HorizontalAlignment="Left" Margin="24,24,24,36">
-            <TextBlock Text="Settings" Classes="section-header"/>
+    <Grid RowDefinitions="Auto,*">
 
-            <!-- Terraria Path -->
-            <Border Classes="card" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock Text="TERRARIA INSTALL PATH" Classes="label" FontWeight="SemiBold"/>
-                    <Grid ColumnDefinitions="*,Auto,Auto">
-                        <TextBox Grid.Column="0" Text="{Binding TerrariaPath}"
-                                 Classes="dark"/>
-                        <Button Grid.Column="1" Content="Browse" Classes="secondary"
-                                Command="{Binding BrowsePathCommand}" Margin="8,0,0,0"/>
-                        <Button Grid.Column="2" Content="Auto-detect" Classes="primary"
-                                Command="{Binding AutoDetectCommand}" Margin="8,0,0,0"/>
-                    </Grid>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <TextBlock Text="Core: " Foreground="{StaticResource TextSecondaryBrush}"/>
-                        <TextBlock Text="{Binding CoreStatusText}" Foreground="{Binding CoreStatusColor}"/>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
+        <!-- Header row: title + tab switcher -->
+        <Grid Grid.Row="0" Margin="24,24,24,0" ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" Text="Settings" Classes="section-header" Margin="0"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4">
+                <Button Content="Settings" Padding="14,6" FontSize="13"
+                        Command="{Binding ShowSettingsTabCommand}"
+                        Classes="secondary"
+                        Classes.active="{Binding ShowSettings}"/>
+                <Button Content="Logs" Padding="14,6" FontSize="13"
+                        Command="{Binding ShowLogsTabCommand}"
+                        Classes="secondary"
+                        Classes.active="{Binding ShowLogs}"/>
+            </StackPanel>
+        </Grid>
 
-            <!-- Nexus Account -->
-            <Border Classes="card" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock Text="NEXUS MODS ACCOUNT" Classes="label" FontWeight="SemiBold"/>
+        <!-- SETTINGS PANEL -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      IsVisible="{Binding ShowSettings}">
+            <StackPanel MaxWidth="800" HorizontalAlignment="Left" Margin="24,16,24,36" Spacing="12">
 
-                    <!-- Logged in state -->
-                    <StackPanel IsVisible="{Binding IsLoggedIn}">
-                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                            <TextBlock Text="Logged in as " Foreground="{StaticResource TextSecondaryBrush}"/>
-                            <TextBlock Text="{Binding UserName}" FontWeight="SemiBold"/>
-                            <Border Background="{StaticResource AccentSubtleBrush}" CornerRadius="3"
-                                    Padding="6,2" Margin="8,0,0,0" VerticalAlignment="Center"
-                                    IsVisible="{Binding IsPremium}">
-                                <TextBlock Text="Premium" FontSize="10" Foreground="{StaticResource AccentBrush}"/>
-                            </Border>
-                        </StackPanel>
-                        <Button Content="Logout" Classes="secondary"
-                                Command="{Binding LogoutCommand}" Margin="0,8,0,0"
-                                HorizontalAlignment="Left"/>
-                    </StackPanel>
+                <!-- Game section -->
+                <Border Classes="card">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="GAME" Classes="label" FontWeight="SemiBold"/>
 
-                    <!-- Not logged in state -->
-                    <StackPanel IsVisible="{Binding !IsLoggedIn}">
-                        <!-- SSO login (primary) -->
-                        <Button Content="Login with Nexus Mods" Classes="primary"
-                                Command="{Binding LoginWithNexusCommand}" Margin="0,4,0,0"
-                                HorizontalAlignment="Left"
-                                IsEnabled="{Binding !IsLoggingIn}"/>
-                        <TextBlock Text="{Binding LoginStatus}" Foreground="{StaticResource TextSecondaryBrush}"
-                                   FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                        <!-- Install path row -->
+                        <Grid RowDefinitions="Auto,Auto,Auto">
+                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto">
+                                <TextBox Grid.Column="0" Text="{Binding TerrariaPath}"
+                                         Classes="dark"
+                                         Classes.invalid="{Binding !IsPathValid}"
+                                         Watermark="Path to Terraria folder"/>
+                                <Button Grid.Column="1" Content="Browse" Classes="secondary"
+                                        Command="{Binding BrowsePathCommand}" Margin="8,0,0,0"/>
+                                <Button Grid.Column="2" Content="Auto-detect" Classes="primary"
+                                        Command="{Binding AutoDetectCommand}" Margin="8,0,0,0"/>
+                            </Grid>
+                            <TextBlock Grid.Row="1"
+                                       Text="Path not found or doesn't contain Terraria.exe"
+                                       Foreground="{StaticResource DangerBrush}" FontSize="11"
+                                       Margin="0,4,0,0"
+                                       IsVisible="{Binding !IsPathValid}"/>
+                        </Grid>
 
-                        <!-- Manual API key (fallback) -->
-                        <TextBlock Text="Or enter your API key manually:" Foreground="{StaticResource TextSecondaryBrush}"
-                                   FontSize="12" Margin="0,12,0,6"/>
+                        <!-- Core status row -->
                         <Grid ColumnDefinitions="*,Auto">
-                            <TextBox Grid.Column="0" Text="{Binding ApiKey}"
-                                     Classes="dark" PasswordChar="•"/>
-                            <Button Grid.Column="1" Content="Save" Classes="primary"
-                                    Command="{Binding SaveManualKeyCommand}" Margin="8,0,0,0"/>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="TerrariaModder Core" FontSize="13"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock Text="Required framework for mods to load"
+                                           FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                        VerticalAlignment="Center" Spacing="6">
+                                <Ellipse Width="8" Height="8" Fill="{Binding CoreStatusColor}"
+                                         VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding CoreStatusText}"
+                                           Foreground="{Binding CoreStatusColor}"
+                                           FontSize="12" VerticalAlignment="Center"/>
+                            </StackPanel>
                         </Grid>
                     </StackPanel>
-                </StackPanel>
-            </Border>
+                </Border>
 
-            <!-- NXM Handler -->
-            <Border Classes="card" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock Text="DOWNLOAD WITH MANAGER" Classes="label" FontWeight="SemiBold"/>
-                    <TextBlock Text="Enables the 'Download with Manager' button on Nexus Mods website"
-                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,8"/>
-                    <StackPanel Orientation="Horizontal">
-                        <Button Content="{Binding NxmButtonText}" Classes="primary"
-                                Command="{Binding RegisterNxmCommand}"/>
-                        <Button Content="Unregister" Classes="secondary"
-                                Command="{Binding UnregisterNxmCommand}" Margin="8,0,0,0"
-                                IsVisible="{Binding IsNxmRegistered}"/>
-                        <TextBlock Text="{Binding NxmStatusText}"
-                                   Foreground="{Binding NxmStatusColor}"
-                                   VerticalAlignment="Center" Margin="12,0,0,0" FontSize="12"/>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
+                <!-- Nexus Account section -->
+                <Border Classes="card">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="NEXUS MODS ACCOUNT" Classes="label" FontWeight="SemiBold"/>
 
-            <!-- Logs -->
-            <Border Classes="card" Margin="0,0,0,12">
-                <StackPanel>
-                    <Grid Margin="0,0,0,8">
-                        <TextBlock Text="LOGS" Classes="label" FontWeight="SemiBold"
-                                   VerticalAlignment="Center"/>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                            <Button Content="Refresh" Classes="secondary" Padding="10,4" FontSize="11"
-                                    Command="{Binding RefreshLogsCommand}" Margin="0,0,6,0"/>
-                            <Button Content="Copy" Classes="secondary" Padding="10,4" FontSize="11"
-                                    Command="{Binding CopyLogsCommand}" Margin="0,0,6,0"/>
-                            <Button Content="Save as .txt" Classes="secondary" Padding="10,4" FontSize="11"
-                                    Command="{Binding SaveLogsCommand}" Margin="0,0,6,0"/>
-                            <Button Content="Clear" Classes="secondary" Padding="10,4" FontSize="11"
-                                    Command="{Binding ClearLogsCommand}"/>
+                        <!-- Logged in -->
+                        <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsLoggedIn}">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{Binding UserName}" FontSize="14" FontWeight="SemiBold"/>
+                                    <Border Background="{StaticResource AccentSubtleBrush}" CornerRadius="3"
+                                            Padding="6,2" VerticalAlignment="Center"
+                                            IsVisible="{Binding IsPremium}">
+                                        <TextBlock Text="Premium" FontSize="10"
+                                                   Foreground="{StaticResource AccentBrush}"/>
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="Logged in to Nexus Mods" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Logout" Classes="secondary"
+                                    Command="{Binding LogoutCommand}" VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <!-- Not logged in -->
+                        <StackPanel IsVisible="{Binding !IsLoggedIn}" Spacing="10">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="Sign in with Nexus Mods" FontSize="13"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Recommended — opens a browser window to log in securely"
+                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="Login with Nexus Mods" Classes="primary"
+                                        Command="{Binding LoginWithNexusCommand}"
+                                        IsEnabled="{Binding !IsLoggingIn}"
+                                        VerticalAlignment="Center"/>
+                            </Grid>
+                            <TextBlock Text="{Binding LoginStatus}"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       FontSize="12" TextWrapping="Wrap"
+                                       IsVisible="{Binding LoginStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                            <!-- Divider -->
+                            <Border Height="1" Background="{StaticResource BorderColorBrush}" Margin="0,2"/>
+
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="API Key" FontSize="13"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Enter your Nexus Mods API key manually"
+                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                            VerticalAlignment="Center">
+                                    <TextBox Text="{Binding ApiKey}" Classes="dark"
+                                             PasswordChar="•" Width="200"/>
+                                    <Button Content="Save" Classes="primary"
+                                            Command="{Binding SaveManualKeyCommand}"/>
+                                </StackPanel>
+                            </Grid>
                         </StackPanel>
-                    </Grid>
-                    <Border Background="{StaticResource BgDarkBrush}" CornerRadius="4"
-                            Padding="10,8" MaxHeight="300">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Auto">
-                            <TextBlock Text="{Binding LogText}" FontFamily="Consolas,Courier New,monospace"
-                                       FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
-                                       TextWrapping="NoWrap"/>
-                        </ScrollViewer>
-                    </Border>
-                </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Preferences section -->
+                <Border Classes="card">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="PREFERENCES" Classes="label" FontWeight="SemiBold"/>
+
+                        <!-- NXM handler row -->
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <TextBlock Text="Vortex Download Button" FontSize="13"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <Border Background="#14AAAAAA" BorderBrush="#60AAAAAA" BorderThickness="1"
+                                            CornerRadius="3" Padding="4,1" VerticalAlignment="Center">
+                                        <TextBlock Text="Experimental" FontSize="9"
+                                                   Foreground="#FFAAAAAA"/>
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="Register Vault for 'Vortex' download links"
+                                           FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                        VerticalAlignment="Center" Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <Ellipse Width="8" Height="8" Fill="{Binding NxmStatusColor}"
+                                             VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding NxmStatusText}"
+                                               Foreground="{Binding NxmStatusColor}"
+                                               FontSize="12" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <Button Content="{Binding NxmButtonText}" Classes="secondary"
+                                        Command="{Binding RegisterNxmCommand}"/>
+                                <Button Content="Unregister" Classes="secondary"
+                                        Command="{Binding UnregisterNxmCommand}"
+                                        IsVisible="{Binding IsNxmRegistered}"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Divider -->
+                        <Border Height="1" Background="{StaticResource BorderColorBrush}"/>
+
+                        <!-- Auto-update row -->
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="Auto-check for Updates" FontSize="13"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock Text="Check for mod updates when switching to the Installed tab"
+                                           FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoCheckForUpdates}"
+                                          OnContent="" OffContent=""
+                                          VerticalAlignment="Center"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Troubleshooting section -->
+                <Border Classes="card">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="TROUBLESHOOTING" Classes="label" FontWeight="SemiBold"/>
+
+                        <!-- Reset WebView row -->
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="Reset Browser" FontSize="13"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock Text="If the mod browser shows a black screen, reset WebView data and restart"
+                                           FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Reset &amp; Restart" Classes="secondary"
+                                    Command="{Binding ResetWebViewCommand}" VerticalAlignment="Center"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- LOGS PANEL -->
+        <Grid Grid.Row="1" RowDefinitions="Auto,*" Margin="24,16,24,24"
+              IsVisible="{Binding ShowLogs}">
+            <!-- Toolbar -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" Margin="0,0,0,10">
+                <Button Content="Refresh" Classes="secondary" Padding="12,5" FontSize="12"
+                        Command="{Binding RefreshLogsCommand}"/>
+                <Button Content="Copy" Classes="secondary" Padding="12,5" FontSize="12"
+                        Command="{Binding CopyLogsCommand}"/>
+                <Button Content="Save as .txt" Classes="secondary" Padding="12,5" FontSize="12"
+                        Command="{Binding SaveLogsCommand}"/>
+                <Button Content="Clear" Classes="secondary" Padding="12,5" FontSize="12"
+                        Command="{Binding ClearLogsCommand}"/>
+            </StackPanel>
+
+            <!-- Log output -->
+            <Border Grid.Row="1" Classes="card" Padding="0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Auto"
+                              Padding="10,8">
+                    <TextBlock Text="{Binding LogText}"
+                               FontFamily="Consolas,Courier New,monospace"
+                               FontSize="11"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="NoWrap"/>
+                </ScrollViewer>
             </Border>
-        </StackPanel>
-    </ScrollViewer>
+        </Grid>
+
+    </Grid>
 </UserControl>

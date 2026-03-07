@@ -23,13 +23,17 @@
     </Window.DataTemplates>
 
     <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="28"/>
+        </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="200"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
         <!-- Sidebar -->
-        <Border Grid.Column="0" Background="{StaticResource BgMediumBrush}"
+        <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource BgMediumBrush}"
                 BorderBrush="{StaticResource BorderColorBrush}" BorderThickness="0,0,1,0">
             <DockPanel>
                 <!-- App title -->
@@ -42,73 +46,121 @@
 
                 <!-- Launch + version at bottom -->
                 <StackPanel DockPanel.Dock="Bottom" Margin="8,0,8,12">
-                    <Button Content="Launch Modded" Classes="primary"
+                    <!-- Version: plain text when current, amber chip + Update button when outdated -->
+                    <TextBlock IsVisible="{Binding !VaultUpdateAvailable}"
+                               Text="{Binding VaultVersionLabel}"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               FontSize="11" Margin="8,0,0,8"/>
+                    <Border IsVisible="{Binding VaultUpdateAvailable}"
+                            CornerRadius="6" Padding="8,6" Margin="0,0,0,8"
+                            Background="#1FEE8800" BorderBrush="#FFEE8800" BorderThickness="1">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{Binding VaultVersionLabel}"
+                                       Foreground="#FFEE8800" FontSize="10"
+                                       HorizontalAlignment="Center" TextWrapping="Wrap"/>
+                            <Button Content="{Binding VaultUpdateButtonText}"
+                                    Command="{Binding UpdateVaultCommand}"
+                                    IsEnabled="{Binding !IsVaultUpdating}"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    FontSize="10" Padding="4,3"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Classes="primary"
                             Command="{Binding LaunchModdedCommand}" Margin="0,0,0,4"
-                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Launch Modded" VerticalAlignment="Center"/>
+                            <Image Source="avares://TerrariaModderVault/Resources/bunny5.png"
+                                   Width="14" Height="14" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                     <Button Content="Launch Vanilla" Classes="primary"
-                            Command="{Binding LaunchVanillaCommand}" Margin="0,0,0,8"
+                            Command="{Binding LaunchVanillaCommand}"
                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                    <TextBlock Text="v0.1.0" Foreground="{StaticResource TextSecondaryBrush}"
-                               FontSize="11" Margin="8,0,0,0"/>
                 </StackPanel>
 
-                <!-- nxm:// status alert — clickable only when not registered -->
-                <Button DockPanel.Dock="Top" Command="{Binding RegisterNxmCommand}"
-                        IsVisible="{Binding !IsNxmRegistered}"
-                        ToolTip.Tip="Makes the 'Download: Vortex' button on Nexus Mods open this app automatically."
-                        Margin="8,0,8,12" Padding="10,6" CornerRadius="6" Cursor="Hand"
-                        Background="{StaticResource BgDarkBrush}"
-                        BorderBrush="{Binding NxmStatusColor}" BorderThickness="1"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
-                    <StackPanel>
-                        <TextBlock Text="{Binding NxmStatusHeader}"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   FontSize="10" HorizontalAlignment="Center"/>
-                        <TextBlock Text="{Binding NxmStatusValue}"
-                                   Foreground="{Binding NxmStatusColor}"
-                                   FontSize="12" FontWeight="Bold" HorizontalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
-                <!-- nxm:// status — non-interactive when registered -->
-                <Border DockPanel.Dock="Top"
-                        IsVisible="{Binding IsNxmRegistered}"
-                        ToolTip.Tip="Makes the 'Download: Vortex' button on Nexus Mods open this app automatically."
-                        Margin="8,0,8,12" Padding="10,6" CornerRadius="6"
-                        Background="{StaticResource BgDarkBrush}"
-                        BorderBrush="{Binding NxmStatusColor}" BorderThickness="1">
-                    <StackPanel>
-                        <TextBlock Text="{Binding NxmStatusHeader}"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   FontSize="10" HorizontalAlignment="Center"/>
-                        <TextBlock Text="{Binding NxmStatusValue}"
-                                   Foreground="{Binding NxmStatusColor}"
-                                   FontSize="12" FontWeight="Bold" HorizontalAlignment="Center"/>
-                    </StackPanel>
-                </Border>
 
                 <!-- Nav buttons -->
                 <StackPanel Margin="4,0">
                     <Button Content="Installed Mods" Classes="nav"
+                            Classes.nav-active="{Binding IsInstalledActive}"
                             Command="{Binding ShowInstalledCommand}"/>
                     <Button Content="Browse Nexus" Classes="nav"
+                            Classes.nav-active="{Binding IsBrowseActive}"
                             Command="{Binding ShowBrowseCommand}"/>
-                    <Button Content="Downloads" Classes="nav"
-                            Command="{Binding ShowDownloadsCommand}"/>
+                    <!-- Downloads button with active download count badge -->
+                    <Button Classes="nav"
+                            Classes.nav-active="{Binding IsDownloadsActive}"
+                            Command="{Binding ShowDownloadsCommand}">
+                        <Panel>
+                            <TextBlock Text="Downloads" VerticalAlignment="Center"/>
+                            <Border Background="{StaticResource AccentBrush}" CornerRadius="8"
+                                    Padding="5,1" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                    Margin="0,-2,0,0"
+                                    IsVisible="{Binding HasActiveDownloads}">
+                                <TextBlock Text="{Binding ActiveDownloadCount}" FontSize="9"
+                                           Foreground="#FF1A1D21" FontWeight="Bold"/>
+                            </Border>
+                        </Panel>
+                    </Button>
                     <Button Content="Settings" Classes="nav"
+                            Classes.nav-active="{Binding IsSettingsActive}"
                             Command="{Binding ShowSettingsCommand}"/>
                 </StackPanel>
             </DockPanel>
         </Border>
 
-        <!-- Content area -->
-        <ContentControl Grid.Column="1" Content="{Binding CurrentView}"/>
+        <!-- Content area: tab content + shared browser overlay -->
+        <Panel Grid.Row="0" Grid.Column="1">
+            <TransitioningContentControl Content="{Binding CurrentView}">
+                <TransitioningContentControl.PageTransition>
+                    <CrossFade Duration="0:0:0.12"/>
+                </TransitioningContentControl.PageTransition>
+            </TransitioningContentControl>
+            <v:NexusBrowserPanel x:Name="BrowserPanel"/>
+        </Panel>
+
+        <!-- Update overlay — covers entire window while applying a vault update -->
+        <Panel Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2"
+               IsVisible="{Binding IsVaultUpdating}"
+               Background="#D0111316"
+               ZIndex="100">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
+                <ProgressBar IsIndeterminate="True" Width="220" Height="4"
+                             Foreground="{StaticResource AccentBrush}"/>
+                <StackPanel Spacing="8" HorizontalAlignment="Center">
+                    <TextBlock Text="Update downloaded — applying now"
+                               FontSize="16" FontWeight="SemiBold"
+                               HorizontalAlignment="Center"
+                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <TextBlock Text="The app will restart automatically in a moment."
+                               FontSize="12" HorizontalAlignment="Center"
+                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <TextBlock Text="Don't close the app."
+                               FontSize="12" HorizontalAlignment="Center"
+                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                </StackPanel>
+            </StackPanel>
+        </Panel>
 
         <!-- Status bar -->
-        <Border Grid.Column="0" Grid.ColumnSpan="2" VerticalAlignment="Bottom"
-                Background="{StaticResource BgMediumBrush}" Height="28"
+        <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                Background="{StaticResource BgMediumBrush}"
                 BorderBrush="{StaticResource BorderColorBrush}" BorderThickness="0,1,0,0">
-            <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource TextSecondaryBrush}"
-                       FontSize="11" VerticalAlignment="Center" Margin="12,0"/>
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource TextSecondaryBrush}"
+                           FontSize="11" VerticalAlignment="Center" Margin="12,0"/>
+                <!-- Active download indicator -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                            Margin="0,0,12,0" Spacing="6"
+                            IsVisible="{Binding HasActiveDownloads}">
+                    <Ellipse Width="6" Height="6" Fill="{StaticResource AccentBrush}"/>
+                    <TextBlock Text="{Binding DownloadStatusText}"
+                               Foreground="{StaticResource AccentBrush}" FontSize="11"/>
+                </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>

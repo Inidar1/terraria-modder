@@ -30,4 +30,10 @@ public class AppSettings
 
     [JsonPropertyName("windowMaximized")]
     public bool WindowMaximized { get; set; }
+
+    [JsonPropertyName("clearWebViewData")]
+    public bool ClearWebViewDataOnNextStart { get; set; }
+
+    [JsonPropertyName("autoCheckForUpdates")]
+    public bool AutoCheckForUpdates { get; set; } = true;
 }

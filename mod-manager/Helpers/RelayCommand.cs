@@ -82,3 +82,41 @@ public class AsyncRelayCommand : ICommand
 
     public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
 }
+
+public class AsyncRelayCommand<T> : ICommand
+{
+    private readonly Func<T?, Task> _execute;
+    private bool _isExecuting;
+
+    public AsyncRelayCommand(Func<T?, Task> execute)
+    {
+        _execute = execute;
+    }
+
+    public event EventHandler? CanExecuteChanged;
+
+    public bool CanExecute(object? parameter) => !_isExecuting;
+
+    public async void Execute(object? parameter)
+    {
+        System.Diagnostics.Debug.WriteLine($"AsyncRelayCommand<{typeof(T).Name}>.Execute: isExecuting={_isExecuting}, param={parameter?.GetType().Name ?? "null"}");
+        if (_isExecuting) return;
+        _isExecuting = true;
+        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        try
+        {
+            await _execute(parameter is T t ? t : default);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Command failed: {ex}");
+        }
+        finally
+        {
+            _isExecuting = false;
+            CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+}

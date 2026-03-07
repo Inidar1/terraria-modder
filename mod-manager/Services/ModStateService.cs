@@ -98,11 +98,16 @@ public class ModStateService
             try
             {
                 var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(coreDll);
-                info.CoreVersion = fvi.ProductVersion ?? fvi.FileVersion ?? "unknown";
+                var dllVersion = fvi.ProductVersion ?? fvi.FileVersion ?? "unknown";
+                // Strip semver build metadata ("+<hash>" suffix) — Nexus appends commit info
+                var plusIdx = dllVersion.IndexOf('+');
+                if (plusIdx >= 0) dllVersion = dllVersion[..plusIdx];
+                // Prefer the Nexus-stamped version (e.g. "0.1.0-hotfix") over the raw DLL version
+                info.CoreVersion = _updateTracker.GetTrackedVersion("core") ?? dllVersion;
             }
             catch
             {
-                info.CoreVersion = "unknown";
+                info.CoreVersion = _updateTracker.GetTrackedVersion("core") ?? "unknown";
             }
         }
 
@@ -129,7 +134,8 @@ public class ModStateService
             Directory.Move(enabled, disabled);
     }
 
-    private static readonly string[] ConfigExtensions = { ".json", ".cfg", ".ini", ".xml", ".config" };
+    private static readonly string[] ConfigExtensions =
+        { ".json", ".cfg", ".ini", ".xml", ".config", ".txt", ".toml", ".yaml", ".yml" };
 
     public void UninstallMod(string modId, string terrariaPath, bool deleteSettings = true)
     {

@@ -19,8 +19,12 @@ public class InstalledModsViewModel : ViewModelBase
     private int _enabledCount;
     private int _disabledCount;
     private bool _isCoreInstalled;
+    private bool _isDisabledExpanded = true;
+    private bool _isUpdatesDismissed;
+    private bool _isBulkRunning;
     private List<InstalledMod> _allMods = new();
     private CancellationTokenSource? _updateCts;
+    private CancellationTokenSource? _bulkCts;
 
     private readonly SettingsService _settings;
     private readonly ModStateService _modState;
@@ -28,8 +32,17 @@ public class InstalledModsViewModel : ViewModelBase
     private readonly NexusApiService _nexusApi;
     private readonly DownloadManager _downloadManager;
     private readonly ModInstallService _installer;
+    private readonly NxmProtocolRegistrar _nxmRegistrar;
+
+    /// <summary>
+    /// Set by MainWindow to open the shared NexusBrowserPanel.
+    /// Parameters: (url, modName, toastMessage?) → result or null if cancelled.
+    /// </summary>
+    public Func<string, string, string?, Task<InlineBrowserResult?>>? OpenBrowser { get; set; }
 
     public ObservableCollection<InstalledMod> Mods { get; } = new();
+    public ObservableCollection<InstalledMod> EnabledMods { get; } = new();
+    public ObservableCollection<InstalledMod> DisabledMods { get; } = new();
     public ObservableCollection<InstalledMod> UpdateMods { get; } = new();
     public List<InstalledMod> SelectedMods { get; } = new();
 
@@ -43,10 +56,11 @@ public class InstalledModsViewModel : ViewModelBase
         get
         {
             var nonCore = SelectedMods.Where(m => !m.IsCore).ToList();
-            if (nonCore.Count == 0) return "Enable";
-            return nonCore.All(m => m.IsEnabled) ? "Disable"
-                : nonCore.All(m => !m.IsEnabled) ? "Enable"
-                : "Toggle";
+            if (nonCore.Count == 0) return "Enable Selected";
+            var enabledCount = nonCore.Count(m => m.IsEnabled);
+            return enabledCount >= nonCore.Count - enabledCount
+                ? "Disable Selected"
+                : "Enable Selected";
         }
     }
 
@@ -78,10 +92,35 @@ public class InstalledModsViewModel : ViewModelBase
         {
             SetProperty(ref _updatesAvailable, value);
             OnPropertyChanged(nameof(HasUpdates));
+            OnPropertyChanged(nameof(ShowUpdatesSection));
         }
     }
 
     public bool HasUpdates => _updatesAvailable > 0;
+
+    public bool IsUpdatesDismissed
+    {
+        get => _isUpdatesDismissed;
+        set
+        {
+            if (SetProperty(ref _isUpdatesDismissed, value))
+                OnPropertyChanged(nameof(ShowUpdatesSection));
+        }
+    }
+
+    public bool ShowUpdatesSection => HasUpdates && !IsUpdatesDismissed;
+
+    public bool IsBulkRunning
+    {
+        get => _isBulkRunning;
+        set => SetProperty(ref _isBulkRunning, value);
+    }
+
+    public bool IsDisabledExpanded
+    {
+        get => _isDisabledExpanded;
+        set => SetProperty(ref _isDisabledExpanded, value);
+    }
 
     public int EnabledCount
     {
@@ -121,10 +160,15 @@ public class InstalledModsViewModel : ViewModelBase
 
 
     public ICommand ToggleEnabledCommand { get; }
+    public ICommand ToggleModCommand { get; }
+    public ICommand ToggleDisabledExpandedCommand { get; }
+    public ICommand DismissUpdatesCommand { get; }
+    public ICommand? NavigateToBrowseCommand { get; set; }
     public ICommand RefreshCommand { get; }
     public ICommand CheckUpdatesCommand { get; }
     public ICommand UpdateModCommand { get; }
     public ICommand UpdateAllCommand { get; }
+    public ICommand CancelBulkCommand { get; }
     public ICommand OpenModFolderCommand { get; }
     public ICommand OpenOnNexusCommand { get; }
     public ICommand UninstallCommand { get; }
@@ -138,7 +182,8 @@ public class InstalledModsViewModel : ViewModelBase
         UpdateTracker updateTracker,
         NexusApiService nexusApi,
         DownloadManager downloadManager,
-        ModInstallService installer)
+        ModInstallService installer,
+        NxmProtocolRegistrar nxmRegistrar)
     {
         _settings = settings;
         _modState = modState;
@@ -146,15 +191,20 @@ public class InstalledModsViewModel : ViewModelBase
         _nexusApi = nexusApi;
         _downloadManager = downloadManager;
         _installer = installer;
+        _nxmRegistrar = nxmRegistrar;
 
         ToggleEnabledCommand = new AsyncRelayCommand(ToggleEnabled);
+        ToggleModCommand = new RelayCommand<InstalledMod>(ToggleMod);
+        ToggleDisabledExpandedCommand = new RelayCommand(() => IsDisabledExpanded = !IsDisabledExpanded);
+        DismissUpdatesCommand = new RelayCommand(() => IsUpdatesDismissed = true);
         UninstallCommand = new AsyncRelayCommand(Uninstall);
-        RefreshCommand = new RelayCommand(Refresh);
+        RefreshCommand = new RelayCommand(() => { Refresh(); StartUpdateCheck(); });
         CheckUpdatesCommand = new AsyncRelayCommand(CheckUpdates);
         UpdateModCommand = new AsyncRelayCommand(UpdateSelectedMods);
         UpdateAllCommand = new AsyncRelayCommand(UpdateAll);
+        CancelBulkCommand = new RelayCommand(() => _bulkCts?.Cancel());
         OpenModFolderCommand = new RelayCommand(OpenModFolder);
-        OpenOnNexusCommand = new RelayCommand(OpenOnNexus);
+        OpenOnNexusCommand = new AsyncRelayCommand(OpenOnNexus);
         InstallLocalCommand = new AsyncRelayCommand(InstallLocal);
         UpdateSingleCommand = new RelayCommand<InstalledMod>(mod => { if (mod != null) _ = DownloadUpdate(mod); });
         InstallCoreCommand = new AsyncRelayCommand(InstallCore);
@@ -187,8 +237,10 @@ public class InstalledModsViewModel : ViewModelBase
 
         // Cancel any in-progress update check before starting a new one
         _updateCts?.Cancel();
+    }
 
-        // Auto-check for updates in the background
+    public void StartUpdateCheck()
+    {
         if (_nexusApi.HasApiKey && !_isCheckingUpdates)
             _ = CheckUpdates();
     }
@@ -199,27 +251,24 @@ public class InstalledModsViewModel : ViewModelBase
         UpdateMods.Clear();
         foreach (var mod in _allMods.Where(m => m.HasUpdate))
             UpdateMods.Add(mod);
+        UpdatesAvailable = UpdateMods.Count;
 
         // Main list excludes mods that are in the updates section
         IEnumerable<InstalledMod> source = _allMods.Where(m => !m.HasUpdate);
 
         var filtered = source.ToList();
 
-        // Mark the first disabled mod for the section divider
-        bool seenDisabled = false;
+        Mods.Clear();
+        EnabledMods.Clear();
+        DisabledMods.Clear();
         foreach (var mod in filtered)
         {
-            mod.IsFirstDisabled = false;
-            if (!mod.IsEnabled && !seenDisabled)
-            {
-                mod.IsFirstDisabled = true;
-                seenDisabled = true;
-            }
-        }
-
-        Mods.Clear();
-        foreach (var mod in filtered)
             Mods.Add(mod);
+            if (mod.IsEnabled)
+                EnabledMods.Add(mod);
+            else
+                DisabledMods.Add(mod);
+        }
 
         EnabledCount = _allMods.Count(m => m.IsEnabled && !m.IsCore);
         DisabledCount = _allMods.Count(m => !m.IsEnabled);
@@ -251,15 +300,49 @@ public class InstalledModsViewModel : ViewModelBase
     private async Task UpdateSelectedMods()
     {
         var toUpdate = SelectedMods.Where(m => m.HasUpdate).ToList();
-        foreach (var mod in toUpdate)
-            await DownloadUpdate(mod);
+        if (toUpdate.Count == 0) return;
+
+        _bulkCts?.Cancel();
+        _bulkCts = new CancellationTokenSource();
+        var ct = _bulkCts.Token;
+
+        IsBulkRunning = true;
+        try
+        {
+            foreach (var mod in toUpdate)
+            {
+                if (ct.IsCancellationRequested) break;
+                await DownloadUpdate(mod);
+            }
+        }
+        finally
+        {
+            IsBulkRunning = false;
+        }
     }
 
     private async Task UpdateAll()
     {
         var modsToUpdate = _allMods.Where(m => m.HasUpdate).ToList();
-        foreach (var mod in modsToUpdate)
-            await DownloadUpdate(mod);
+        if (modsToUpdate.Count == 0) return;
+
+        _bulkCts?.Cancel();
+        _bulkCts = new CancellationTokenSource();
+        var ct = _bulkCts.Token;
+
+        IsBulkRunning = true;
+        try
+        {
+            foreach (var mod in modsToUpdate)
+            {
+                if (ct.IsCancellationRequested) break;
+                await DownloadUpdate(mod);
+            }
+        }
+        finally
+        {
+            IsBulkRunning = false;
+        }
     }
 
     private async Task DownloadUpdate(InstalledMod mod)
@@ -268,13 +351,35 @@ public class InstalledModsViewModel : ViewModelBase
 
         if (_nexusApi.IsPremium)
         {
-            await _downloadManager.EnqueueAsync(mod.NexusModId, mod.LatestFileId);
+            await _downloadManager.EnqueueAsync(mod.NexusModId, mod.LatestFileId, forceKeepSettings: true);
         }
         else
         {
-            var url = $"https://www.nexusmods.com/terraria/mods/{mod.NexusModId}?tab=files";
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            var url = $"https://www.nexusmods.com/terraria/mods/{mod.NexusModId}?tab=files&file_id={mod.LatestFileId}";
+            var result = await OpenBrowserAsync(url, $"Installing: {mod.Name}", "Click 'Manual Download' to update");
+            await EnqueueFromBrowserResult(result, mod.NexusModId, keepSettings: true, version: mod.LatestVersion);
         }
+    }
+
+    public void SetModEnabled(InstalledMod mod, bool enabled)
+    {
+        if (mod.IsCore) return;
+        var path = _settings.Load().TerrariaPath;
+        if (string.IsNullOrWhiteSpace(path)) return;
+
+        if (enabled)
+            _modState.EnableMod(mod.Id, path);
+        else
+            _modState.DisableMod(mod.Id, path);
+
+        // Defer refresh so collection changes happen after the click event finishes processing
+        Avalonia.Threading.Dispatcher.UIThread.Post(Refresh);
+    }
+
+    private void ToggleMod(InstalledMod? mod)
+    {
+        if (mod == null) return;
+        SetModEnabled(mod, !mod.IsEnabled);
     }
 
     private Task ToggleEnabled()
@@ -311,13 +416,14 @@ public class InstalledModsViewModel : ViewModelBase
         });
     }
 
-    private void OpenOnNexus()
+    private async Task OpenOnNexus()
     {
         if (SelectedMods.Count != 1) return;
         var mod = SelectedMods[0];
         if (mod.NexusModId <= 0) return;
         var url = $"https://www.nexusmods.com/terraria/mods/{mod.NexusModId}";
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        var result = await OpenBrowserAsync(url, $"Installing: {mod.Name}");
+        await EnqueueFromBrowserResult(result, mod.NexusModId);
     }
 
     private async Task Uninstall()
@@ -397,19 +503,38 @@ public class InstalledModsViewModel : ViewModelBase
 
         if (!_nexusApi.HasApiKey || !_nexusApi.IsPremium)
         {
-            // Non-premium or no API key — open the Nexus page
-            var url = $"https://www.nexusmods.com/terraria/mods/{UpdateTracker.CoreNexusModId}?tab=files";
-            System.Diagnostics.Process.Start(
-                new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            // Non-premium or no API key — try to resolve latest file for direct download page
+            string url;
+            string? coreVersion = null;
+            try
+            {
+                var coreFiles = await _nexusApi.GetModFilesAsync(UpdateTracker.CoreNexusModId);
+                // Pick the most recently uploaded file — user guarantees Core is always first
+                var primary = coreFiles.OrderByDescending(f => f.UploadedTimestamp).FirstOrDefault();
+
+                if (primary != null)
+                {
+                    url = $"https://www.nexusmods.com/terraria/mods/{UpdateTracker.CoreNexusModId}?tab=files&file_id={primary.FileId}";
+                    coreVersion = primary.Version;
+                }
+                else
+                {
+                    url = $"https://www.nexusmods.com/terraria/mods/{UpdateTracker.CoreNexusModId}?tab=files";
+                }
+            }
+            catch
+            {
+                url = $"https://www.nexusmods.com/terraria/mods/{UpdateTracker.CoreNexusModId}?tab=files";
+            }
+
+            var result = await OpenBrowserAsync(url, "Installing: TerrariaModder Core", "Click 'Manual Download' to install");
+            await EnqueueFromBrowserResult(result, UpdateTracker.CoreNexusModId, version: coreVersion);
             return;
         }
 
-        // Get the latest main file for core
+        // Premium: direct download — picks latest file automatically
         var files = await _nexusApi.GetModFilesAsync(UpdateTracker.CoreNexusModId);
-        var mainFile = files
-            .Where(f => f.CategoryName == "MAIN")
-            .OrderByDescending(f => f.FileId)
-            .FirstOrDefault() ?? files.OrderByDescending(f => f.FileId).FirstOrDefault();
+        var mainFile = files.OrderByDescending(f => f.UploadedTimestamp).FirstOrDefault();
 
         if (mainFile == null)
         {
@@ -486,6 +611,7 @@ public class InstalledModsViewModel : ViewModelBase
         if (result.Success)
         {
             Refresh();
+            StartUpdateCheck();
             await DialogHelper.ShowDialog("Success",
                 $"Mod '{result.InstalledModId}' installed successfully.",
                 ButtonEnum.Ok, Icon.Success);
@@ -514,6 +640,7 @@ public class InstalledModsViewModel : ViewModelBase
         if (result.Success)
         {
             Refresh();
+            StartUpdateCheck();
             await DialogHelper.ShowDialog("Success",
                 $"Mod '{result.InstalledModId}' installed successfully.",
                 ButtonEnum.Ok, Icon.Success);
@@ -537,6 +664,15 @@ public class InstalledModsViewModel : ViewModelBase
                 result.Error ?? "Unknown error",
                 ButtonEnum.Ok, Icon.Error);
         }
+    }
+
+    private Task<InlineBrowserResult?> OpenBrowserAsync(string url, string modName, string? toast = null)
+        => OpenBrowser?.Invoke(url, modName, toast) ?? Task.FromResult<InlineBrowserResult?>(null);
+
+    private async Task EnqueueFromBrowserResult(InlineBrowserResult? result, int modId, bool keepSettings = false, string? version = null)
+    {
+        if (result?.DownloadedFilePath != null)
+            await _downloadManager.EnqueueFromFileAsync(modId, result.DownloadedFilePath, forceKeepSettings: keepSettings, nexusVersion: version);
     }
 
     private static TopLevel? GetTopLevel()

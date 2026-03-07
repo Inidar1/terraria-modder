@@ -1,9 +1,12 @@
+using System.ComponentModel;
 using System.Text.Json.Serialization;
 
 namespace TerrariaModManager.Models;
 
-public class NexusMod
+public class NexusMod : INotifyPropertyChanged
 {
+    public event PropertyChangedEventHandler? PropertyChanged;
+
     [JsonPropertyName("mod_id")]
     public int ModId { get; set; }
 
@@ -64,9 +67,29 @@ public class NexusMod
     public bool HasNewerVersion { get; set; }
 
     [JsonIgnore]
+    public bool IsDownloading { get; set; }
+
+    // Selection state for multi-select install
+    private bool _isSelectedForInstall;
+    [JsonIgnore]
+    public bool IsSelectedForInstall
+    {
+        get => _isSelectedForInstall;
+        set
+        {
+            if (_isSelectedForInstall != value)
+            {
+                _isSelectedForInstall = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelectedForInstall)));
+            }
+        }
+    }
+
+    [JsonIgnore]
     public string InstallButtonText =>
+        IsDownloading ? "Downloading..." :
         IsInstalled
-            ? (HasNewerVersion ? "Update" : "Up to Date")
+            ? (HasNewerVersion ? "Update" : "Reinstall")
             : "Install";
 
     [JsonIgnore]

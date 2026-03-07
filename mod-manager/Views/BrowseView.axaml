@@ -3,295 +3,408 @@
              xmlns:asyncImageLoader="using:AsyncImageLoader"
              xmlns:html="using:TheArtOfDev.HtmlRenderer.Avalonia"
              x:Class="TerrariaModManager.Views.BrowseView">
-    <Grid ColumnDefinitions="*,Auto">
+    <Panel>
+        <!-- Main browse content -->
+        <Grid ColumnDefinitions="*,Auto">
 
-        <!-- Main content area -->
-        <Grid Grid.Column="0" Margin="12,24,12,36" RowDefinitions="Auto,Auto,*">
+            <!-- Main content area -->
+            <Grid Grid.Column="0" Margin="12,24,12,36" RowDefinitions="Auto,Auto,*,Auto">
 
-            <!-- Header -->
-            <Grid Grid.Row="0" Margin="0,0,0,12">
-                <TextBlock Text="Browse Nexus Mods" Classes="section-header"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
-                    <Button Content="Refresh" Classes="secondary"
-                            Command="{Binding RefreshCommand}"/>
-                </StackPanel>
-            </Grid>
-
-            <!-- Toolbar: search + feeds + sort + layout toggle -->
-            <StackPanel Grid.Row="1" Margin="0,0,0,12">
-                <!-- Search bar + hide installed + layout toggle -->
-                <Grid Margin="0,0,0,8" ColumnDefinitions="*,Auto,Auto">
-                    <TextBox Grid.Column="0" Text="{Binding SearchText, Mode=TwoWay}"
-                             Watermark="Search by name, or paste a Nexus URL / mod ID"
-                             Classes="dark"
-                             KeyDown="OnSearchKeyDown"/>
-                    <Button Grid.Column="1" Content="{Binding HideInstalledText}" Classes="secondary"
-                            Command="{Binding ToggleHideInstalledCommand}"
-                            Padding="10,6" FontSize="11" Margin="8,0,0,0"/>
-                    <Button Grid.Column="2" Content="{Binding LayoutToggleText}" Classes="secondary"
-                            Command="{Binding ToggleLayoutCommand}"
-                            Padding="10,6" FontSize="11" Margin="4,0,0,0"/>
+                <!-- Header -->
+                <Grid Grid.Row="0" Margin="0,0,0,12">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Browse Nexus Mods" Classes="section-header" VerticalAlignment="Center"/>
+                        <Button Content="⟳" Classes="secondary"
+                                Command="{Binding RefreshCommand}"
+                                Padding="6,2" FontSize="16" Margin="10,0,0,0"
+                                VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Content="{Binding SelectModeButtonText}" Classes="secondary"
+                            Command="{Binding ToggleSelectModeCommand}"
+                            Classes.nav-active="{Binding IsSelectMode}"
+                            HorizontalAlignment="Right" VerticalAlignment="Center"/>
                 </Grid>
 
-                <!-- Feed + sort buttons (wrapping) -->
-                <WrapPanel>
-                    <!-- Feed tabs -->
-                    <Button Content="All" Classes="secondary" Padding="10,5" FontSize="11"
-                            Command="{Binding LoadAllCommand}" Margin="0,0,4,4"/>
-                    <Button Content="Latest" Classes="secondary" Padding="10,5" FontSize="11"
-                            Command="{Binding LoadLatestCommand}" Margin="0,0,4,4"/>
-                    <Button Content="Trending" Classes="secondary" Padding="10,5" FontSize="11"
-                            Command="{Binding LoadTrendingCommand}" Margin="0,0,4,4"/>
-                    <Button Content="Updated" Classes="secondary" Padding="10,5" FontSize="11"
-                            Command="{Binding LoadUpdatedCommand}" Margin="0,0,16,4"/>
+                <!-- Toolbar: search + feeds + sort + layout toggle -->
+                <StackPanel Grid.Row="1" Margin="0,0,0,12">
+                    <!-- Search bar + hide installed + layout toggle -->
+                    <Grid Margin="0,0,0,8" ColumnDefinitions="*,Auto,Auto">
+                        <TextBox Grid.Column="0" x:Name="SearchBox"
+                                 Text="{Binding SearchText, Mode=TwoWay}"
+                                 Watermark="Search by name, or paste a Nexus URL / mod ID"
+                                 Classes="dark"
+                                 KeyDown="OnSearchKeyDown"/>
+                        <Button Grid.Column="1" Content="{Binding HideInstalledText}" Classes="secondary"
+                                Command="{Binding ToggleHideInstalledCommand}"
+                                Padding="10,6" FontSize="11" Margin="8,0,0,0"/>
+                        <Button Grid.Column="2" Content="{Binding LayoutToggleText}" Classes="secondary"
+                                Command="{Binding ToggleLayoutCommand}"
+                                Padding="10,6" FontSize="11" Margin="4,0,0,0"/>
+                    </Grid>
 
-                    <!-- Sort -->
-                    <TextBlock Text="Sort:" Foreground="{StaticResource TextSecondaryBrush}"
-                               VerticalAlignment="Center" Margin="0,0,6,4" FontSize="12"/>
-                    <Button Content="Name" Classes="secondary" Padding="10,5"
-                            Command="{Binding SortByNameCommand}" Margin="0,0,3,4" FontSize="11"/>
-                    <Button Content="Downloads" Classes="secondary" Padding="10,5"
-                            Command="{Binding SortByDownloadsCommand}" Margin="0,0,3,4" FontSize="11"/>
-                    <Button Content="Updated" Classes="secondary" Padding="10,5"
-                            Command="{Binding SortByUpdatedCommand}" Margin="0,0,3,4" FontSize="11"/>
-                    <Button Content="Endorsements" Classes="secondary" Padding="10,5"
-                            Command="{Binding SortByEndorsementsCommand}" Margin="0,0,0,4" FontSize="11"/>
-                </WrapPanel>
-            </StackPanel>
+                    <!-- Feed + sort buttons (wrapping) -->
+                    <WrapPanel>
+                        <!-- Feed tabs -->
+                        <Button Content="All" Classes="secondary" Padding="10,5" FontSize="11"
+                                Classes.nav-active="{Binding IsFeedAll}"
+                                Command="{Binding LoadAllCommand}" Margin="0,0,4,4"/>
+                        <Button Content="Latest" Classes="secondary" Padding="10,5" FontSize="11"
+                                Classes.nav-active="{Binding IsFeedLatest}"
+                                Command="{Binding LoadLatestCommand}" Margin="0,0,4,4"/>
+                        <Button Content="Trending" Classes="secondary" Padding="10,5" FontSize="11"
+                                Classes.nav-active="{Binding IsFeedTrending}"
+                                Command="{Binding LoadTrendingCommand}" Margin="0,0,4,4"/>
+                        <Button Content="Updated" Classes="secondary" Padding="10,5" FontSize="11"
+                                Classes.nav-active="{Binding IsFeedUpdated}"
+                                Command="{Binding LoadUpdatedCommand}" Margin="0,0,16,4"/>
 
-            <!-- Content area -->
-            <Grid Grid.Row="2">
-                <!-- No API key -->
-                <TextBlock Text="Add your Nexus API key in Settings to browse mods."
-                           Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Center"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                           IsVisible="{Binding !HasApiKey}"/>
+                        <!-- Sort -->
+                        <TextBlock Text="Sort:" Foreground="{StaticResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" Margin="0,0,6,4" FontSize="12"/>
+                        <Button Content="Name" Classes="secondary" Padding="10,5"
+                                Classes.nav-active="{Binding IsSortName}"
+                                Command="{Binding SortByNameCommand}" Margin="0,0,3,4" FontSize="11"/>
+                        <Button Content="Downloads" Classes="secondary" Padding="10,5"
+                                Classes.nav-active="{Binding IsSortDownloads}"
+                                Command="{Binding SortByDownloadsCommand}" Margin="0,0,3,4" FontSize="11"/>
+                        <Button Content="Updated" Classes="secondary" Padding="10,5"
+                                Classes.nav-active="{Binding IsSortUpdated}"
+                                Command="{Binding SortByUpdatedCommand}" Margin="0,0,3,4" FontSize="11"/>
+                        <Button Content="Endorsements" Classes="secondary" Padding="10,5"
+                                Classes.nav-active="{Binding IsSortEndorsements}"
+                                Command="{Binding SortByEndorsementsCommand}" Margin="0,0,0,4" FontSize="11"/>
+                    </WrapPanel>
+                </StackPanel>
 
-                <!-- Loading -->
-                <TextBlock Text="Loading..." Foreground="{StaticResource TextSecondaryBrush}"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                           IsVisible="{Binding IsLoading}"/>
-
-                    <!-- Grid layout -->
-                    <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  IsVisible="{Binding IsGridLayout}">
-                        <ItemsControl ItemsSource="{Binding Mods}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <WrapPanel HorizontalAlignment="Center"/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Background="{StaticResource BgLightBrush}" CornerRadius="6"
-                                            Margin="4" Width="260" Cursor="Hand"
-                                            BorderThickness="0" Tapped="OnCardTapped">
-                                        <Panel>
-                                            <StackPanel>
-                                                <!-- Thumbnail -->
-                                                <Border CornerRadius="6,6,0,0" ClipToBounds="True" Height="150">
-                                                    <Panel>
-                                                        <asyncImageLoader:AdvancedImage
-                                                            Source="{Binding PictureUrl}"
-                                                            Stretch="UniformToFill"
-                                                            Width="260" Height="150"/>
-                                                        <TextBlock Text="No Image" FontSize="11"
+                <!-- Content area -->
+                <Grid Grid.Row="2">
+                        <!-- Grid layout -->
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      IsVisible="{Binding IsGridLayout}">
+                            <ItemsControl ItemsSource="{Binding Mods}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel HorizontalAlignment="Center"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Classes="mod-card"
+                                                Background="{StaticResource BgLightBrush}" CornerRadius="6"
+                                                Margin="4" Width="260" Cursor="Hand"
+                                                BorderThickness="0" Tapped="OnCardTapped">
+                                            <Panel>
+                                                <StackPanel>
+                                                    <!-- Thumbnail -->
+                                                    <Border CornerRadius="6,6,0,0" ClipToBounds="True" Height="150">
+                                                        <Panel>
+                                                            <asyncImageLoader:AdvancedImage
+                                                                Source="{Binding PictureUrl}"
+                                                                Stretch="UniformToFill"
+                                                                Width="260" Height="150"/>
+                                                            <TextBlock Text="No Image" FontSize="11"
+                                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                       IsHitTestVisible="False"
+                                                                       IsVisible="{Binding HasNoImage}"/>
+                                                            <!-- Installed / Update badge overlay on thumbnail -->
+                                                            <Border Background="{Binding BadgeBackground}"
+                                                                    CornerRadius="0,0,0,4" Padding="8,3"
+                                                                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                                    IsHitTestVisible="False"
+                                                                    IsVisible="{Binding IsInstalled}">
+                                                                <TextBlock Text="{Binding InstalledBadgeText}" FontSize="10"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{Binding BadgeForeground}"/>
+                                                            </Border>
+                                                        </Panel>
+                                                    </Border>
+                                                    <!-- Info -->
+                                                    <StackPanel Margin="12,8,12,10">
+                                                        <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Text="{Binding Author}" FontSize="11"
                                                                    Foreground="{StaticResource TextSecondaryBrush}"
-                                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                   IsHitTestVisible="False"
-                                                                   IsVisible="{Binding HasNoImage}"/>
-                                                        <!-- Installed / Update badge overlay on thumbnail -->
-                                                        <Border Background="{Binding BadgeBackground}"
-                                                                CornerRadius="0,0,0,4" Padding="8,3"
-                                                                HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                                IsHitTestVisible="False"
-                                                                IsVisible="{Binding IsInstalled}">
-                                                            <TextBlock Text="{Binding InstalledBadgeText}" FontSize="10"
-                                                                       FontWeight="SemiBold"
-                                                                       Foreground="{Binding BadgeForeground}"/>
-                                                        </Border>
-                                                    </Panel>
-                                                </Border>
-                                                <!-- Info -->
-                                                <StackPanel Margin="12,8,12,10">
-                                                    <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
-                                                               TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding Author}" FontSize="11"
-                                                               Foreground="{StaticResource TextSecondaryBrush}"
-                                                               Margin="0,2,0,0"/>
-                                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                                        <TextBlock Text="{Binding Version}" FontSize="11"
-                                                                   Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center"/>
-                                                        <TextBlock Text=" · " Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" VerticalAlignment="Center"/>
-                                                        <TextBlock Text="{Binding Downloads, StringFormat='{}{0:N0} DLs'}"
-                                                                   FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                                                   Margin="0,2,0,0"/>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                            <TextBlock Text="{Binding Version}" FontSize="11"
+                                                                       Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center"/>
+                                                            <TextBlock Text=" · " Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" VerticalAlignment="Center"/>
+                                                            <TextBlock Text="{Binding Downloads, StringFormat='{}{0:N0} DLs'}"
+                                                                       FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                    <!-- Buttons -->
+                                                    <StackPanel Margin="12,0,12,10" Spacing="4">
+                                                        <Button Content="{Binding InstallButtonText}" HorizontalAlignment="Stretch"
+                                                                HorizontalContentAlignment="Center"
+                                                                Classes="primary" Padding="8,5" FontSize="11"
+                                                                IsEnabled="{Binding !IsDownloading}"
+                                                                Command="{Binding $parent[UserControl].DataContext.DownloadModCommand}"
+                                                                CommandParameter="{Binding}"/>
                                                     </StackPanel>
                                                 </StackPanel>
-                                                <!-- Buttons -->
-                                                <StackPanel Margin="12,0,12,10" Spacing="4">
-                                                    <Button Content="{Binding InstallButtonText}" HorizontalAlignment="Stretch"
-                                                            HorizontalContentAlignment="Center"
-                                                            Classes="primary" Padding="8,5" FontSize="11"
-                                                            Command="{Binding $parent[UserControl].DataContext.DownloadModCommand}"
-                                                            CommandParameter="{Binding}"/>
-                                                    <Button Content="View on Nexus" HorizontalAlignment="Stretch"
-                                                            HorizontalContentAlignment="Center"
-                                                            Classes="secondary" Padding="8,4" FontSize="11"
-                                                            Command="{Binding $parent[UserControl].DataContext.OpenNexusPageCommand}"
-                                                            CommandParameter="{Binding}"/>
-                                                </StackPanel>
-                                            </StackPanel>
-                                            <!-- Left accent stripe for installed/update mods -->
-                                            <Border Background="{Binding CardBorderColor}" Width="3"
-                                                    HorizontalAlignment="Left" CornerRadius="6,0,0,6"
-                                                    IsHitTestVisible="False"
-                                                    IsVisible="{Binding IsInstalled}"/>
+                                                <!-- Left accent stripe for installed/update mods -->
+                                                <Border Background="{Binding CardBorderColor}" Width="3"
+                                                        HorizontalAlignment="Left" CornerRadius="6,0,0,6"
+                                                        IsHitTestVisible="False"
+                                                        IsVisible="{Binding IsInstalled}"/>
+                                                <!-- Selection overlay (shown when mod is selected for batch install) -->
+                                                <Border Background="#CC1A4C1A" CornerRadius="6"
+                                                        IsVisible="{Binding IsSelectedForInstall}"
+                                                        IsHitTestVisible="False"/>
+                                                <!-- Selection checkmark badge -->
+                                                <Border Background="{StaticResource AccentBrush}"
+                                                        Width="26" Height="26" CornerRadius="13"
+                                                        HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8"
+                                                        IsVisible="{Binding IsSelectedForInstall}"
+                                                        IsHitTestVisible="False">
+                                                    <TextBlock Text="✓" Foreground="White" FontWeight="Bold" FontSize="13"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                            </Panel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <!-- List layout -->
+                        <ListBox ItemsSource="{Binding Mods}"
+                                 SelectedItem="{Binding SelectedMod}"
+                                 Classes="dark"
+                                 IsVisible="{Binding IsListLayout}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="4" ColumnDefinitions="Auto,*,Auto,Auto,Auto" Cursor="Hand"
+                                          Tapped="OnCardTapped">
+                                        <!-- Thumbnail + selection indicator -->
+                                        <Panel Grid.Column="0" Margin="0,0,12,0" Width="48" Height="48">
+                                            <Border CornerRadius="4" ClipToBounds="True">
+                                                <asyncImageLoader:AdvancedImage
+                                                    Source="{Binding PictureUrl}"
+                                                    Stretch="UniformToFill"
+                                                    Width="48" Height="48"/>
+                                            </Border>
+                                            <!-- Selection checkmark -->
+                                            <Border Background="{StaticResource AccentBrush}"
+                                                    Width="18" Height="18" CornerRadius="9"
+                                                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                    IsVisible="{Binding IsSelectedForInstall}"
+                                                    IsHitTestVisible="False">
+                                                <TextBlock Text="✓" Foreground="White" FontWeight="Bold" FontSize="10"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
                                         </Panel>
-                                    </Border>
+                                        <!-- Name + summary -->
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Summary}" Foreground="{StaticResource TextSecondaryBrush}"
+                                                       FontSize="11" TextTrimming="CharacterEllipsis" MaxWidth="400"
+                                                       HorizontalAlignment="Left"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2" Text="{Binding Author}"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" Margin="16,0" FontSize="12"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Downloads, StringFormat='{}{0:N0}'}"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" Margin="16,0" FontSize="12"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Version}"
+                                                   Foreground="{StaticResource AccentBrush}"
+                                                   VerticalAlignment="Center" Margin="16,0" FontSize="12"/>
+                                    </Grid>
                                 </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                    <!-- Skeleton loading cards — covers partial loads -->
+                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                  IsVisible="{Binding IsLoading}"
+                                  Background="{StaticResource BgDarkBrush}">
+                        <WrapPanel HorizontalAlignment="Center">
+                            <Border Classes="skeleton-card" Width="260" Height="268" Margin="4"/>
+                            <Border Classes="skeleton-card" Width="260" Height="268" Margin="4"/>
+                            <Border Classes="skeleton-card" Width="260" Height="268" Margin="4"/>
+                            <Border Classes="skeleton-card" Width="260" Height="268" Margin="4"/>
+                            <Border Classes="skeleton-card" Width="260" Height="268" Margin="4"/>
+                            <Border Classes="skeleton-card" Width="260" Height="268" Margin="4"/>
+                            <Border Classes="skeleton-card" Width="260" Height="268" Margin="4"/>
+                            <Border Classes="skeleton-card" Width="260" Height="268" Margin="4"/>
+                        </WrapPanel>
                     </ScrollViewer>
 
-                    <!-- List layout -->
-                    <ListBox ItemsSource="{Binding Mods}"
-                             SelectedItem="{Binding SelectedMod}"
-                             Classes="dark"
-                             IsVisible="{Binding IsListLayout}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="4" ColumnDefinitions="Auto,*,Auto,Auto,Auto" Cursor="Hand"
-                                      Tapped="OnCardTapped">
-                                    <!-- Thumbnail -->
-                                    <Border Grid.Column="0" Width="48" Height="48" CornerRadius="4"
-                                            ClipToBounds="True" Margin="0,0,12,0">
-                                        <asyncImageLoader:AdvancedImage
-                                            Source="{Binding PictureUrl}"
-                                            Stretch="UniformToFill"
-                                            Width="48" Height="48"/>
-                                    </Border>
-                                    <!-- Name + summary -->
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding Summary}" Foreground="{StaticResource TextSecondaryBrush}"
-                                                   FontSize="11" TextTrimming="CharacterEllipsis" MaxWidth="400"
-                                                   HorizontalAlignment="Left"/>
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="2" Text="{Binding Author}"
-                                               Foreground="{StaticResource TextSecondaryBrush}"
-                                               VerticalAlignment="Center" Margin="16,0" FontSize="12"/>
-                                    <TextBlock Grid.Column="3" Text="{Binding Downloads, StringFormat='{}{0:N0}'}"
-                                               Foreground="{StaticResource TextSecondaryBrush}"
-                                               VerticalAlignment="Center" Margin="16,0" FontSize="12"/>
-                                    <TextBlock Grid.Column="4" Text="{Binding Version}"
-                                               Foreground="{StaticResource AccentBrush}"
-                                               VerticalAlignment="Center" Margin="16,0" FontSize="12"/>
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                    <!-- No results — above scroll views so it receives clicks -->
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                                IsVisible="{Binding ShowEmptyMessage}" Spacing="8">
+                        <TextBlock Text="No mods found" FontSize="16" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center"
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Text="Try a different search term, feed, or click 'Show Installed'."
+                                   FontSize="13" HorizontalAlignment="Center"
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+
+                    <!-- Not logged in — topmost so button is clickable -->
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                                IsVisible="{Binding !HasApiKey}" Spacing="12" MaxWidth="340"
+                                Background="{StaticResource BgDarkBrush}">
+                        <TextBlock Text="Sign in to browse mods" FontSize="18" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center"
+                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <TextBlock TextWrapping="Wrap" TextAlignment="Center" FontSize="13"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Text="A Nexus Mods account is required to browse and download mods."/>
+                        <Button Content="Go to Settings to log in" Classes="primary"
+                                Command="{Binding NavigateToSettingsCommand}"
+                                HorizontalAlignment="Center" Padding="20,10" FontSize="14"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Toast notification -->
+                <Border Grid.Row="2" Background="{StaticResource AccentBrush}" CornerRadius="6"
+                        Padding="16,10" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                        Margin="0,0,0,16" IsVisible="{Binding IsToastVisible}"
+                        IsHitTestVisible="False">
+                    <Border.Styles>
+                        <Style Selector="Border">
+                            <Style.Animations>
+                                <Animation Duration="0:0:0.2" FillMode="Both">
+                                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0"/></KeyFrame>
+                                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1"/></KeyFrame>
+                                </Animation>
+                            </Style.Animations>
+                        </Style>
+                    </Border.Styles>
+                    <TextBlock Text="{Binding ToastMessage}" Foreground="White" FontSize="13"/>
+                </Border>
+
+                <!-- Action bar (Row 3): shown when selecting mods or bulk installing -->
+                <Panel Grid.Row="3">
+                    <!-- Select mode bar -->
+                    <Border IsVisible="{Binding IsSelectMode}"
+                            Background="{StaticResource BgMediumBrush}"
+                            BorderBrush="{StaticResource BorderColorBrush}" BorderThickness="0,1,0,0"
+                            Padding="12,10" Margin="0,8,0,0">
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding SelectCountText}"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       VerticalAlignment="Center" FontSize="13"/>
+                            <Button Grid.Column="1" Content="Install Selected" Classes="primary"
+                                    Command="{Binding InstallSelectedCommand}"
+                                    IsEnabled="{Binding HasSelectionForInstall}"
+                                    Padding="12,6" FontSize="12" Margin="0,0,8,0"/>
+                            <Button Grid.Column="2" Content="Done" Classes="secondary"
+                                    Command="{Binding ToggleSelectModeCommand}"
+                                    Padding="12,6" FontSize="12"/>
+                        </Grid>
+                    </Border>
+                    <!-- Bulk install running bar -->
+                    <Border IsVisible="{Binding IsBulkRunning}"
+                            Background="{StaticResource BgMediumBrush}"
+                            BorderBrush="{StaticResource BorderColorBrush}" BorderThickness="0,1,0,0"
+                            Padding="12,10" Margin="0,8,0,0">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0"
+                                       Text="Installing queued mods..."
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       VerticalAlignment="Center" FontSize="13"/>
+                            <Button Grid.Column="1" Content="Cancel Queue" Classes="secondary"
+                                    Command="{Binding CancelBulkCommand}"
+                                    Padding="12,6" FontSize="12"/>
+                        </Grid>
+                    </Border>
+                </Panel>
             </Grid>
 
-            <!-- Toast notification -->
-            <Border Grid.Row="2" Background="{StaticResource AccentBrush}" CornerRadius="6"
-                    Padding="16,10" HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                    Margin="0,0,0,16" IsVisible="{Binding IsToastVisible}"
-                    IsHitTestVisible="False">
-                <TextBlock Text="{Binding ToastMessage}" Foreground="White" FontSize="13"/>
+            <!-- Detail sidebar -->
+            <Border Grid.Column="1" Background="{StaticResource BgMediumBrush}"
+                    BorderBrush="{StaticResource BorderColorBrush}" BorderThickness="1,0,0,0"
+                    Width="380" IsVisible="{Binding IsDetailOpen}">
+                <Grid RowDefinitions="Auto,*">
+                    <!-- Close button -->
+                    <Button Grid.Row="0" Content="X" Classes="secondary"
+                            HorizontalAlignment="Right" Margin="12,12"
+                            Padding="8,4" FontSize="12" FontWeight="Bold"
+                            Command="{Binding CloseDetailCommand}"/>
+
+                    <!-- Detail content -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
+                        <StackPanel Margin="20,0,20,20">
+                            <!-- Image -->
+                            <Border CornerRadius="6" ClipToBounds="True" Margin="0,0,0,16"
+                                    IsVisible="{Binding DetailMod.PictureUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
+                                <asyncImageLoader:AdvancedImage
+                                    Source="{Binding DetailMod.PictureUrl, FallbackValue=''}"
+                                    Stretch="Uniform" MaxHeight="220"/>
+                            </Border>
+
+                            <!-- Name -->
+                            <TextBlock Text="{Binding DetailMod.Name}" FontSize="18" FontWeight="Bold"
+                                       TextWrapping="Wrap" Margin="0,0,0,4"/>
+
+                            <!-- Author -->
+                            <TextBlock Text="{Binding DetailMod.Author}" FontSize="12"
+                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,12"/>
+
+                            <!-- Stats row -->
+                            <Border Background="{StaticResource BgLightBrush}" CornerRadius="6" Padding="12,8" Margin="0,0,0,12">
+                                <Grid ColumnDefinitions="*,*,*">
+                                    <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                                        <TextBlock Text="{Binding DetailMod.Version}" FontSize="12"
+                                                   Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="Version" FontSize="10"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                                        <TextBlock Text="{Binding DetailMod.Downloads, StringFormat='{}{0:N0}'}" FontSize="12"
+                                                   HorizontalAlignment="Center"/>
+                                        <TextBlock Text="Downloads" FontSize="10"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                                        <TextBlock Text="{Binding DetailMod.EndorsementCount, StringFormat='{}{0:N0}'}" FontSize="12"
+                                                   HorizontalAlignment="Center"/>
+                                        <TextBlock Text="Endorsements" FontSize="10"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <!-- Install state badge -->
+                            <Border Background="{StaticResource BgLightBrush}" CornerRadius="4" Padding="8,4" Margin="0,0,0,12"
+                                    HorizontalAlignment="Left"
+                                    IsVisible="{Binding DetailMod.IsInstalled}">
+                                <TextBlock FontSize="11" Foreground="{StaticResource AccentBrush}">
+                                    <TextBlock.Text>
+                                        <MultiBinding StringFormat="Installed v{0}">
+                                            <Binding Path="DetailMod.InstalledVersion"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </Border>
+
+                            <!-- Buttons (above description) -->
+                            <Button Content="{Binding DetailMod.InstallButtonText}" HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Classes="primary" Padding="16,10" FontSize="13"
+                                    Command="{Binding DownloadModCommand}"
+                                    CommandParameter="{Binding DetailMod}" Margin="0,0,0,16"/>
+
+                            <!-- Description loading -->
+                            <TextBlock Text="Loading description..." FontSize="12"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       IsVisible="{Binding IsDetailLoading}" Margin="0,0,0,8"/>
+
+                            <!-- Description (rendered HTML from BBCode) -->
+                            <html:HtmlLabel Text="{Binding DetailDescription}"
+                                            Background="Transparent"
+                                            Margin="0,0,0,0"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
             </Border>
         </Grid>
 
-        <!-- Detail sidebar -->
-        <Border Grid.Column="1" Background="{StaticResource BgMediumBrush}"
-                BorderBrush="{StaticResource BorderColorBrush}" BorderThickness="1,0,0,0"
-                Width="380" IsVisible="{Binding IsDetailOpen}">
-            <Grid RowDefinitions="Auto,*">
-                <!-- Close button -->
-                <Button Grid.Row="0" Content="X" Classes="secondary"
-                        HorizontalAlignment="Right" Margin="12,12"
-                        Padding="8,4" FontSize="12" FontWeight="Bold"
-                        Command="{Binding CloseDetailCommand}"/>
-
-                <!-- Detail content -->
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
-                    <StackPanel Margin="20,0,20,20">
-                        <!-- Image -->
-                        <Border CornerRadius="6" ClipToBounds="True" Margin="0,0,0,16"
-                                IsVisible="{Binding DetailMod.PictureUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
-                            <asyncImageLoader:AdvancedImage
-                                Source="{Binding DetailMod.PictureUrl, FallbackValue=''}"
-                                Stretch="Uniform" MaxHeight="220"/>
-                        </Border>
-
-                        <!-- Name -->
-                        <TextBlock Text="{Binding DetailMod.Name}" FontSize="18" FontWeight="Bold"
-                                   TextWrapping="Wrap" Margin="0,0,0,4"/>
-
-                        <!-- Author -->
-                        <TextBlock Text="{Binding DetailMod.Author}" FontSize="12"
-                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,12"/>
-
-                        <!-- Stats row -->
-                        <Border Background="{StaticResource BgLightBrush}" CornerRadius="6" Padding="12,8" Margin="0,0,0,12">
-                            <Grid ColumnDefinitions="*,*,*">
-                                <StackPanel Grid.Column="0" HorizontalAlignment="Center">
-                                    <TextBlock Text="{Binding DetailMod.Version}" FontSize="12"
-                                               Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center"/>
-                                    <TextBlock Text="Version" FontSize="10"
-                                               Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" HorizontalAlignment="Center">
-                                    <TextBlock Text="{Binding DetailMod.Downloads, StringFormat='{}{0:N0}'}" FontSize="12"
-                                               HorizontalAlignment="Center"/>
-                                    <TextBlock Text="Downloads" FontSize="10"
-                                               Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="2" HorizontalAlignment="Center">
-                                    <TextBlock Text="{Binding DetailMod.EndorsementCount, StringFormat='{}{0:N0}'}" FontSize="12"
-                                               HorizontalAlignment="Center"/>
-                                    <TextBlock Text="Endorsements" FontSize="10"
-                                               Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-
-                        <!-- Install state badge -->
-                        <Border Background="{StaticResource BgLightBrush}" CornerRadius="4" Padding="8,4" Margin="0,0,0,12"
-                                HorizontalAlignment="Left"
-                                IsVisible="{Binding DetailMod.IsInstalled}">
-                            <TextBlock FontSize="11" Foreground="{StaticResource AccentBrush}">
-                                <TextBlock.Text>
-                                    <MultiBinding StringFormat="Installed v{0}">
-                                        <Binding Path="DetailMod.InstalledVersion"/>
-                                    </MultiBinding>
-                                </TextBlock.Text>
-                            </TextBlock>
-                        </Border>
-
-                        <!-- Buttons (above description) -->
-                        <Button Content="{Binding DetailMod.InstallButtonText}" HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Center"
-                                Classes="primary" Padding="16,10" FontSize="13"
-                                Command="{Binding DownloadModCommand}"
-                                CommandParameter="{Binding DetailMod}" Margin="0,0,0,8"/>
-                        <Button Content="View on Nexus" HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Center"
-                                Classes="secondary" Padding="16,8" FontSize="12"
-                                Command="{Binding OpenNexusPageCommand}"
-                                CommandParameter="{Binding DetailMod}" Margin="0,0,0,16"/>
-
-                        <!-- Description loading -->
-                        <TextBlock Text="Loading description..." FontSize="12"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   IsVisible="{Binding IsDetailLoading}" Margin="0,0,0,8"/>
-
-                        <!-- Description (rendered HTML from BBCode) -->
-                        <html:HtmlLabel Text="{Binding DetailDescription}"
-                                        Background="Transparent"
-                                        Margin="0,0,0,0"/>
-                    </StackPanel>
-                </ScrollViewer>
-            </Grid>
-        </Border>
-    </Grid>
+    </Panel>
 </UserControl>

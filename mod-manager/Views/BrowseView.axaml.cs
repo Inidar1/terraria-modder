@@ -9,9 +9,17 @@ namespace TerrariaModManager.Views;
 
 public partial class BrowseView : UserControl
 {
-    public BrowseView()
+    public BrowseView() => InitializeComponent();
+
+    protected override void OnKeyDown(KeyEventArgs e)
     {
-        InitializeComponent();
+        base.OnKeyDown(e);
+        if (e.Key == Key.F && e.KeyModifiers == KeyModifiers.Control)
+        {
+            SearchBox.Focus();
+            SearchBox.SelectAll();
+            e.Handled = true;
+        }
     }
 
     private void OnSearchKeyDown(object? sender, KeyEventArgs e)
@@ -25,7 +33,6 @@ public partial class BrowseView : UserControl
 
     private void OnCardTapped(object? sender, TappedEventArgs e)
     {
-        // Don't open sidebar when clicking buttons (Install, View on Nexus)
         if (e.Source is Visual visual)
         {
             var current = visual;
@@ -39,7 +46,10 @@ public partial class BrowseView : UserControl
         if (sender is Control control && control.DataContext is NexusMod mod
             && DataContext is BrowseViewModel vm)
         {
-            vm.OpenDetailCommand.Execute(mod);
+            if (vm.IsSelectMode)
+                vm.ToggleSelectMod(mod);
+            else
+                vm.OpenDetailCommand.Execute(mod);
         }
     }
 }

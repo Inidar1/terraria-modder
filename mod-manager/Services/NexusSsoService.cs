@@ -21,7 +21,7 @@ public class NexusSsoService : IDisposable
 {
     private const string SsoWebSocketUrl = "wss://sso.nexusmods.com";
 
-    private const string ApplicationSlug = "terraria-modder-vault";
+    private const string ApplicationSlug = "inidar-terrariamodder";
 
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;

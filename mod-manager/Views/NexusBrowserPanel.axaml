@@ -1,0 +1,66 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:wv="using:AvaloniaWebView"
+             x:Class="TerrariaModManager.Views.NexusBrowserPanel"
+             IsVisible="False">
+    <Grid Background="{StaticResource BgDarkBrush}" RowDefinitions="Auto,Auto,*">
+
+        <!-- Instruction header -->
+        <Border Grid.Row="0" Background="{StaticResource BgMediumBrush}"
+                BorderBrush="{StaticResource BorderColorBrush}" BorderThickness="0,0,0,1"
+                Padding="16,10">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock x:Name="ModNameText"
+                               Foreground="{StaticResource AccentBrush}"
+                               FontSize="14" FontWeight="SemiBold"/>
+                    <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
+                               Text="Download will start automatically. If prompted, click 'Slow Download' and wait for the countdown."/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="X" Click="OnClose"
+                        Padding="8,4" FontSize="12" FontWeight="Bold"
+                        VerticalAlignment="Top"/>
+            </Grid>
+        </Border>
+
+        <!-- Nav bar -->
+        <Border Grid.Row="1" Background="{StaticResource BgMediumBrush}"
+                BorderBrush="{StaticResource BorderColorBrush}" BorderThickness="0,0,0,1"
+                Padding="8,6">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*">
+                <Button Grid.Column="0" x:Name="BackButton" Content="&#x2190;" Click="OnBack"
+                        Width="32" Height="28" FontSize="14"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Margin="0,0,4,0"/>
+                <Button Grid.Column="1" x:Name="ForwardButton" Content="&#x2192;" Click="OnForward"
+                        Width="32" Height="28" FontSize="14"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Margin="0,0,4,0"/>
+                <Button Grid.Column="2" Content="&#x21BB;" Click="OnRefresh"
+                        Width="32" Height="28" FontSize="14"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Margin="0,0,8,0"/>
+
+                <Border Grid.Column="3" Background="{StaticResource BgDarkBrush}"
+                        CornerRadius="4" Padding="8,4" VerticalAlignment="Center">
+                    <TextBlock x:Name="UrlDisplay" Text="Loading..."
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               FontSize="12" TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center"/>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- WebView + persistent toast overlay -->
+        <Panel Grid.Row="2">
+            <wv:WebView x:Name="Browser"/>
+
+            <Border x:Name="ToastBorder" Background="#E6292929" CornerRadius="6"
+                    Padding="14,8" HorizontalAlignment="Center" VerticalAlignment="Top"
+                    Margin="0,8,0,0" IsVisible="False" IsHitTestVisible="False">
+                <TextBlock x:Name="ToastText"
+                           Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
+            </Border>
+        </Panel>
+    </Grid>
+</UserControl>

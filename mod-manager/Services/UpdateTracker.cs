@@ -139,7 +139,7 @@ public class UpdateTracker
     /// Numbered variants like -hotfix2 are ordered above -hotfix.
     /// Example ordering: 1.1.1-beta &lt; 1.1.1 &lt; 1.1.1-hotfix &lt; 1.1.1-hotfix2 &lt; 1.1.2
     /// </summary>
-    private static bool IsNewerVersion(string nexusVersion, string localVersion)
+    public static bool IsNewerVersion(string nexusVersion, string localVersion)
     {
         var (nBase, nRank) = ParseVersion(nexusVersion);
         var (lBase, lRank) = ParseVersion(localVersion);
@@ -169,6 +169,9 @@ public class UpdateTracker
     private static (Version? Base, int SuffixRank) ParseVersion(string version)
     {
         version = version.TrimStart('v', 'V');
+        // Strip semver build metadata — everything after '+' is not part of the version
+        var plusIdx = version.IndexOf('+');
+        if (plusIdx >= 0) version = version[..plusIdx];
 
         var idx = version.IndexOf('-');
         int rank = 0;

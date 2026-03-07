@@ -273,6 +273,95 @@ public class DownloadManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Install a mod from a file already downloaded by the WebView browser.
+    /// </summary>
+    public async Task EnqueueFromFileAsync(int modId, string filePath, bool forceKeepSettings = false, string? nexusVersion = null)
+    {
+        var fileName = Path.GetFileName(filePath);
+        var item = new DownloadItem
+        {
+            ModId = modId,
+            FileId = 0,
+            Name = $"Mod {modId}",
+            Status = "Installing..."
+        };
+
+        await SafeDispatch(() => Downloads.Insert(0, item));
+
+        try
+        {
+            // Try to get the mod name from the API
+            try
+            {
+                var modInfo = await _nexusApi.GetModInfoAsync(modId);
+                if (modInfo != null)
+                    await SafeDispatch(() => item.Name = modInfo.Name);
+            }
+            catch { }
+
+            var fileLen = new FileInfo(filePath).Length;
+            await SafeDispatch(() =>
+            {
+                item.TotalBytes = fileLen;
+                item.DownloadedBytes = fileLen;
+                item.Progress = 100;
+            });
+
+            _logger.Info($"EnqueueFromFile {modId}: installing from {fileName} ({fileLen} bytes)");
+            var result = await _installer.InstallModAsync(filePath, forceKeepSettings);
+
+            if (result.Success)
+            {
+                _logger.Info($"EnqueueFromFile {modId}: install succeeded, mod-id='{result.InstalledModId}'");
+                if (result.InstalledModId != null)
+                {
+                    _updateTracker.RecordInstall(result.InstalledModId, modId);
+
+                    // Record version for update tracking (important for core which has no manifest in mods/)
+                    if (!string.IsNullOrWhiteSpace(nexusVersion))
+                    {
+                        _installer.StampManifestVersion(result.InstalledModId, nexusVersion);
+                        _updateTracker.RecordVersion(result.InstalledModId, nexusVersion);
+                    }
+                }
+
+                await SafeDispatch(() =>
+                {
+                    item.Status = "Installed";
+                    item.IsInstalled = true;
+                });
+                DownloadCompleted?.Invoke(item);
+            }
+            else
+            {
+                _logger.Error($"EnqueueFromFile {modId}: install failed — {result.Error}");
+                await SafeDispatch(() =>
+                {
+                    item.Status = "Install Failed";
+                    item.ErrorMessage = result.Error ?? "Unknown error";
+                    item.HasError = true;
+                });
+                DownloadFailed?.Invoke(item, result.Error ?? "Unknown error");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"EnqueueFromFile {modId}: error — {ex.Message}");
+            await SafeDispatch(() =>
+            {
+                item.Status = "Error";
+                item.ErrorMessage = ex.Message;
+                item.HasError = true;
+            });
+            DownloadFailed?.Invoke(item, ex.Message);
+        }
+        finally
+        {
+            try { if (File.Exists(filePath)) File.Delete(filePath); } catch { }
+        }
+    }
+
     private static async Task SafeDispatch(Action action)
     {
         try { await Dispatcher.UIThread.InvokeAsync(action); }
@@ -283,6 +372,11 @@ public class DownloadManager : IDisposable
     {
         try { await Dispatcher.UIThread.InvokeAsync(action); }
         catch (InvalidOperationException) { /* dispatcher shut down */ }
+    }
+
+    public void Remove(DownloadItem item)
+    {
+        Downloads.Remove(item);
     }
 
     public void Dispose() => _http.Dispose();

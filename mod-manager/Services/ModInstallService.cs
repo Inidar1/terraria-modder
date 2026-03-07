@@ -124,7 +124,8 @@ public class ModInstallService
                 var coreDir = Path.Combine(terrariaPath, "TerrariaModder", "core");
 
                 // Preserve config files in core/ if they exist
-                var preservedConfigs = await PreserveConfigsAsync(coreDir, "core", forceKeepSettings);
+                var existingCoreDir = Directory.Exists(coreDir) ? coreDir : null;
+                var preservedConfigs = await PreserveConfigsAsync(existingCoreDir, "core", forceKeepSettings);
                 _logger.Info($"Install: preserved {preservedConfigs.Count} core config file(s)");
 
                 // Delete old core/ directory but NEVER touch mods/
@@ -322,25 +323,17 @@ public class ModInstallService
 
         var configFiles = new List<string>();
 
-        // Scan top-level config files
-        foreach (var file in Directory.GetFiles(existingDir))
+        // Scan all files recursively — catches top-level configs, config/, worlds/, characters/, etc.
+        // Only preserve known config extensions (not DLLs, PNGs, etc.) to avoid undoing the update.
+        foreach (var file in Directory.GetFiles(existingDir, "*", SearchOption.AllDirectories))
         {
-            var ext = Path.GetExtension(file).ToLowerInvariant();
-            if (ext is ".json" or ".cfg" or ".ini" or ".xml" or ".config"
-                && !Path.GetFileName(file).Equals("manifest.json", StringComparison.OrdinalIgnoreCase))
-            {
-                configFiles.Add(Path.GetFileName(file));
-            }
-        }
+            var name = Path.GetFileName(file);
+            if (name.Equals("manifest.json", StringComparison.OrdinalIgnoreCase)) continue;
 
-        // Also scan config/ subdirectory (preserved by DeleteNonConfigFiles)
-        var configDir = Path.Combine(existingDir, "config");
-        if (Directory.Exists(configDir))
-        {
-            foreach (var file in Directory.GetFiles(configDir, "*", SearchOption.AllDirectories))
+            var ext = Path.GetExtension(file).ToLowerInvariant();
+            if (ext is ".json" or ".cfg" or ".ini" or ".xml" or ".config" or ".txt" or ".toml" or ".yaml" or ".yml")
             {
-                var relative = Path.Combine("config", Path.GetRelativePath(configDir, file));
-                configFiles.Add(relative);
+                configFiles.Add(Path.GetRelativePath(existingDir, file));
             }
         }
 

@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Windows.Input;
 using Avalonia.Threading;
@@ -31,12 +30,16 @@ public class BrowseViewModel : ViewModelBase
     private bool _isToastVisible;
     private bool _hideInstalled = true;
     private CancellationTokenSource? _toastCts;
-
+    private bool _isSelectMode;
+    private int _selectedForInstallCount;
+    private bool _isBulkRunning;
+    private CancellationTokenSource? _bulkCts;
     private readonly NexusApiService _nexusApi;
     private readonly SettingsService _settings;
     private readonly ModStateService _modState;
     private readonly UpdateTracker _updateTracker;
     private readonly DownloadManager _downloadManager;
+    private readonly NxmProtocolRegistrar _nxmRegistrar;
     private readonly Logger _logger;
 
     public ObservableCollection<NexusMod> Mods { get; } = new();
@@ -47,20 +50,31 @@ public class BrowseViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _selectedFeed, value))
+            {
+                OnPropertyChanged(nameof(IsFeedAll));
+                OnPropertyChanged(nameof(IsFeedLatest));
+                OnPropertyChanged(nameof(IsFeedTrending));
+                OnPropertyChanged(nameof(IsFeedUpdated));
                 _ = LoadFeedAsync();
+            }
         }
     }
+
+    public bool IsFeedAll => _selectedFeed == "All";
+    public bool IsFeedLatest => _selectedFeed == "Latest";
+    public bool IsFeedTrending => _selectedFeed == "Trending";
+    public bool IsFeedUpdated => _selectedFeed == "Updated";
 
     public bool IsLoading
     {
         get => _isLoading;
-        set => SetProperty(ref _isLoading, value);
+        set { if (SetProperty(ref _isLoading, value)) OnPropertyChanged(nameof(ShowEmptyMessage)); }
     }
 
     public bool HasApiKey
     {
         get => _hasApiKey;
-        set => SetProperty(ref _hasApiKey, value);
+        set { if (SetProperty(ref _hasApiKey, value)) OnPropertyChanged(nameof(ShowEmptyMessage)); }
     }
 
     public NexusMod? SelectedMod
@@ -106,9 +120,20 @@ public class BrowseViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _sortBy, value))
+            {
+                OnPropertyChanged(nameof(IsSortName));
+                OnPropertyChanged(nameof(IsSortDownloads));
+                OnPropertyChanged(nameof(IsSortUpdated));
+                OnPropertyChanged(nameof(IsSortEndorsements));
                 ApplySort();
+            }
         }
     }
+
+    public bool IsSortName => _sortBy == "Name";
+    public bool IsSortDownloads => _sortBy == "Downloads";
+    public bool IsSortUpdated => _sortBy == "Updated";
+    public bool IsSortEndorsements => _sortBy == "Endorsements";
 
     public string SearchText
     {
@@ -132,10 +157,12 @@ public class BrowseViewModel : ViewModelBase
     public ICommand SortByUpdatedCommand { get; }
     public ICommand SortByEndorsementsCommand { get; }
     public ICommand DownloadModCommand { get; }
-    public ICommand OpenNexusPageCommand { get; }
     public ICommand SearchCommand { get; }
     public ICommand OpenDetailCommand { get; }
     public ICommand CloseDetailCommand { get; }
+    public ICommand ToggleSelectModeCommand { get; }
+    public ICommand InstallSelectedCommand { get; }
+    public ICommand CancelBulkCommand { get; }
 
     public bool IsDetailOpen
     {
@@ -173,12 +200,60 @@ public class BrowseViewModel : ViewModelBase
         set => SetProperty(ref _isToastVisible, value);
     }
 
+    public bool ShowEmptyMessage => HasApiKey && !IsLoading && Mods.Count == 0;
+
+    public bool IsSelectMode
+    {
+        get => _isSelectMode;
+        set
+        {
+            if (SetProperty(ref _isSelectMode, value))
+            {
+                OnPropertyChanged(nameof(SelectModeButtonText));
+                if (!value) ClearSelections();
+            }
+        }
+    }
+
+    public int SelectedForInstallCount
+    {
+        get => _selectedForInstallCount;
+        set
+        {
+            if (SetProperty(ref _selectedForInstallCount, value))
+            {
+                OnPropertyChanged(nameof(HasSelectionForInstall));
+                OnPropertyChanged(nameof(SelectCountText));
+            }
+        }
+    }
+
+    public bool HasSelectionForInstall => _selectedForInstallCount > 0;
+    public string SelectCountText => _selectedForInstallCount == 1 ? "1 mod selected" : $"{_selectedForInstallCount} mods selected";
+    public string SelectModeButtonText => _isSelectMode ? "Done" : "Select Multiple";
+
+    public bool IsBulkRunning
+    {
+        get => _isBulkRunning;
+        set => SetProperty(ref _isBulkRunning, value);
+    }
+
+    /// <summary>
+    /// Set by MainWindow to open the shared NexusBrowserPanel.
+    /// Parameters: (url, modName, toastMessage?) → result or null if cancelled.
+    /// </summary>
+    public Func<string, string, string?, Task<Models.InlineBrowserResult?>>? OpenBrowser { get; set; }
+
+    /// <summary>Set by MainViewModel to navigate to the Settings tab.</summary>
+    public ICommand? NavigateToSettingsCommand { get; set; }
+
     public BrowseViewModel(
         NexusApiService nexusApi,
         SettingsService settings,
         ModStateService modState,
         UpdateTracker updateTracker,
         DownloadManager downloadManager,
+        NxmProtocolRegistrar nxmRegistrar,
         Logger logger)
     {
         _nexusApi = nexusApi;
@@ -186,15 +261,16 @@ public class BrowseViewModel : ViewModelBase
         _modState = modState;
         _updateTracker = updateTracker;
         _downloadManager = downloadManager;
+        _nxmRegistrar = nxmRegistrar;
         _logger = logger;
 
-        DownloadModCommand = new RelayCommand(param => _ = DownloadMod(param as NexusMod));
-        OpenNexusPageCommand = new RelayCommand(param =>
-        {
-            if (param is NexusMod mod)
-                Process.Start(new ProcessStartInfo($"https://www.nexusmods.com/terraria/mods/{mod.ModId}") { UseShellExecute = true });
-        });
+        DownloadModCommand = new AsyncRelayCommand<NexusMod>(DownloadMod);
         HasApiKey = _nexusApi.HasApiKey;
+        Mods.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowEmptyMessage));
+
+        // Refresh browse cards when a download starts or completes so IsDownloading updates
+        _downloadManager.Downloads.CollectionChanged += (_, _) =>
+            Dispatcher.UIThread.InvokeAsync(() => ApplySort());
 
         LoadAllCommand = new RelayCommand(() => SelectedFeed = "All");
         LoadLatestCommand = new RelayCommand(() => SelectedFeed = "Latest");
@@ -219,6 +295,9 @@ public class BrowseViewModel : ViewModelBase
             DetailMod = null;
             DetailDescription = "";
         });
+        ToggleSelectModeCommand = new RelayCommand(() => IsSelectMode = !IsSelectMode);
+        InstallSelectedCommand = new AsyncRelayCommand(InstallSelected);
+        CancelBulkCommand = new RelayCommand(() => _bulkCts?.Cancel());
     }
 
     private async Task OpenDetailAsync(NexusMod mod)
@@ -354,7 +433,7 @@ public class BrowseViewModel : ViewModelBase
 
                 // Deep-check remaining via full description
                 await DeepCheckModsAsync(candidates.Where(m => !m.IsTerrariaModder).ToList());
-                ApplySort();
+                ApplySort(appendOnly: true);
             }
         }
         catch (Exception ex)
@@ -408,7 +487,7 @@ public class BrowseViewModel : ViewModelBase
         // Phase 2: Deep-check feed mods that didn't match on name/summary
         var feedUnchecked = knownMods.Values.Where(m => !m.IsTerrariaModder).ToList();
         await DeepCheckModsAsync(feedUnchecked);
-        ApplySort();
+        ApplySort(appendOnly: true);
 
         // Phase 3: Fetch full info for updated mods not in feeds (5 concurrent)
         var unknownIds = updatedEntries
@@ -436,7 +515,7 @@ public class BrowseViewModel : ViewModelBase
                 finally { semaphore.Release(); }
             });
             await Task.WhenAll(fetchTasks);
-            ApplySort();
+            ApplySort(appendOnly: true);
         }
     }
 
@@ -530,7 +609,12 @@ public class BrowseViewModel : ViewModelBase
 
     public void ApplyCurrentSort() => ApplySort();
 
-    private void ApplySort()
+    /// <summary>
+    /// Rebuild the displayed Mods collection from _allMods with current filter/sort.
+    /// When appendOnly=true (used during loading), new mods are appended to the end
+    /// without clearing existing items, avoiding layout shift.
+    /// </summary>
+    private void ApplySort(bool appendOnly = false)
     {
         List<NexusMod> snapshot;
         lock (_allModsLock) { snapshot = _allMods.ToList(); }
@@ -560,9 +644,30 @@ public class BrowseViewModel : ViewModelBase
             _ => source.OrderBy(m => m.Name).ToList()
         };
 
-        Mods.Clear();
-        foreach (var mod in sorted)
-            Mods.Add(mod);
+        if (appendOnly)
+        {
+            // During loading: only add items not already displayed, at the end
+            var existing = new HashSet<int>(Mods.Select(m => m.ModId));
+            foreach (var mod in sorted)
+            {
+                if (!existing.Contains(mod.ModId))
+                    Mods.Add(mod);
+            }
+
+            // Remove items that no longer pass the filter
+            var desired = new HashSet<int>(sorted.Select(m => m.ModId));
+            for (int i = Mods.Count - 1; i >= 0; i--)
+            {
+                if (!desired.Contains(Mods[i].ModId))
+                    Mods.RemoveAt(i);
+            }
+        }
+        else
+        {
+            Mods.Clear();
+            foreach (var mod in sorted)
+                Mods.Add(mod);
+        }
     }
 
     public void RefreshInstallStates()
@@ -593,8 +698,14 @@ public class BrowseViewModel : ViewModelBase
 
     private void ApplyInstallStates(IEnumerable<NexusMod> mods)
     {
+        var activeIds = new HashSet<int>(_downloadManager.Downloads
+            .Where(d => d.IsDownloading)
+            .Select(d => d.ModId));
+
         foreach (var mod in mods)
         {
+            mod.IsDownloading = activeIds.Contains(mod.ModId);
+
             if (_installStateCache.TryGetValue(mod.ModId, out var localMod))
             {
                 mod.IsInstalled = true;
@@ -621,7 +732,10 @@ public class BrowseViewModel : ViewModelBase
 
     private async Task DownloadMod(NexusMod? mod)
     {
+        _logger.Info($"DownloadMod ENTERED: mod={mod?.Name ?? "NULL"} (id={mod?.ModId})");
         if (mod == null) return;
+
+        _logger.Info($"DownloadMod: {mod.Name} (id={mod.ModId}), premium={_nexusApi.IsPremium}, hasKey={_nexusApi.HasApiKey}");
 
         // If already installed and up to date, confirm before redownloading
         if (mod.IsInstalled && !mod.HasNewerVersion)
@@ -634,27 +748,72 @@ public class BrowseViewModel : ViewModelBase
             if (answer != ButtonResult.Yes) return;
         }
 
+        // Close detail sidebar when browser opens
+        IsDetailOpen = false;
+
+        // For non-premium users, try to resolve primary file and open download page directly
+        if (!_nexusApi.IsPremium)
+        {
+            _logger.Info("DownloadMod: non-premium, resolving primary file for inline browser");
+            string url;
+            string? resolvedVersion = null;
+            bool showFilesToast = false;
+            try
+            {
+                var modFiles = await _nexusApi.GetModFilesAsync(mod.ModId);
+                var primary = modFiles.FirstOrDefault(f => f.IsPrimary)
+                    ?? modFiles.OrderByDescending(f => f.UploadedTimestamp).FirstOrDefault();
+
+                if (primary != null)
+                {
+                    // Navigate directly to the file's download page
+                    url = $"https://www.nexusmods.com/terraria/mods/{mod.ModId}?tab=files&file_id={primary.FileId}";
+                    resolvedVersion = primary.Version;
+                    _logger.Info($"DownloadMod: resolved primary file {primary.FileId} v{resolvedVersion}");
+                }
+                else
+                {
+                    url = $"https://www.nexusmods.com/terraria/mods/{mod.ModId}?tab=files";
+                    showFilesToast = true;
+                }
+            }
+            catch
+            {
+                url = $"https://www.nexusmods.com/terraria/mods/{mod.ModId}?tab=files";
+                showFilesToast = true;
+            }
+
+            var keepSettings = mod.IsInstalled && mod.HasNewerVersion;
+            var toast = showFilesToast
+                ? "Choose a file version below, then click 'Manual Download'"
+                : "Click 'Manual Download' to install";
+
+            var result = await OpenBrowserAsync(url, $"Installing: {mod.Name}", toast);
+            await EnqueueFromBrowserResult(result, mod.ModId, keepSettings, resolvedVersion);
+            return;
+        }
+
+        // Premium: direct download
         var files = await _nexusApi.GetModFilesAsync(mod.ModId);
         if (files.Count == 0)
         {
-            Process.Start(new ProcessStartInfo($"https://www.nexusmods.com/terraria/mods/{mod.ModId}?tab=files") { UseShellExecute = true });
+            _logger.Info("DownloadMod: no files found, opening in-app browser");
+            var result = await OpenBrowserAsync($"https://www.nexusmods.com/terraria/mods/{mod.ModId}?tab=files", $"Installing: {mod.Name}",
+                "Choose a file version below, then click 'Manual Download'");
+            await EnqueueFromBrowserResult(result, mod.ModId);
             return;
         }
 
         var mainFile = files.FirstOrDefault(f => f.IsPrimary)
             ?? files.OrderByDescending(f => f.UploadedTimestamp).First();
 
-        if (_nexusApi.IsPremium)
-        {
-            var keepSettings = mod.IsInstalled && mod.HasNewerVersion;
-            _ = ShowToastAsync($"Downloading {mod.Name}...");
-            await _downloadManager.EnqueueAsync(mod.ModId, mainFile.FileId, forceKeepSettings: keepSettings);
-        }
-        else
-        {
-            Process.Start(new ProcessStartInfo($"https://www.nexusmods.com/terraria/mods/{mod.ModId}?tab=files") { UseShellExecute = true });
-        }
+        var keep = mod.IsInstalled && mod.HasNewerVersion;
+        _ = ShowToastAsync($"Downloading {mod.Name}...");
+        await _downloadManager.EnqueueAsync(mod.ModId, mainFile.FileId, forceKeepSettings: keep);
     }
+
+    private Task<Models.InlineBrowserResult?> OpenBrowserAsync(string url, string modName, string? toast = null)
+        => OpenBrowser?.Invoke(url, modName, toast) ?? Task.FromResult<Models.InlineBrowserResult?>(null);
 
     private async Task ShowToastAsync(string message, int durationMs = 3000)
     {
@@ -667,6 +826,51 @@ public class BrowseViewModel : ViewModelBase
         try { await Task.Delay(durationMs, token); }
         catch (OperationCanceledException) { return; }
         IsToastVisible = false;
+    }
+
+    private async Task EnqueueFromBrowserResult(Models.InlineBrowserResult? result, int modId, bool keepSettings = false, string? version = null)
+    {
+        if (result?.DownloadedFilePath != null)
+            await _downloadManager.EnqueueFromFileAsync(modId, result.DownloadedFilePath, forceKeepSettings: keepSettings, nexusVersion: version);
+    }
+
+    public void ToggleSelectMod(NexusMod? mod)
+    {
+        if (mod == null) return;
+        mod.IsSelectedForInstall = !mod.IsSelectedForInstall;
+        SelectedForInstallCount = Mods.Count(m => m.IsSelectedForInstall);
+    }
+
+    private void ClearSelections()
+    {
+        foreach (var mod in Mods)
+            mod.IsSelectedForInstall = false;
+        SelectedForInstallCount = 0;
+    }
+
+    private async Task InstallSelected()
+    {
+        var selected = Mods.Where(m => m.IsSelectedForInstall).ToList();
+        if (selected.Count == 0) return;
+
+        _bulkCts?.Cancel();
+        _bulkCts = new CancellationTokenSource();
+        var ct = _bulkCts.Token;
+
+        IsSelectMode = false; // exits select mode and clears selections
+        IsBulkRunning = true;
+        try
+        {
+            foreach (var mod in selected)
+            {
+                if (ct.IsCancellationRequested) break;
+                await DownloadMod(mod);
+            }
+        }
+        finally
+        {
+            IsBulkRunning = false;
+        }
     }
 
     private static bool IsTerrariaModder(string? name, string? text)

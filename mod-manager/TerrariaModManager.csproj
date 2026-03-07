@@ -6,17 +6,34 @@
     <Nullable>enable</Nullable>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    <DebugType>none</DebugType>
-    <DebugSymbols>false</DebugSymbols>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
     <RootNamespace>TerrariaModManager</RootNamespace>
-    <AssemblyName>TerrariaModManager</AssemblyName>
-    <Version>0.1.0</Version>
+    <AssemblyName>TerrariaModderVault</AssemblyName>
+    <Version>0.2.1</Version>
     <ApplicationIcon>Resources\app-icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Suppress CA1416 for Registry access (Windows-only, guarded at runtime) -->
     <NoWarn>CA1416</NoWarn>
   </PropertyGroup>
+
+  <!-- Move native DLLs into a deps/ subfolder next to the exe after publish -->
+  <Target Name="MoveNativeDllsToDeps" AfterTargets="Publish">
+    <MakeDir Directories="$(PublishDir)deps" />
+    <ItemGroup>
+      <_NativeDlls Include="$(PublishDir)WebView2Loader.dll"   Condition="Exists('$(PublishDir)WebView2Loader.dll')" />
+      <_NativeDlls Include="$(PublishDir)av_libglesv2.dll"     Condition="Exists('$(PublishDir)av_libglesv2.dll')" />
+      <_NativeDlls Include="$(PublishDir)libHarfBuzzSharp.dll" Condition="Exists('$(PublishDir)libHarfBuzzSharp.dll')" />
+      <_NativeDlls Include="$(PublishDir)libSkiaSharp.dll"     Condition="Exists('$(PublishDir)libSkiaSharp.dll')" />
+    </ItemGroup>
+    <Move SourceFiles="@(_NativeDlls)" DestinationFolder="$(PublishDir)deps" />
+  </Target>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Resources\bunny5.png"/>
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.2.3" />
@@ -29,5 +46,7 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
     <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
     <PackageReference Include="SharpCompress" Version="0.46.2" />
+    <PackageReference Include="WebView.Avalonia" Version="11.0.0.1" />
+    <PackageReference Include="WebView.Avalonia.Desktop" Version="11.0.0.1" />
   </ItemGroup>
 </Project>

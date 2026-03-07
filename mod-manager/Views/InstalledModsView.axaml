@@ -30,7 +30,7 @@
 
         <!-- Updates Available section -->
         <Border Grid.Row="2" Classes="card" Margin="0,0,0,12"
-                IsVisible="{Binding HasUpdates}"
+                IsVisible="{Binding ShowUpdatesSection}"
                 BorderBrush="#FF3D2E00">
             <StackPanel>
                 <Grid Margin="0,0,0,8">
@@ -38,9 +38,20 @@
                                FontSize="13" FontWeight="SemiBold"
                                Foreground="{StaticResource WarningBrush}"
                                VerticalAlignment="Center"/>
-                    <Button Content="Update All" Classes="primary"
-                            Command="{Binding UpdateAllCommand}"
-                            HorizontalAlignment="Right" Padding="12,6" FontSize="12"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Update All" Classes="primary"
+                                Command="{Binding UpdateAllCommand}"
+                                IsVisible="{Binding !IsBulkRunning}"
+                                Padding="12,6" FontSize="12"/>
+                        <Button Content="Cancel Queue" Classes="secondary"
+                                Command="{Binding CancelBulkCommand}"
+                                IsVisible="{Binding IsBulkRunning}"
+                                Padding="12,6" FontSize="12"/>
+                        <Button Content="✕" Classes="secondary"
+                                Command="{Binding DismissUpdatesCommand}"
+                                Padding="8,4" FontSize="12" Margin="6,0,0,0"
+                                ToolTip.Tip="Dismiss until next launch"/>
+                    </StackPanel>
                 </Grid>
                 <ItemsControl ItemsSource="{Binding UpdateMods}">
                     <ItemsControl.ItemTemplate>
@@ -70,57 +81,137 @@
             </StackPanel>
         </Border>
 
-        <Border Grid.Row="3" Classes="card">
-            <Grid>
-                <TextBlock Text="No mods installed yet.&#x0a;Use the Browse tab or click 'Download with Manager' on Nexus Mods."
-                           Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Center"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                           IsVisible="{Binding Mods.Count, Converter={StaticResource CountToBool}, ConverterParameter=invert}"/>
+        <Grid Grid.Row="3" RowDefinitions="*,Auto" Margin="0,0,0,0">
 
-                <ListBox ItemsSource="{Binding Mods}"
-                         SelectionMode="Multiple"
-                         SelectionChanged="OnSelectionChanged"
-                         Classes="dark">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel>
-                                <!-- Section divider before disabled mods -->
-                                <Border IsVisible="{Binding IsFirstDisabled}"
-                                        BorderBrush="{StaticResource BorderColorBrush}"
-                                        BorderThickness="0,1,0,0" Margin="0,8,0,4" Padding="0,8,0,0">
-                                    <TextBlock Text="Disabled" FontSize="11" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextSecondaryBrush}"/>
-                                </Border>
-                            <Grid Margin="4" ColumnDefinitions="*,Auto,Auto,Auto">
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
-                                               Foreground="{Binding NameColor}"/>
-                                    <TextBlock Text="{Binding Description}" Foreground="{StaticResource TextSecondaryBrush}"
-                                               FontSize="11" TextTrimming="CharacterEllipsis" MaxWidth="500"
-                                               HorizontalAlignment="Left"/>
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="{Binding Author}" Foreground="{StaticResource TextSecondaryBrush}"
-                                           VerticalAlignment="Center" Margin="16,0"/>
-                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
-                                    <TextBlock Text="{Binding Version}" Foreground="{Binding VersionColor}" FontSize="12"/>
-                                    <!-- Update badge -->
-                                    <Border Background="#FF3D2E00" CornerRadius="3"
-                                            Padding="6,2" Margin="6,0,0,0" VerticalAlignment="Center"
-                                            IsVisible="{Binding HasUpdate}">
-                                        <TextBlock Text="{Binding LatestVersion, StringFormat='→ {0}'}"
-                                                   FontSize="10" Foreground="{StaticResource WarningBrush}"/>
-                                    </Border>
-                                </StackPanel>
-                                <TextBlock Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12"
-                                           Text="{Binding StatusText}" Foreground="{Binding StatusColor}"
-                                           MinWidth="100" TextAlignment="Center"/>
-                            </Grid>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </Grid>
-        </Border>
+            <!-- ===== Enabled card ===== -->
+            <Border Grid.Row="0" Classes="card">
+                <Grid>
+                    <!-- Empty state (no mods at all) -->
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10"
+                                IsVisible="{Binding Mods.Count, Converter={StaticResource CountToBool}, ConverterParameter=invert}">
+                        <TextBlock Text="No mods installed yet."
+                                   Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Center"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="Browse Nexus Mods or click 'Download with Vault' on Nexus Mods."
+                                   Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Center"
+                                   FontSize="12" HorizontalAlignment="Center"/>
+                        <Button Content="Browse Mods →" Classes="secondary"
+                                Command="{Binding NavigateToBrowseCommand}"
+                                HorizontalAlignment="Center" Padding="14,6" Margin="0,4,0,0"/>
+                    </StackPanel>
+
+                    <!-- Enabled mods section -->
+                    <Grid RowDefinitions="Auto,*"
+                          IsVisible="{Binding Mods.Count, Converter={StaticResource CountToBool}}">
+                        <TextBlock Grid.Row="0"
+                                   Text="{Binding EnabledHeader}"
+                                   Classes="label" FontWeight="SemiBold"
+                                   Margin="4,4,4,6"/>
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <ListBox x:Name="EnabledList"
+                                     ItemsSource="{Binding EnabledMods}"
+                                     SelectionMode="Multiple"
+                                     SelectionChanged="OnSelectionChanged"
+                                     Classes="dark"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="4" ColumnDefinitions="*,Auto,Auto,Auto">
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                                                           Foreground="{Binding NameColor}"/>
+                                                <TextBlock Text="{Binding Description}" Foreground="{StaticResource TextSecondaryBrush}"
+                                                           FontSize="11" TextTrimming="CharacterEllipsis" MaxWidth="500"
+                                                           HorizontalAlignment="Left"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Text="{Binding Author}" Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center" Margin="16,0"/>
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
+                                                <TextBlock Text="{Binding Version}" Foreground="{Binding VersionColor}" FontSize="12"/>
+                                                <Border Background="#FF3D2E00" CornerRadius="3"
+                                                        Padding="6,2" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                        IsVisible="{Binding HasUpdate}">
+                                                    <TextBlock Text="{Binding LatestVersion, StringFormat='→ {0}'}"
+                                                               FontSize="10" Foreground="{StaticResource WarningBrush}"/>
+                                                </Border>
+                                            </StackPanel>
+                                            <ToggleSwitch Grid.Column="3"
+                                                         IsChecked="{Binding IsEnabled, Mode=OneWay}"
+                                                         OnContent="" OffContent=""
+                                                         VerticalAlignment="Center" HorizontalAlignment="Right"
+                                                         IsEnabled="{Binding !IsCore}"
+                                                         Click="OnModToggleClicked"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </ScrollViewer>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- ===== Disabled card ===== -->
+            <Border Grid.Row="1" Classes="card" Margin="0,8,0,0"
+                    IsVisible="{Binding HasDisabled}">
+                <StackPanel>
+                    <!-- Clickable header (collapses/expands list) -->
+                    <Button Command="{Binding ToggleDisabledExpandedCommand}"
+                            Background="Transparent" BorderThickness="0"
+                            Padding="4,2,4,2" HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Left" Cursor="Hand">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding IsDisabledExpanded, Converter={StaticResource BoolToExpandIcon}}"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       FontSize="10" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding DisabledHeader}"
+                                       Classes="label" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Button>
+                    <!-- Disabled list (max height with scroll) -->
+                    <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto"
+                                  IsVisible="{Binding IsDisabledExpanded}">
+                        <ListBox x:Name="DisabledList"
+                                 ItemsSource="{Binding DisabledMods}"
+                                 SelectionMode="Multiple"
+                                 SelectionChanged="OnSelectionChanged"
+                                 Classes="dark"
+                                 ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="4" ColumnDefinitions="*,Auto,Auto,Auto">
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                                                       Foreground="{Binding NameColor}"/>
+                                            <TextBlock Text="{Binding Description}" Foreground="{StaticResource TextSecondaryBrush}"
+                                                       FontSize="11" TextTrimming="CharacterEllipsis" MaxWidth="500"
+                                                       HorizontalAlignment="Left"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding Author}" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" Margin="16,0"/>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
+                                            <TextBlock Text="{Binding Version}" Foreground="{Binding VersionColor}" FontSize="12"/>
+                                            <Border Background="#FF3D2E00" CornerRadius="3"
+                                                    Padding="6,2" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                    IsVisible="{Binding HasUpdate}">
+                                                <TextBlock Text="{Binding LatestVersion, StringFormat='→ {0}'}"
+                                                           FontSize="10" Foreground="{StaticResource WarningBrush}"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="3"
+                                                     IsChecked="{Binding IsEnabled, Mode=OneWay}"
+                                                     OnContent="" OffContent=""
+                                                     VerticalAlignment="Center" HorizontalAlignment="Right"
+                                                     IsEnabled="{Binding !IsCore}"
+                                                     Click="OnModToggleClicked"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+
+        </Grid>
 
         <!-- Action buttons -->
         <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0"
@@ -137,7 +228,7 @@
             <Button Content="{Binding ToggleButtonText}" Classes="secondary"
                     Command="{Binding ToggleEnabledCommand}" Margin="0,0,8,0"
                     IsVisible="{Binding AnySelectedNonCore}"/>
-            <Button Content="Delete" Classes="danger"
+            <Button Content="Delete Selected" Classes="danger"
                     Command="{Binding UninstallCommand}"/>
         </StackPanel>
     </Grid>

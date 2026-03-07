@@ -5,10 +5,11 @@
              RequestedThemeVariant="Dark">
     <Application.Styles>
         <FluentTheme />
-        <StyleInclude Source="avares://TerrariaModManager/Resources/Styles.axaml"/>
+        <StyleInclude Source="avares://TerrariaModderVault/Resources/Styles.axaml"/>
     </Application.Styles>
     <Application.Resources>
         <vm:BoolInverterConverter x:Key="BoolInvert"/>
         <vm:CountToBoolConverter x:Key="CountToBool"/>
+        <vm:BoolToExpandIconConverter x:Key="BoolToExpandIcon"/>
     </Application.Resources>
 </Application>

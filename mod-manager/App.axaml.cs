@@ -1,11 +1,15 @@
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using AvaloniaWebView;
 using Microsoft.Extensions.DependencyInjection;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
+using TerrariaModManager.Models;
 using TerrariaModManager.Services;
 using TerrariaModManager.Views;
 using TerrariaModManager.ViewModels;
@@ -19,6 +23,60 @@ public partial class App : Application
     private Logger? _logger;
 
     public static string? EnvApiKey { get; private set; }
+    public static Logger? AppLogger { get; private set; }
+
+    public override void RegisterServices()
+    {
+        base.RegisterServices();
+        var webViewDataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "TerrariaModManager", "WebView2");
+
+        // Clear WebView2 data if flagged from a previous logout
+        try
+        {
+            var settingsPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "TerrariaModManager", "settings.json");
+            if (File.Exists(settingsPath))
+            {
+                var json = File.ReadAllText(settingsPath);
+                var settings = JsonSerializer.Deserialize<AppSettings>(json);
+                if (settings?.ClearWebViewDataOnNextStart == true)
+                {
+                    if (Directory.Exists(webViewDataDir))
+                        Directory.Delete(webViewDataDir, true);
+                    settings.ClearWebViewDataOnNextStart = false;
+                    File.WriteAllText(settingsPath, JsonSerializer.Serialize(settings,
+                        new JsonSerializerOptions { WriteIndented = true }));
+                }
+            }
+        }
+        catch { /* best effort */ }
+
+        // Ensure the directory exists — WebView2 CreateAsync may fail if it can't create it itself
+        try { Directory.CreateDirectory(webViewDataDir); } catch { /* best effort */ }
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // Force WebView2 user data folder to AppData — the Avalonia wrapper's config.UserDataFolder
+            // doesn't always propagate, and WebView2 falls back to creating {exe}.WebView2 next to the exe.
+            Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER", webViewDataDir);
+
+            // WebView2 SDK can't find WebView2Loader.dll in single-file publish because Assembly.Location
+            // returns "". With IncludeNativeLibrariesForSelfExtract=false the DLL sits in deps/ next to
+            // the exe, so we point the SDK there explicitly.
+            var depsDir = Path.Combine(AppContext.BaseDirectory, "deps");
+            try { Microsoft.Web.WebView2.Core.CoreWebView2Environment.SetLoaderDllFolderPath(depsDir); } catch { /* best effort */ }
+        }
+
+        AvaloniaWebViewBuilder.Initialize(config =>
+        {
+            config.UserDataFolder = webViewDataDir;
+            config.AreDevToolEnabled = false;
+            config.AreDefaultContextMenusEnabled = false;
+        });
+    }
 
     public override void Initialize()
     {
@@ -61,6 +119,7 @@ public partial class App : Application
 
             // Initialize Logger
             _logger = _serviceProvider.GetRequiredService<Logger>();
+            AppLogger = _logger;
             _logger.Info("TerrariaModder Vault starting");
 
             var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
@@ -102,8 +161,11 @@ public partial class App : Application
                         }
                     });
                 var result = await box.ShowWindowDialogAsync(mainWindow);
-                return result == "Keep Settings" ? ConfigAction.Keep : ConfigAction.Delete;
+                return result == "Clean Install" ? ConfigAction.Delete : ConfigAction.Keep;
             };
+
+            // Auto-repair stale nxm:// registration (exe moved or updated to different path)
+            _serviceProvider.GetRequiredService<NxmProtocolRegistrar>().AutoRepairIfStale();
 
             // Listen for nxm:// links from other instances
             var nxmHandler = _serviceProvider.GetRequiredService<NxmLinkHandler>();
@@ -136,6 +198,7 @@ public partial class App : Application
             }
 
             desktop.MainWindow = mainWindow;
+            desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnMainWindowClose;
             desktop.ShutdownRequested += (_, _) =>
             {
                 nexusApi.Dispose();
@@ -162,6 +225,7 @@ public partial class App : Application
         services.AddSingleton<ModInstallService>();
         services.AddSingleton<UpdateTracker>();
         services.AddSingleton<DownloadManager>();
+        services.AddSingleton<NexusBrowserService>();
 
         // ViewModels
         services.AddTransient<MainViewModel>();

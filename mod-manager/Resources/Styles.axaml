@@ -54,13 +54,18 @@
         <Setter Property="Background" Value="Transparent"/>
     </Style>
 
-    <!-- ProgressBar default -->
+    <!-- ProgressBar default with smooth value transition (G) -->
     <Style Selector="ProgressBar">
         <Setter Property="Background" Value="{StaticResource BgDarkBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource AccentMutedBrush}"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="MinHeight" Value="6"/>
         <Setter Property="MaxHeight" Value="6"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <DoubleTransition Property="Value" Duration="0:0:0.25" Easing="SineEaseOut"/>
+            </Transitions>
+        </Setter>
     </Style>
 
     <!-- Sidebar nav button -->
@@ -83,6 +88,11 @@
     <Style Selector="Button.nav:pressed /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{StaticResource BgElevatedBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+    </Style>
+    <!-- Active nav item (B) -->
+    <Style Selector="Button.nav.nav-active /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource BgElevatedBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
     </Style>
 
     <!-- Primary button -->
@@ -120,6 +130,12 @@
         <Setter Property="Opacity" Value="0.4"/>
     </Style>
 
+    <!-- Active state for tab-switcher secondary buttons -->
+    <Style Selector="Button.secondary.active /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource BgElevatedBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+    </Style>
+
     <!-- Danger button -->
     <Style Selector="Button.danger">
         <Setter Property="Background" Value="{StaticResource BgLightBrush}"/>
@@ -148,6 +164,11 @@
         <Setter Property="SelectionBrush" Value="{StaticResource AccentMutedBrush}"/>
     </Style>
 
+    <!-- Invalid path TextBox (N) -->
+    <Style Selector="TextBox.dark.invalid">
+        <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}"/>
+    </Style>
+
     <!-- Card panel -->
     <Style Selector="Border.card">
         <Setter Property="Background" Value="{StaticResource BgMediumBrush}"/>
@@ -155,6 +176,35 @@
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="8"/>
         <Setter Property="Padding" Value="16"/>
+    </Style>
+
+    <!-- Browse mod card hover effect (I) -->
+    <Style Selector="Border.mod-card">
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.1"/>
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Border.mod-card:pointerover">
+        <Setter Property="Background" Value="{StaticResource BgElevatedBrush}"/>
+    </Style>
+
+    <!-- Skeleton loading card animation (H) -->
+    <Style Selector="Border.skeleton-card">
+        <Setter Property="Background" Value="{StaticResource BgLightBrush}"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="Margin" Value="4"/>
+        <Style.Animations>
+            <Animation Duration="0:0:1.5" IterationCount="INFINITE" PlaybackDirection="Alternate" Easing="SineEaseInOut">
+                <KeyFrame Cue="0%">
+                    <Setter Property="Opacity" Value="0.3"/>
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="Opacity" Value="0.6"/>
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
     </Style>
 
     <!-- Section header -->

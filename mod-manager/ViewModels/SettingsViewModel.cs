@@ -1,4 +1,5 @@
-using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
@@ -27,6 +28,8 @@ public class SettingsViewModel : ViewModelBase
     private bool _isLoggingIn;
     private List<DetectedInstall> _detectedInstalls = new();
     private string _logText = "";
+    private bool _autoCheckForUpdates = true;
+    private bool _showLogs;
 
     private NexusSsoService? _ssoService;
     private readonly SettingsService _settings;
@@ -39,6 +42,10 @@ public class SettingsViewModel : ViewModelBase
     private readonly Logger _logger;
     private AppSettings _appSettings = null!;
 
+    public Func<string, string, string?, Task<InlineBrowserResult?>>? OpenBrowser { get; set; }
+    public Action? CloseBrowser { get; set; }
+    public Action? ClearBrowserCookies { get; set; }
+
     public string TerrariaPath
     {
         get => _terrariaPath;
@@ -50,9 +57,17 @@ public class SettingsViewModel : ViewModelBase
                 _installer.SetTerrariaPath(value);
                 _settings.Save(_appSettings);
                 RefreshCoreInfo();
+                OnPropertyChanged(nameof(IsPathValid));
             }
         }
     }
+
+    private static string TerrariaExeName =>
+        RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Terraria.exe" : "Terraria";
+
+    public bool IsPathValid =>
+        string.IsNullOrWhiteSpace(_terrariaPath) ||
+        (Directory.Exists(_terrariaPath) && File.Exists(Path.Combine(_terrariaPath, TerrariaExeName)));
 
     public string ApiKey
     {
@@ -142,6 +157,31 @@ public class SettingsViewModel : ViewModelBase
         set => SetProperty(ref _logText, value);
     }
 
+    public bool AutoCheckForUpdates
+    {
+        get => _autoCheckForUpdates;
+        set
+        {
+            if (SetProperty(ref _autoCheckForUpdates, value))
+            {
+                _appSettings.AutoCheckForUpdates = value;
+                _settings.Save(_appSettings);
+            }
+        }
+    }
+
+    public bool ShowLogs
+    {
+        get => _showLogs;
+        set
+        {
+            if (SetProperty(ref _showLogs, value))
+                OnPropertyChanged(nameof(ShowSettings));
+        }
+    }
+
+    public bool ShowSettings => !_showLogs;
+
     // Computed properties (replace WPF DataTriggers)
     public string CoreStatusText => IsCoreInstalled ? $"v{CoreVersion}" : "Not installed";
     public IBrush CoreStatusColor => IsCoreInstalled
@@ -154,6 +194,8 @@ public class SettingsViewModel : ViewModelBase
         ? new SolidColorBrush(Color.Parse("#FF58EB1C"))
         : new SolidColorBrush(Color.Parse("#FF7C828D"));
 
+    public event Action? LoginSucceeded;
+
     public ICommand BrowsePathCommand { get; }
     public ICommand AutoDetectCommand { get; }
     public ICommand LoginWithNexusCommand { get; }
@@ -165,6 +207,9 @@ public class SettingsViewModel : ViewModelBase
     public ICommand ClearLogsCommand { get; }
     public ICommand CopyLogsCommand { get; }
     public ICommand SaveLogsCommand { get; }
+    public ICommand ShowSettingsTabCommand { get; }
+    public ICommand ShowLogsTabCommand { get; }
+    public ICommand ResetWebViewCommand { get; }
 
     public SettingsViewModel(
         SettingsService settings,
@@ -196,6 +241,12 @@ public class SettingsViewModel : ViewModelBase
         ClearLogsCommand = new RelayCommand(ClearLogs);
         CopyLogsCommand = new AsyncRelayCommand(CopyLogs);
         SaveLogsCommand = new AsyncRelayCommand(SaveLogs);
+        ShowSettingsTabCommand = new RelayCommand(() => ShowLogs = false);
+        ShowLogsTabCommand = new RelayCommand(() => { ShowLogs = true; RefreshLogs(); });
+        ResetWebViewCommand = new RelayCommand(ResetWebView);
+
+        _nxmRegistrar.RegistrationChanged += () =>
+            Dispatcher.UIThread.InvokeAsync(() => IsNxmRegistered = _nxmRegistrar.IsRegistered());
     }
 
     public void LoadFromSettings()
@@ -205,26 +256,29 @@ public class SettingsViewModel : ViewModelBase
         _apiKey = _appSettings.NexusApiKey ?? "";
         _isPremium = _appSettings.IsPremium;
         _isNxmRegistered = _nxmRegistrar.IsRegistered();
-
-        // Note: App.EnvApiKey is still static for now as it's a startup artifact
-        if (string.IsNullOrWhiteSpace(_apiKey) && !string.IsNullOrWhiteSpace(App.EnvApiKey))
-            _apiKey = App.EnvApiKey;
+        _autoCheckForUpdates = _appSettings.AutoCheckForUpdates;
 
         OnPropertyChanged(nameof(TerrariaPath));
         OnPropertyChanged(nameof(ApiKey));
         OnPropertyChanged(nameof(IsPremium));
         OnPropertyChanged(nameof(IsNxmRegistered));
+        OnPropertyChanged(nameof(IsPathValid));
+        OnPropertyChanged(nameof(AutoCheckForUpdates));
 
         RefreshCoreInfo();
         RefreshLogs();
 
-        if (!string.IsNullOrWhiteSpace(_apiKey))
+        // Validate from saved key, or from API service (which may have dev env key from startup)
+        if (!string.IsNullOrWhiteSpace(_apiKey) || _nexusApi.HasApiKey)
             _ = ValidateExistingKey();
     }
 
     private async Task ValidateExistingKey()
     {
-        _nexusApi.SetApiKey(_apiKey);
+        // Only override the API service key if we have one from settings
+        if (!string.IsNullOrWhiteSpace(_apiKey))
+            _nexusApi.SetApiKey(_apiKey);
+
         var user = await _nexusApi.ValidateApiKeyAsync();
         if (user != null)
         {
@@ -267,11 +321,11 @@ public class SettingsViewModel : ViewModelBase
 
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Select Terraria.exe",
+            Title = $"Select {TerrariaExeName}",
             AllowMultiple = false,
             FileTypeFilter = new[]
             {
-                new FilePickerFileType("Terraria") { Patterns = new[] { "Terraria.exe" } }
+                new FilePickerFileType("Terraria") { Patterns = new[] { TerrariaExeName } }
             }
         });
 
@@ -284,7 +338,7 @@ public class SettingsViewModel : ViewModelBase
         }
     }
 
-    private void AutoDetect()
+    public void AutoDetect()
     {
         var installs = _detector.FindAllInstalls();
         DetectedInstalls = installs;
@@ -312,6 +366,8 @@ public class SettingsViewModel : ViewModelBase
         {
             Dispatcher.UIThread.InvokeAsync(async () =>
             {
+                CloseBrowser?.Invoke();
+
                 ApiKey = apiKey;
                 _nexusApi.SetApiKey(apiKey);
 
@@ -326,6 +382,8 @@ public class SettingsViewModel : ViewModelBase
                     _appSettings.NexusApiKey = apiKey;
                     _appSettings.IsPremium = user.IsPremium;
                     _settings.Save(_appSettings);
+
+                    LoginSucceeded?.Invoke();
                 }
 
                 IsLoggingIn = false;
@@ -338,6 +396,7 @@ public class SettingsViewModel : ViewModelBase
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
+                CloseBrowser?.Invoke();
                 LoginStatus = $"Login failed: {error}. Use manual API key instead.";
                 IsLoggingIn = false;
             });
@@ -346,8 +405,21 @@ public class SettingsViewModel : ViewModelBase
         try
         {
             var url = await _ssoService.StartLoginAsync();
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-            LoginStatus = "Waiting for authorization in browser...";
+
+            var browserTask = OpenBrowser?.Invoke(url, "Sign in to Nexus Mods", null);
+            LoginStatus = "Waiting for authorization...";
+
+            if (browserTask != null)
+            {
+                await browserTask;
+                if (_isLoggingIn)
+                {
+                    IsLoggingIn = false;
+                    LoginStatus = "";
+                    _ssoService?.Dispose();
+                    _ssoService = null;
+                }
+            }
         }
         catch
         {
@@ -367,6 +439,26 @@ public class SettingsViewModel : ViewModelBase
         _nexusApi.SetApiKey("");
         _appSettings.NexusApiKey = "";
         _appSettings.IsPremium = false;
+
+        // Clear cookies in the live WebView2 instance (works without restart)
+        ClearBrowserCookies?.Invoke();
+
+        // Also nuke the user-data folder so cached credentials don't survive a restart.
+        // If the folder is locked by an active WebView2 process, flag it for next startup.
+        var webViewDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "TerrariaModManager", "WebView2");
+        try
+        {
+            if (Directory.Exists(webViewDir))
+                Directory.Delete(webViewDir, true);
+            _appSettings.ClearWebViewDataOnNextStart = false;
+        }
+        catch
+        {
+            _appSettings.ClearWebViewDataOnNextStart = true;
+        }
+
         _settings.Save(_appSettings);
     }
 
@@ -392,6 +484,8 @@ public class SettingsViewModel : ViewModelBase
             _appSettings.NexusApiKey = ApiKey;
             _appSettings.IsPremium = user.IsPremium;
             _settings.Save(_appSettings);
+
+            LoginSucceeded?.Invoke();
         }
         else
         {
@@ -463,6 +557,25 @@ public class SettingsViewModel : ViewModelBase
         await using var stream = await file.OpenWriteAsync();
         await using var writer = new System.IO.StreamWriter(stream);
         await writer.WriteAsync(LogText);
+    }
+
+    private void ResetWebView()
+    {
+        _appSettings.ClearWebViewDataOnNextStart = true;
+        _settings.Save(_appSettings);
+
+        // Restart the app so the cleanup runs in RegisterServices() before WebView2 initializes
+        var exe = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+        if (!string.IsNullOrEmpty(exe))
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe)
+            {
+                UseShellExecute = true
+            });
+        }
+
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            desktop.Shutdown();
     }
 
     private static TopLevel? GetTopLevel()

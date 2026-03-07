@@ -1,0 +1,57 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv="using:AvaloniaWebView"
+        x:Class="TerrariaModManager.Views.NexusBrowserWindow"
+        Title="Nexus Mods" Width="1050" Height="750"
+        MinWidth="600" MinHeight="400"
+        WindowStartupLocation="CenterOwner">
+
+    <Grid RowDefinitions="Auto,Auto,*">
+        <!-- Instruction header (hidden until SetContext is called) -->
+        <Border Grid.Row="0" x:Name="InstructionHeader"
+                Background="{StaticResource BgMediumBrush}"
+                BorderBrush="{StaticResource BorderColorBrush}" BorderThickness="0,0,0,1"
+                Padding="16,10" IsVisible="False">
+            <StackPanel Spacing="2">
+                <TextBlock x:Name="ModNameText"
+                           Foreground="{StaticResource AccentBrush}"
+                           FontSize="14" FontWeight="SemiBold"/>
+                <TextBlock x:Name="InstructionText"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           FontSize="12"
+                           Text="Click 'Mod Manager Download' below, then wait for the countdown"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Nav bar -->
+        <Border Grid.Row="1" Background="{StaticResource BgMediumBrush}"
+                BorderBrush="{StaticResource BorderColorBrush}" BorderThickness="0,0,0,1"
+                Padding="8,6">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*">
+                <Button Grid.Column="0" x:Name="BackButton" Content="&#x2190;" Click="OnBack"
+                        Width="32" Height="28" FontSize="14"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Margin="0,0,4,0"/>
+                <Button Grid.Column="1" x:Name="ForwardButton" Content="&#x2192;" Click="OnForward"
+                        Width="32" Height="28" FontSize="14"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Margin="0,0,4,0"/>
+                <Button Grid.Column="2" Content="&#x21BB;" Click="OnRefresh"
+                        Width="32" Height="28" FontSize="14"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Margin="0,0,8,0"/>
+
+                <Border Grid.Column="3" Background="{StaticResource BgDarkBrush}"
+                        CornerRadius="4" Padding="8,4" VerticalAlignment="Center">
+                    <TextBlock x:Name="UrlDisplay" Text="Loading..."
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               FontSize="12" TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center"/>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- WebView -->
+        <wv:WebView Grid.Row="2" x:Name="Browser"/>
+    </Grid>
+</Window>
