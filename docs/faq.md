@@ -69,11 +69,15 @@ No. Client-side mods only affect your own game. Other players don't need anythin
 
 ### Where do I download TerrariaModder?
 
-Download TerrariaModder Core and individual mods from [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods). Source code is on [GitHub](https://github.com/Inidar1/terraria-modder). See the [Installation Guide](installation) for step-by-step instructions.
+The easiest way is the **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** — the official mod manager. Install it once and it handles Core and all mods for you.
+
+If you prefer manual installs: download TerrariaModder Core and individual mods from [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods). Source code is on [GitHub](https://github.com/Inidar1/terraria-modder). See the [Installation Guide](installation) for step-by-step instructions.
 
 ### How do I update TerrariaModder?
 
-Download the new Core version and extract it over your existing installation. Your mod configs and keybinds are preserved. See [Installation - Updating](installation#updating-terrariamodder) for details.
+**With the Vault:** It detects new versions and lets you update with one click.
+
+**Manually:** Download the new Core version and extract it over your existing installation. Your mod configs and keybinds are preserved. See [Installation - Updating](installation#updating-terrariamodder) for details.
 
 ### How do I uninstall TerrariaModder?
 
@@ -110,4 +114,4 @@ TerrariaModder logs to `TerrariaModder/core/logs/terrariamodder.log`. Use `_log.
 
 ### Can I distribute mods I create?
 
-Yes. See the [Publishing Guide](publishing-your-mod) for instructions on packaging and distributing your mod via Nexus Mods, GitHub, or other platforms.
+Yes. Publishing on [Nexus Mods](https://www.nexusmods.com/terraria) makes your mod automatically installable through the [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159), which is how most players install mods. See [The Vault](the-vault) for packaging requirements and the [Publishing Guide](publishing-your-mod) for the full distribution guide.

@@ -6,7 +6,7 @@ nav_order: 4
 
 # Available Mods
 
-All official TerrariaModder mods are available on [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods). Each mod is a separate download, so install only what you want.
+All official TerrariaModder mods are available on [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods). The easiest way to install them is the **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** — the official mod manager. Install it once and click to add, update, or disable any mod. Or download zips manually if you prefer.
 
 ## Official Mods
 
@@ -29,6 +29,14 @@ All mods require TerrariaModder Core to be installed first.
 **ModMenu** (F6) is built into Core, no separate download needed.
 
 ## Installing a Mod
+
+**Recommended — use the Vault:**
+
+1. Download the [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)
+2. Click to install any mod from the list
+3. Hit **Run Modded** to launch
+
+**Manual:**
 
 1. Download the mod zip from Nexus
 2. Extract it into your Terraria folder

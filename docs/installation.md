@@ -13,13 +13,29 @@ This guide covers installing TerrariaModder for players who want to use mods.
 - **Terraria 1.4.5** (Steam version)
 - **Windows** (10 or 11)
 
-## Step 1: Download
+## Option A: Install via the Vault (Recommended)
+
+The **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** is the official mod manager. It handles Core and all mods in one place — no manual extracting.
+
+1. Download and run the Vault from [Nexus Mods](https://www.nexusmods.com/terraria/mods/159)
+2. Click to install Core and any mods you want
+3. Hit **Run Modded** to launch
+
+That's it. The Vault keeps everything up to date and lets you enable/disable mods without touching files. **Most players should use this.**
+
+---
+
+## Option B: Manual Installation
+
+If you prefer to manage files yourself:
+
+### Step 1: Download
 
 Download **TerrariaModder Core** from [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods). This is the framework that all mods require.
 
 Then download any mods you want. Each mod is a separate download on the same Nexus page.
 
-## Step 2: Find Your Terraria Folder
+### Step 2: Find Your Terraria Folder
 
 The default Steam location is:
 ```
@@ -32,7 +48,7 @@ To find it in Steam:
 3. Go to "Local Files" tab
 4. Click "Browse Local Files"
 
-## Step 3: Install Core
+### Step 3: Install Core
 
 Extract the Core zip into your Terraria folder. After extraction, you should have:
 
@@ -54,7 +70,7 @@ Terraria/
     └── mods/
 ```
 
-## Step 4: Install Mods
+### Step 4: Install Mods
 
 Extract each mod zip into your Terraria folder. Each mod adds a folder under `TerrariaModder/mods/`:
 
@@ -67,7 +83,7 @@ TerrariaModder/
     └── (etc.)
 ```
 
-## Step 5: Launch
+### Step 5: Launch
 
 **Important:** Run `TerrariaInjector.exe` instead of `Terraria.exe`.
 
@@ -78,7 +94,7 @@ You can:
 
 The game will launch normally with mods active.
 
-## Step 6: Configure (Optional)
+### Step 6: Configure (Optional)
 
 Press **F6** in-game to open the **ModMenu** where you can:
 - Enable/disable mods
@@ -96,7 +112,9 @@ If mods are working, you'll see:
 
 ## Adding More Mods
 
-To install additional mods:
+**With the Vault:** Browse the mod list, click to install, done.
+
+**Manually:**
 
 1. Download the mod zip
 2. Extract it into your Terraria folder (contents go into `TerrariaModder/mods/`)
@@ -116,6 +134,10 @@ mods/
 To remove a mod, simply delete its folder from `TerrariaModder/mods/`.
 
 ## Updating TerrariaModder
+
+**With the Vault:** It detects new versions automatically. Click to update.
+
+**Manually:**
 
 1. Back up your `TerrariaModder/mods/` folder (contains your mod configs)
 2. Download the new Core version

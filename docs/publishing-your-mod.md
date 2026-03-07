@@ -34,6 +34,7 @@ Before releasing:
   "description": "Clear description of what your mod does",
   "author": "Your Name",
   "entry_dll": "YourMod.dll",
+  "framework_version": ">=0.2.0",
   "icon": "icon.png",
   "config_schema": {
     "enabled": { "type": "bool", "default": true, "label": "Enable Mod" }
@@ -93,9 +94,19 @@ rmdir /s /q %MOD_NAME%
 
 ## Where to Publish
 
+### Nexus Mods (Recommended)
+
+Publish on [Nexus Mods](https://www.nexusmods.com/terraria) to reach the most players. Mods published here are automatically installable through the **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** — the official mod manager — so players can install your mod with a single click.
+
+1. Create a mod page at [nexusmods.com/terraria](https://www.nexusmods.com/terraria)
+2. Upload your mod zip as the **main file** on the Files tab
+3. Your mod is now available in the Vault
+
+See [The Vault](the-vault) for packaging requirements (zip structure, manifest.json fields, versioning) that ensure your mod installs cleanly through the Vault.
+
 ### GitHub Releases
 
-The recommended approach:
+Also recommended — keeps your source available and provides a version history:
 
 1. Create a GitHub repository for your mod
 2. Push your source code
@@ -121,11 +132,15 @@ Share in Terraria modding Discord servers:
 
 ## Installation Instructions for Users
 
-Include this in your README:
+If your mod is on Nexus Mods, players can install it through the [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159) with one click — no manual steps needed. For manual installs, include this in your README:
 
 ```markdown
 ## Installation
 
+### Option A: TerrariaModder Vault (Recommended)
+Install from the [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159) — one click install.
+
+### Option B: Manual
 1. Install TerrariaModder framework (if not already installed)
 2. Download `your-mod.zip`
 3. Extract to `Terraria/TerrariaModder/mods/`
@@ -172,8 +187,9 @@ Users should check:
 
 ## Tips for Success
 
-1. **Clear naming** - Make it obvious what your mod does
-2. **Good documentation** - README with features, installation, keybinds
-3. **Responsive** - Answer questions, fix reported bugs
-4. **Updates** - Keep compatible with new Terraria versions
-5. **Source available** - Helps others learn and contribute
+1. **Publish on Nexus Mods** - Makes your mod available through the [TerrariaModder Vault](the-vault) for one-click installs
+2. **Clear naming** - Make it obvious what your mod does
+3. **Good documentation** - README with features, installation, keybinds
+4. **Responsive** - Answer questions, fix reported bugs
+5. **Updates** - Keep compatible with new Terraria versions
+6. **Source available** - Helps others learn and contribute

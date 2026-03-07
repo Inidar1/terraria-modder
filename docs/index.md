@@ -27,13 +27,15 @@ TerrariaModder lets you run mods on Terraria 1.4.5 without waiting for tModLoade
 
 **Want to install and use mods?**
 
-1. [Installation Guide](installation) - Get up and running
+The easiest way is the **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** — the official mod manager. Install it once, then click to add or update any mod. Hit **Run Modded** to launch.
+
+1. [Installation Guide](installation) - Get up and running (Vault or manual)
 2. [Troubleshooting](troubleshooting) - Fix common issues
 3. [Available Mods](available-mods) - What's available
 
 ### Available Mods
 
-Download Core and any mods you want from [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods). Each mod is a separate download.
+Download Core and any mods you want from [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods), or install them all through the [Vault](https://www.nexusmods.com/terraria/mods/159) in one place. Each mod is a separate download.
 
 | Mod | Description | Keybind | Download |
 |-----|-------------|---------|----------|
@@ -60,7 +62,8 @@ Press **F6** in-game to configure mods and rebind keys. Changes are saved automa
 2. [Harmony Basics](harmony-basics) - Runtime patching guide
 3. [Tested Patterns](tested-patterns) - Proven techniques from real mods
 4. [Core API Reference](core-api-reference) - Framework APIs
-5. [Publishing Your Mod](publishing-your-mod) - Distribution guide
+5. [The Vault](the-vault) - Making your mod installable via the official mod manager
+6. [Publishing Your Mod](publishing-your-mod) - Distribution guide
 
 ### Mod Walkthroughs
 
