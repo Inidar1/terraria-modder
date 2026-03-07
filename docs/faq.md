@@ -47,10 +47,6 @@ Yes. TerrariaModder does not modify any game files. It works by injecting code a
 
 No. TerrariaModder mods do not modify your player or world save files. Mods that add custom items use a separate sidecar file system to store custom data. If you uninstall TerrariaModder, your saves work normally in vanilla Terraria (custom items revert to empty slots).
 
-### Will I get banned for using TerrariaModder?
-
-Terraria is a singleplayer/co-op game without anti-cheat. There is no ban system. TerrariaModder is no different from other Terraria modding tools like tModLoader in this regard.
-
 ### Does TerrariaModder work with Steam achievements?
 
 Yes. Since TerrariaModder launches through TerrariaInjector.exe alongside the real Terraria process, Steam achievements still work normally.
