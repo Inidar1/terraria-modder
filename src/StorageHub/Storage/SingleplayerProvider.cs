@@ -204,20 +204,27 @@ namespace StorageHub.Storage
 
                 if (_itemType != null)
                 {
-                    // SetDefaults signature is SetDefaults(int Type, ItemVariant variant = null)
-                    // GetMethod with just typeof(int) won't match a 2-param method, so search by name
+                    // Prefer the most specific int-based overload:
+                    // SetDefaults(int, bool, ItemVariant) > SetDefaults(int, ItemVariant) > SetDefaults(int)
+                    MethodInfo bestSetDefaults = null;
+                    int bestScore = -1;
                     foreach (var m in _itemType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
                     {
-                        if (m.Name == "SetDefaults")
+                        if (!string.Equals(m.Name, "SetDefaults", StringComparison.Ordinal))
+                            continue;
+
+                        var p = m.GetParameters();
+                        if (p.Length < 1 || p[0].ParameterType != typeof(int))
+                            continue;
+
+                        int score = p.Length;
+                        if (score > bestScore)
                         {
-                            var p = m.GetParameters();
-                            if (p.Length >= 1 && p[0].ParameterType == typeof(int))
-                            {
-                                _itemSetDefaultsMethod = m;
-                                break;
-                            }
+                            bestScore = score;
+                            bestSetDefaults = m;
                         }
                     }
+                    _itemSetDefaultsMethod = bestSetDefaults;
 
                     // Item.Prefix(int) applies stat modifiers from prefix
                     _itemPrefixMethod = _itemType.GetMethod("Prefix", new[] { typeof(int) });
@@ -1305,13 +1312,43 @@ namespace StorageHub.Storage
         /// </summary>
         private static bool InvokeSetDefaults(object item, int type)
         {
-            if (_itemSetDefaultsMethod == null) return false;
-            var paramCount = _itemSetDefaultsMethod.GetParameters().Length;
-            if (paramCount == 1)
-                _itemSetDefaultsMethod.Invoke(item, new object[] { type });
-            else
-                _itemSetDefaultsMethod.Invoke(item, new object[] { type, null });
-            return true;
+            if (item == null || _itemSetDefaultsMethod == null)
+                return false;
+
+            try
+            {
+                var parameters = _itemSetDefaultsMethod.GetParameters();
+                var args = new object[parameters.Length];
+                args[0] = type;
+
+                for (int i = 1; i < parameters.Length; i++)
+                {
+                    var parameter = parameters[i];
+                    if (parameter.IsOptional && parameter.DefaultValue != DBNull.Value)
+                    {
+                        args[i] = parameter.DefaultValue;
+                    }
+                    else if (parameter.ParameterType == typeof(bool))
+                    {
+                        args[i] = false;
+                    }
+                    else if (parameter.ParameterType.IsValueType)
+                    {
+                        args[i] = Activator.CreateInstance(parameter.ParameterType);
+                    }
+                    else
+                    {
+                        args[i] = null;
+                    }
+                }
+
+                _itemSetDefaultsMethod.Invoke(item, args);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>
