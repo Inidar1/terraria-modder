@@ -2,7 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using Terraria;
+using System.Reflection;
 using TerrariaModder.Core;
 using TerrariaModder.Core.Assets;
 using TerrariaModder.Core.Config;
@@ -41,7 +41,7 @@ namespace StorageHub
     ///    - Active operations (take/craft) are explicit user actions
     ///
     /// 3. Progression:
-    ///    - 4 tiers using consumable items (Shadow Scale -> Luminite)
+    ///    - 4 tiers using consumable items (Shadow Scale → Luminite)
     ///    - Station memory at Tier 3+ (endgame convenience)
     ///    - Relays extend range without tier upgrade
     ///
@@ -91,7 +91,6 @@ namespace StorageHub
         private DebugDumper _debugDumper;
         public static DebugDumper Dumper { get; private set; }
 
-<<<<<<< HEAD
         private const int NearbyQuickStackScanRadiusTiles = 39;
         private const string DiskUpgraderPanelId = "storage-hub-disk-upgrader";
         private const int DiskUpgraderPanelWidth = 460;
@@ -147,14 +146,13 @@ namespace StorageHub
         private bool _visualizeFailureLogged;
         private bool _visualizeUnavailableLogged;
 
-=======
->>>>>>> inidar-main
         public void Initialize(ModContext context)
         {
             _log = context.Logger;
             _context = context;
 
             LoadConfig();
+            InitReflection();
 
             if (!_enabled)
             {
@@ -202,7 +200,6 @@ namespace StorageHub
             _enabled = _context.Config.Get<bool>("enabled");
         }
 
-<<<<<<< HEAD
         private void InitReflection()
         {
             try
@@ -312,9 +309,6 @@ namespace StorageHub
         }
 
         private void OnToggleRecipesUI()
-=======
-        private void OnToggleUI()
->>>>>>> inidar-main
         {
             if (_recipeUi == null)
                 return;
@@ -405,7 +399,10 @@ namespace StorageHub
 
                 // Initialize crafting system
                 _recipeIndex = new RecipeIndex(_log);
-                _recipeIndex.Build();
+                if (_recipeIndex.InitReflection())
+                {
+                    _recipeIndex.Build();
+                }
                 _craftChecker = new CraftabilityChecker(_log, _recipeIndex, _storageProvider, _hubConfig, _rangeCalc);
                 _craftExecutor = new CraftingExecutor(_log, _storageProvider);
                 _recursiveCrafter = new RecursiveCrafter(_log, _recipeIndex, _craftChecker);
@@ -434,6 +431,29 @@ namespace StorageHub
             catch (Exception ex)
             {
                 _log.Error($"OnWorldLoad error: {ex.Message}");
+            }
+        }
+
+        private object GetLocalPlayer()
+        {
+            try
+            {
+                if (_myPlayerField == null || _playerArrayField == null)
+                    return null;
+
+                var myPlayerVal = _myPlayerField.GetValue(null);
+                if (myPlayerVal == null) return null;
+
+                int myPlayer = (int)myPlayerVal;
+                var players = _playerArrayField.GetValue(null) as Array;
+                if (players == null || myPlayer < 0 || myPlayer >= players.Length)
+                    return null;
+
+                return players.GetValue(myPlayer);
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -2356,7 +2376,7 @@ namespace StorageHub
         {
             try
             {
-                var worldName = Main.worldName;
+                var worldName = _worldNameField?.GetValue(null) as string;
                 if (string.IsNullOrEmpty(worldName))
                 {
                     _log.Warn("World name is empty or null");
@@ -2375,14 +2395,50 @@ namespace StorageHub
         {
             try
             {
-                var player = Main.player[Main.myPlayer];
-                if (player == null)
+                if (_myPlayerField == null || _playerArrayField == null)
                 {
-                    _log.Warn("Player is null");
+                    _log.Warn("Player reflection fields not initialized");
                     return "Unknown";
                 }
 
-                var charName = player.name;
+                var myPlayerVal = _myPlayerField.GetValue(null);
+                if (myPlayerVal == null)
+                {
+                    _log.Warn("myPlayer field is null");
+                    return "Unknown";
+                }
+
+                int myPlayer = (int)myPlayerVal;
+                var players = _playerArrayField.GetValue(null) as Array;
+                if (players == null)
+                {
+                    _log.Warn("Player array is null");
+                    return "Unknown";
+                }
+
+                // Bounds check before array access
+                if (myPlayer < 0 || myPlayer >= players.Length)
+                {
+                    _log.Warn($"myPlayer index {myPlayer} out of bounds (array length: {players.Length})");
+                    return "Unknown";
+                }
+
+                var player = players.GetValue(myPlayer);
+                if (player == null)
+                {
+                    _log.Warn($"Player at index {myPlayer} is null");
+                    return "Unknown";
+                }
+
+                // Try to get name field/property
+                var charName = _playerNameProp?.GetValue(player) as string;
+                if (string.IsNullOrEmpty(charName))
+                {
+                    // Try direct field access as fallback
+                    var nameField = player.GetType().GetField("name", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                    charName = nameField?.GetValue(player) as string;
+                }
+
                 if (string.IsNullOrEmpty(charName))
                 {
                     _log.Warn("Character name is empty or null");

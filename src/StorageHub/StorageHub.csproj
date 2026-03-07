@@ -17,7 +17,7 @@
     <ProjectReference Include="..\Core\TerrariaModder.Core.csproj">
       <Private>false</Private>
     </ProjectReference>
-    <ProjectReference Include="..\TileRuntime\TileRuntime.csproj">
+    <ProjectReference Include="..\..\..\terraria-tile-runtime\src\TileRuntime\TileRuntime.csproj">
       <Private>false</Private>
     </ProjectReference>
   </ItemGroup>
