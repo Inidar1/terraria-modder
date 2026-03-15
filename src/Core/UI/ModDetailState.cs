@@ -105,8 +105,8 @@ namespace TerrariaModder.Core.UI
             Panel.Height.Set(-352f, 1f);
             Panel.BackgroundColor = new Color(22, 30, 52) * 0.92f;
 
-            List.Top.Set(62f, 0f);
-            List.Height.Set(-74f, 1f);
+            List.Top.Set(14f, 0f);
+            List.Height.Set(-26f, 1f);
             List.ListPadding = 10f;
 
             _summaryArea = new UIElement();
