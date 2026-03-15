@@ -385,7 +385,11 @@ namespace TerrariaModder.Core.UI
             panel.SetPadding(0f);
             panel.BackgroundColor = new Color(29, 38, 66) * 0.98f;
             panel.BorderColor = new Color(68, 86, 140);
-            panel.OnMouseOver += FadedMouseOver;
+            panel.OnMouseOver += (_, __) =>
+            {
+                panel.BackgroundColor = new Color(73, 94, 171);
+                panel.BorderColor = Color.White;
+            };
             panel.OnMouseOut += (_, __) =>
             {
                 panel.BackgroundColor = new Color(29, 38, 66) * 0.98f;
@@ -393,15 +397,20 @@ namespace TerrariaModder.Core.UI
             };
             panel.OnLeftClick += (_, __) => OpenState(new NexusModDetailState(Service, this, InGame, mod.ModId, mod));
 
-            var imagePanel = new UIPanel();
+            var imagePanel = new UIElement();
             imagePanel.Left.Set(12f, 0f);
             imagePanel.Top.Set(12f, 0f);
             imagePanel.Width.Set(-24f, 1f);
             imagePanel.Height.Set(118f, 0f);
-            imagePanel.SetPadding(0f);
-            imagePanel.BackgroundColor = new Color(19, 26, 45) * 0.98f;
-            imagePanel.BorderColor = new Color(79, 99, 157);
             panel.Append(imagePanel);
+
+            var imageFrame = new UIPanel();
+            imageFrame.Width.Set(0f, 1f);
+            imageFrame.Height.Set(0f, 1f);
+            imageFrame.SetPadding(0f);
+            imageFrame.BackgroundColor = new Color(19, 26, 45) * 0.98f;
+            imageFrame.BorderColor = new Color(79, 99, 157);
+            imagePanel.Append(imageFrame);
 
             object texture = GetBrowseTexture(mod);
             if (texture != null)
@@ -411,14 +420,14 @@ namespace TerrariaModder.Core.UI
                 image.Height.Set(-12f, 1f);
                 image.HAlign = 0.5f;
                 image.VAlign = 0.5f;
-                imagePanel.Append(image);
+                imageFrame.Append(image);
             }
             else
             {
                 var placeholder = new UIText("NEXUS", 0.82f, large: true);
                 placeholder.HAlign = 0.5f;
                 placeholder.VAlign = 0.5f;
-                imagePanel.Append(placeholder);
+                imageFrame.Append(placeholder);
                 RequestBrowseImage(mod);
             }
 
@@ -622,6 +631,7 @@ namespace TerrariaModder.Core.UI
         private UIPanel _metaPanel;
         private object _iconTexture;
         private string _pendingImagePath;
+        private const float DetailHeaderHeight = 280f;
 
         public NexusModDetailState(NativeModsService service, UIState previousState, bool inGame, int modId, NexusMod existingMod)
             : base(service, previousState, inGame)
@@ -797,30 +807,33 @@ namespace TerrariaModder.Core.UI
 
             Root.MaxWidth.Set(1040f, 0f);
 
-            Panel.Top.Set(244f, 0f);
-            Panel.Height.Set(-352f, 1f);
+            Panel.Top.Set(DetailHeaderHeight + 6f, 0f);
+            Panel.Height.Set(-(DetailHeaderHeight + 116f), 1f);
             Panel.BackgroundColor = new Color(22, 30, 52) * 0.92f;
 
-            List.Top.Set(14f, 0f);
-            List.Height.Set(-26f, 1f);
+            List.Top.Set(10f, 0f);
+            List.Height.Set(-20f, 1f);
             List.ListPadding = 10f;
+
+            Scrollbar.Top.Set(10f, 0f);
+            Scrollbar.Height.Set(-20f, 1f);
 
             _summaryArea = new UIElement();
             _summaryArea.Width.Set(0f, 1f);
-            _summaryArea.Height.Set(248f, 0f);
+            _summaryArea.Height.Set(DetailHeaderHeight, 0f);
             _summaryArea.Top.Set(-8f, 0f);
             Root.Append(_summaryArea);
 
             _iconPanel = new UIPanel();
             _iconPanel.Width.Set(188f, 0f);
-            _iconPanel.Height.Set(248f, 0f);
+            _iconPanel.Height.Set(DetailHeaderHeight, 0f);
             _iconPanel.BackgroundColor = new Color(28, 37, 66) * 0.95f;
             _summaryArea.Append(_iconPanel);
 
             _metaPanel = new UIPanel();
             _metaPanel.Left.Set(202f, 0f);
             _metaPanel.Width.Set(-202f, 1f);
-            _metaPanel.Height.Set(248f, 0f);
+            _metaPanel.Height.Set(DetailHeaderHeight, 0f);
             _metaPanel.BackgroundColor = new Color(28, 37, 66) * 0.95f;
             _summaryArea.Append(_metaPanel);
 
@@ -847,7 +860,21 @@ namespace TerrariaModder.Core.UI
             {
                 texture = _iconTexture;
             }
-            else if (_installed != null)
+            else if (_mod != null)
+            {
+                string cachedPath = Service.GetCachedNexusImagePath(_mod.ModId);
+                if (!string.IsNullOrWhiteSpace(cachedPath))
+                {
+                    object cachedTexture = UIRenderer.LoadTexture(cachedPath);
+                    if (cachedTexture != null)
+                    {
+                        _iconTexture = cachedTexture;
+                        texture = cachedTexture;
+                    }
+                }
+            }
+
+            if (_iconTexture == null && _installed != null)
             {
                 var loadedMod = PluginLoader.GetMod(_installed.Id);
                 if (loadedMod?.IconTexture != null)
@@ -871,20 +898,12 @@ namespace TerrariaModder.Core.UI
                 _iconPanel.Append(placeholder);
             }
 
-            string footerText = _mod != null && _mod.IsPendingDelete
-                ? "Pending deletion"
-                : _mod != null && _mod.IsInstalled ? "Installed" : "Nexus listing";
-            var footer = new UIText(footerText, 0.6f, large: false);
-            footer.HAlign = 0.5f;
-            footer.Top.Set(206f, 0f);
-            footer.TextColor = new Color(186, 197, 228);
-            _iconPanel.Append(footer);
         }
 
         private void BuildMetaContents()
         {
             float top = 16f;
-            float buttonTop = 126f;
+            float buttonTop = 156f;
 
             string title = _mod != null ? (_mod.Name ?? ("Mod " + _modId)) : ("Mod " + _modId);
             var name = new UIText(title, 0.96f, large: true);
