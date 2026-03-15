@@ -71,6 +71,8 @@ namespace TerrariaModder.Core.Nexus
         public string InstalledVersion { get; set; }
         public bool HasNewerVersion { get; set; }
         public int InstalledFileId { get; set; }
+        public bool IsPendingDelete { get; set; }
+        public bool PendingDeleteIncludesSettings { get; set; }
     }
 
     internal sealed class NexusModFile
@@ -150,6 +152,8 @@ namespace TerrariaModder.Core.Nexus
         public bool HasUpdate { get; set; }
         public string LatestVersion { get; set; }
         public int LatestFileId { get; set; }
+        public bool IsPendingDelete { get; set; }
+        public bool PendingDeleteIncludesSettings { get; set; }
     }
 
     internal sealed class InstallResult

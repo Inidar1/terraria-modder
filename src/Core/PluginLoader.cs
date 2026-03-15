@@ -207,7 +207,6 @@ namespace TerrariaModder.Core
                 // Initialize logging first
                 LogManager.Initialize();
                 _log = LogManager.Core;
-
                 // Guard against CaptureManager crash (must be before Main.Initialize)
                 CaptureManagerGuard.Apply(_log);
 

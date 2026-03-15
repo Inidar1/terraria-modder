@@ -357,6 +357,7 @@ namespace TerrariaModder.Core.UI
             var panel = new UIPanel();
             panel.Width.Set(0f, 1f);
             panel.Height.Set(246f, 0f);
+            panel.SetPadding(0f);
             panel.BackgroundColor = new Color(23, 31, 55) * 0.88f;
             panel.BorderColor = new Color(65, 83, 139);
             const float tileGap = 14f;
@@ -381,6 +382,7 @@ namespace TerrariaModder.Core.UI
         private UIElement CreateBrowseTile(NexusMod mod)
         {
             var panel = new UIPanel();
+            panel.SetPadding(0f);
             panel.BackgroundColor = new Color(29, 38, 66) * 0.98f;
             panel.BorderColor = new Color(68, 86, 140);
             panel.OnMouseOver += FadedMouseOver;
@@ -396,6 +398,7 @@ namespace TerrariaModder.Core.UI
             imagePanel.Top.Set(12f, 0f);
             imagePanel.Width.Set(-24f, 1f);
             imagePanel.Height.Set(118f, 0f);
+            imagePanel.SetPadding(0f);
             imagePanel.BackgroundColor = new Color(19, 26, 45) * 0.98f;
             imagePanel.BorderColor = new Color(79, 99, 157);
             panel.Append(imagePanel);
@@ -428,6 +431,7 @@ namespace TerrariaModder.Core.UI
             panel.Append(name);
 
             string status = !mod.IsInstalled ? "Not installed"
+                : mod.IsPendingDelete ? (mod.PendingDeleteIncludesSettings ? "Pending deletion + settings" : "Pending deletion")
                 : mod.HasNewerVersion ? "Installed - update available"
                 : "Installed v" + mod.InstalledVersion;
             var detail = new UIText(status, 0.5f, large: false);
@@ -712,6 +716,8 @@ namespace TerrariaModder.Core.UI
                     result.Mod.IsInstalled = true;
                     result.Mod.InstalledVersion = result.Installed.Version;
                     result.Mod.HasNewerVersion = result.Installed.HasUpdate || NexusUpdateTracker.IsNewerVersion(result.Mod.Version ?? string.Empty, result.Installed.Version ?? string.Empty);
+                    result.Mod.IsPendingDelete = result.Installed.IsPendingDelete;
+                    result.Mod.PendingDeleteIncludesSettings = result.Installed.PendingDeleteIncludesSettings;
                 }
 
                 result.Status = result.Mod != null ? null : "Failed to load Nexus details.";
@@ -801,20 +807,20 @@ namespace TerrariaModder.Core.UI
 
             _summaryArea = new UIElement();
             _summaryArea.Width.Set(0f, 1f);
-            _summaryArea.Height.Set(208f, 0f);
+            _summaryArea.Height.Set(248f, 0f);
             _summaryArea.Top.Set(-8f, 0f);
             Root.Append(_summaryArea);
 
             _iconPanel = new UIPanel();
             _iconPanel.Width.Set(188f, 0f);
-            _iconPanel.Height.Set(208f, 0f);
+            _iconPanel.Height.Set(248f, 0f);
             _iconPanel.BackgroundColor = new Color(28, 37, 66) * 0.95f;
             _summaryArea.Append(_iconPanel);
 
             _metaPanel = new UIPanel();
             _metaPanel.Left.Set(202f, 0f);
             _metaPanel.Width.Set(-202f, 1f);
-            _metaPanel.Height.Set(208f, 0f);
+            _metaPanel.Height.Set(248f, 0f);
             _metaPanel.BackgroundColor = new Color(28, 37, 66) * 0.95f;
             _summaryArea.Append(_metaPanel);
 
@@ -865,9 +871,12 @@ namespace TerrariaModder.Core.UI
                 _iconPanel.Append(placeholder);
             }
 
-            var footer = new UIText(_mod != null && _mod.IsInstalled ? "Installed" : "Nexus listing", 0.6f, large: false);
+            string footerText = _mod != null && _mod.IsPendingDelete
+                ? "Pending deletion"
+                : _mod != null && _mod.IsInstalled ? "Installed" : "Nexus listing";
+            var footer = new UIText(footerText, 0.6f, large: false);
             footer.HAlign = 0.5f;
-            footer.Top.Set(168f, 0f);
+            footer.Top.Set(206f, 0f);
             footer.TextColor = new Color(186, 197, 228);
             _iconPanel.Append(footer);
         }
@@ -875,7 +884,7 @@ namespace TerrariaModder.Core.UI
         private void BuildMetaContents()
         {
             float top = 16f;
-            float buttonTop = 118f;
+            float buttonTop = 126f;
 
             string title = _mod != null ? (_mod.Name ?? ("Mod " + _modId)) : ("Mod " + _modId);
             var name = new UIText(title, 0.96f, large: true);
@@ -893,11 +902,15 @@ namespace TerrariaModder.Core.UI
 
             string state = !_loading
                 ? (_mod != null && _mod.IsInstalled
-                    ? (_mod.HasNewerVersion ? "Installed - update available" : "Installed")
+                    ? (_mod.IsPendingDelete
+                        ? (_mod.PendingDeleteIncludesSettings ? "Pending deletion + settings" : "Pending deletion")
+                        : (_mod.HasNewerVersion ? "Installed - update available" : "Installed"))
                     : "Not installed")
                 : "Loading...";
             var stateText = CreateMetaText("State: " + state, top);
-            stateText.TextColor = _mod != null && _mod.HasNewerVersion
+            stateText.TextColor = _mod != null && _mod.IsPendingDelete
+                ? new Color(242, 188, 84)
+                : _mod != null && _mod.HasNewerVersion
                 ? new Color(242, 188, 84)
                 : new Color(206, 214, 236);
             _metaPanel.Append(stateText);
@@ -906,14 +919,28 @@ namespace TerrariaModder.Core.UI
             int buttonHeight = 34;
             int buttonGap = 10;
 
-            var primary = CreateActionButton(
-                _mod != null && _mod.IsInstalled ? (_mod.HasNewerVersion ? "Install Update" : "Reinstall") : "Install",
-                16f,
-                buttonTop,
-                buttonWidth,
-                buttonHeight,
-                HandleInstallClicked);
-            _metaPanel.Append(primary);
+            if (_mod != null && _mod.IsPendingDelete)
+            {
+                var undoDelete = CreateActionButton(
+                    "Undo Delete",
+                    16f,
+                    buttonTop,
+                    buttonWidth,
+                    buttonHeight,
+                    HandleUndoDeleteClicked);
+                _metaPanel.Append(undoDelete);
+            }
+            else
+            {
+                var primary = CreateActionButton(
+                    _mod != null && _mod.IsInstalled ? (_mod.HasNewerVersion ? "Install Update" : "Reinstall") : "Install",
+                    16f,
+                    buttonTop,
+                    buttonWidth,
+                    buttonHeight,
+                    HandleInstallClicked);
+                _metaPanel.Append(primary);
+            }
 
             var open = CreateActionButton(
                 "Open On Nexus",
@@ -924,7 +951,7 @@ namespace TerrariaModder.Core.UI
                 () => Service.OpenNexusPage(_modId));
             _metaPanel.Append(open);
 
-            if (_mod != null && _mod.IsInstalled && _installed != null)
+            if (_mod != null && _mod.IsInstalled && _installed != null && !_mod.IsPendingDelete)
             {
                 var delete = CreateActionButton(
                     "Delete Mod",
@@ -946,6 +973,20 @@ namespace TerrariaModder.Core.UI
                         () => OpenDeleteConfirm(deleteSettings: true));
                     _metaPanel.Append(deleteSettings);
                 }
+            }
+
+            if (_mod != null && _mod.IsPendingDelete)
+            {
+                string pendingNote = _mod.PendingDeleteIncludesSettings
+                    ? "This mod is queued for deletion with settings on next launch."
+                    : "This mod is queued for deletion on next launch.";
+                var pendingText = new UIText(pendingNote, 0.56f, large: false);
+                pendingText.Left.Set(16f, 0f);
+                pendingText.Top.Set(buttonTop + (buttonHeight * 2f) + 20f, 0f);
+                pendingText.Width.Set(-32f, 1f);
+                pendingText.IsWrapped = true;
+                pendingText.TextColor = new Color(242, 188, 84);
+                _metaPanel.Append(pendingText);
             }
 
         }
@@ -1023,8 +1064,17 @@ namespace TerrariaModder.Core.UI
                 () =>
                 {
                     Service.UninstallMod(_installed.Id, deleteSettings);
-                    OpenState(new NexusBrowseState(Service, PreviousState, InGame));
+                    OpenState(new NexusModDetailState(Service, PreviousState, InGame, _modId, _mod));
                 }));
+        }
+
+        private void HandleUndoDeleteClicked()
+        {
+            if (_installed == null)
+                return;
+
+            if (Service.CancelPendingDelete(_installed.Id))
+                OpenState(new NexusModDetailState(Service, PreviousState, InGame, _modId, _mod));
         }
 
         private NexusModFile GetMainFile()

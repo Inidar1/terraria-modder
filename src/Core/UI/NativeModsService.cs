@@ -39,7 +39,7 @@ namespace TerrariaModder.Core.UI
             _nexusAuth = new NexusAuthService(log, _nexusApi);
             _installService = new NativeModInstallService(log);
             _updateTracker = new NexusUpdateTracker(log);
-            _modStateService = new NativeModStateService(_updateTracker);
+            _modStateService = new NativeModStateService(_updateTracker, log);
             _downloadDir = Path.Combine(CoreConfig.Instance.CorePath, "downloads");
             _imageCacheDir = Path.Combine(CoreConfig.Instance.CorePath, "cache", "nexus-images");
             Directory.CreateDirectory(_downloadDir);
@@ -374,6 +374,11 @@ namespace TerrariaModder.Core.UI
         public void UninstallMod(string modId, bool deleteSettings)
         {
             _modStateService.UninstallMod(modId, deleteSettings);
+        }
+
+        public bool CancelPendingDelete(string modId)
+        {
+            return _modStateService.CancelPendingDelete(modId);
         }
 
         public async Task<string> EnsureNexusImageCachedAsync(NexusMod mod)
