@@ -160,7 +160,7 @@ namespace TerrariaModder.Core.UI
             }
         }
 
-        private static void FadedMouseOver(UIMouseEvent evt, UIElement listeningElement)
+        protected static void FadedMouseOver(UIMouseEvent evt, UIElement listeningElement)
         {
             SoundEngine.PlaySound(12);
             if (evt.Target is UIPanel panel)
@@ -170,7 +170,7 @@ namespace TerrariaModder.Core.UI
             }
         }
 
-        private static void FadedMouseOut(UIMouseEvent evt, UIElement listeningElement)
+        protected static void FadedMouseOut(UIMouseEvent evt, UIElement listeningElement)
         {
             if (evt.Target is UIPanel panel)
             {
