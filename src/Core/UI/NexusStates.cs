@@ -17,9 +17,21 @@ namespace TerrariaModder.Core.UI
 {
     internal sealed class NexusBrowseState : NativeModsStateBase
     {
+        private static readonly FeedOption[] FeedOptions =
+        {
+            new FeedOption("all", "All"),
+            new FeedOption("latest", "Latest"),
+            new FeedOption("trending", "Trending"),
+            new FeedOption("updated", "Updated"),
+            new FeedOption("installed", "Installed")
+        };
+
         private string _feed = "all";
         private readonly List<NexusMod> _mods = new List<NexusMod>();
         private readonly List<InstalledModRecord> _installed = new List<InstalledModRecord>();
+        private readonly Dictionary<int, object> _browseTextures = new Dictionary<int, object>();
+        private readonly Dictionary<int, string> _pendingImagePaths = new Dictionary<int, string>();
+        private readonly HashSet<int> _requestedImages = new HashSet<int>();
         private bool _isLoading;
         private string _status = "Loading Nexus data...";
         private string _editingSearch;
@@ -27,6 +39,7 @@ namespace TerrariaModder.Core.UI
         private BrowseRefreshResult _pendingRefresh;
         private int _pageIndex;
         private const int ItemsPerPage = 12;
+        private const int GridColumns = 3;
 
         public NexusBrowseState(NativeModsService service, UIState previousState, bool inGame)
             : base(service, previousState, inGame)
@@ -43,6 +56,7 @@ namespace TerrariaModder.Core.UI
         {
             base.Update(gameTime);
             ApplyPendingRefresh();
+            ApplyPendingImages();
             if (!string.IsNullOrEmpty(_editingSearch))
                 UpdateSearchEditing();
         }
@@ -66,12 +80,8 @@ namespace TerrariaModder.Core.UI
                 return;
             }
 
-            List.Add(CreateSectionRow("Feeds"));
-            List.Add(CreateFeedRow("All", "all"));
-            List.Add(CreateFeedRow("Latest", "latest"));
-            List.Add(CreateFeedRow("Trending", "trending"));
-            List.Add(CreateFeedRow("Updated", "updated"));
-            List.Add(CreateFeedRow("Installed", "installed"));
+            List.Add(CreateSectionRow("Feed"));
+            List.Add(CreateFeedButtonsRow());
             List.Add(CreateButton("Refresh", () => _ = RefreshAsync(), 40f));
 
             string searchLabel = string.IsNullOrEmpty(_editingSearch)
@@ -93,8 +103,8 @@ namespace TerrariaModder.Core.UI
             }
             else
             {
-                foreach (var mod in GetBrowsePageItems())
-                    List.Add(CreateBrowseRow(mod));
+                foreach (var row in CreateBrowseGridRows(GetBrowsePageItems().ToList()))
+                    List.Add(row);
             }
 
             if ((_feed == "installed" && _installed.Count == 0) || (_feed != "installed" && _mods.Count == 0))
@@ -215,17 +225,67 @@ namespace TerrariaModder.Core.UI
             return panel;
         }
 
-        private UIElement CreateFeedRow(string title, string feedKey)
+        private UIElement CreateFeedButtonsRow()
         {
-            string subtitle = _feed == feedKey ? "Current feed" : "Open " + title + " Nexus results.";
-            return CreateActionRow(title, subtitle, "Open", () =>
+            var panel = new UIPanel();
+            panel.Width.Set(0f, 1f);
+            panel.Height.Set(60f, 0f);
+            panel.SetPadding(0f);
+            panel.BackgroundColor = new Color(29, 38, 66) * 0.96f;
+            panel.BorderColor = new Color(68, 86, 140);
+
+            const float gap = 10f;
+            const float buttonWidth = 150f;
+            const float buttonHeight = 38f;
+            float totalWidth = (FeedOptions.Length * buttonWidth) + ((FeedOptions.Length - 1) * gap);
+            float startLeft = -totalWidth * 0.5f;
+
+            for (int index = 0; index < FeedOptions.Length; index++)
             {
-                _feed = feedKey;
-                if (_feed != "installed")
-                    _searchBuffer = string.Empty;
-                _pageIndex = 0;
-                _ = RefreshAsync();
-            });
+                FeedOption option = FeedOptions[index];
+                bool active = string.Equals(_feed, option.Key, StringComparison.Ordinal);
+                var button = new UITextPanel<string>(option.Label, 0.58f, large: false);
+                button.Width.Set(buttonWidth, 0f);
+                button.Height.Set(buttonHeight, 0f);
+                button.Left.Set(startLeft + (index * (buttonWidth + gap)), 0.5f);
+                button.Top.Set(11f, 0f);
+                button.BackgroundColor = active ? new Color(82, 108, 190) * 0.98f : new Color(52, 71, 121) * 0.95f;
+                button.BorderColor = active ? Color.White : new Color(126, 147, 208);
+                button.OnMouseOver += FadedMouseOver;
+                button.OnMouseOut += (_, __) =>
+                {
+                    button.BackgroundColor = active ? new Color(82, 108, 190) * 0.98f : new Color(52, 71, 121) * 0.95f;
+                    button.BorderColor = active ? Color.White : new Color(126, 147, 208);
+                };
+                button.OnLeftClick += (evt, element) =>
+                {
+                    if (string.Equals(_feed, option.Key, StringComparison.Ordinal))
+                        return;
+
+                    _feed = option.Key;
+                    if (_feed != "installed")
+                        _searchBuffer = string.Empty;
+                    _pageIndex = 0;
+                    _ = RefreshAsync();
+                };
+                panel.Append(button);
+            }
+
+            return panel;
+        }
+
+        private List<UIElement> CreateBrowseGridRows(List<NexusMod> mods)
+        {
+            var rows = new List<UIElement>();
+            if (mods == null || mods.Count == 0)
+                return rows;
+
+            for (int index = 0; index < mods.Count; index += GridColumns)
+            {
+                rows.Add(CreateBrowseGridRow(mods.Skip(index).Take(GridColumns).ToList()));
+            }
+
+            return rows;
         }
 
         private IEnumerable<NexusMod> GetBrowsePageItems()
@@ -243,13 +303,13 @@ namespace TerrariaModder.Core.UI
             var panel = new UIPanel();
             panel.Width.Set(0f, 1f);
             panel.Height.Set(54f, 0f);
+            panel.SetPadding(0f);
             panel.BackgroundColor = new Color(29, 38, 66) * 0.96f;
             panel.BorderColor = new Color(68, 86, 140);
 
             var previous = new UITextPanel<string>("Previous", 0.62f, large: false);
             previous.Width.Set(128f, 0f);
             previous.Height.Set(36f, 0f);
-            previous.Left.Set(14f, 0f);
             previous.Top.Set(9f, 0f);
             previous.BackgroundColor = _pageIndex > 0 ? new Color(52, 71, 121) * 0.95f : new Color(35, 42, 63) * 0.95f;
             previous.BorderColor = new Color(126, 147, 208);
@@ -266,7 +326,6 @@ namespace TerrariaModder.Core.UI
             var next = new UITextPanel<string>("Next", 0.62f, large: false);
             next.Width.Set(128f, 0f);
             next.Height.Set(36f, 0f);
-            next.Left.Set(-142f, 1f);
             next.Top.Set(9f, 0f);
             next.BackgroundColor = _pageIndex < pageCount - 1 ? new Color(52, 71, 121) * 0.95f : new Color(35, 42, 63) * 0.95f;
             next.BorderColor = new Color(126, 147, 208);
@@ -283,18 +342,104 @@ namespace TerrariaModder.Core.UI
             var label = new UIText("Browse more filtered results", 0.58f, large: false);
             label.HAlign = 0.5f;
             label.VAlign = 0.5f;
-            label.Top.Set(-3f, 0f);
+            label.Top.Set(-11f, 0f);
             panel.Append(label);
+
+            float centerOffset = 160f;
+            previous.Left.Set(-centerOffset - 64f, 0.5f);
+            next.Left.Set(centerOffset - 64f, 0.5f);
 
             return panel;
         }
 
-        private UIElement CreateBrowseRow(NexusMod mod)
+        private UIElement CreateBrowseGridRow(List<NexusMod> mods)
         {
+            var panel = new UIPanel();
+            panel.Width.Set(0f, 1f);
+            panel.Height.Set(246f, 0f);
+            panel.BackgroundColor = new Color(23, 31, 55) * 0.88f;
+            panel.BorderColor = new Color(65, 83, 139);
+            const float tileGap = 14f;
+            const float tileWidth = 252f;
+            const float tileHeight = 226f;
+            float totalWidth = (mods.Count * tileWidth) + ((mods.Count - 1) * tileGap);
+            float startLeft = -totalWidth * 0.5f;
+
+            for (int index = 0; index < mods.Count; index++)
+            {
+                var tile = CreateBrowseTile(mods[index]);
+                tile.Width.Set(tileWidth, 0f);
+                tile.Height.Set(tileHeight, 0f);
+                tile.Left.Set(startLeft + (index * (tileWidth + tileGap)), 0.5f);
+                tile.Top.Set(10f, 0f);
+                panel.Append(tile);
+            }
+
+            return panel;
+        }
+
+        private UIElement CreateBrowseTile(NexusMod mod)
+        {
+            var panel = new UIPanel();
+            panel.BackgroundColor = new Color(29, 38, 66) * 0.98f;
+            panel.BorderColor = new Color(68, 86, 140);
+            panel.OnMouseOver += FadedMouseOver;
+            panel.OnMouseOut += (_, __) =>
+            {
+                panel.BackgroundColor = new Color(29, 38, 66) * 0.98f;
+                panel.BorderColor = new Color(68, 86, 140);
+            };
+            panel.OnLeftClick += (_, __) => OpenState(new NexusModDetailState(Service, this, InGame, mod.ModId, mod));
+
+            var imagePanel = new UIPanel();
+            imagePanel.Left.Set(12f, 0f);
+            imagePanel.Top.Set(12f, 0f);
+            imagePanel.Width.Set(-24f, 1f);
+            imagePanel.Height.Set(118f, 0f);
+            imagePanel.BackgroundColor = new Color(19, 26, 45) * 0.98f;
+            imagePanel.BorderColor = new Color(79, 99, 157);
+            panel.Append(imagePanel);
+
+            object texture = GetBrowseTexture(mod);
+            if (texture != null)
+            {
+                var image = new BrowseIconElement(texture);
+                image.Width.Set(-12f, 1f);
+                image.Height.Set(-12f, 1f);
+                image.HAlign = 0.5f;
+                image.VAlign = 0.5f;
+                imagePanel.Append(image);
+            }
+            else
+            {
+                var placeholder = new UIText("NEXUS", 0.82f, large: true);
+                placeholder.HAlign = 0.5f;
+                placeholder.VAlign = 0.5f;
+                imagePanel.Append(placeholder);
+                RequestBrowseImage(mod);
+            }
+
+            var name = new UIText(mod.Name ?? ("Mod " + mod.ModId), 0.64f, large: false);
+            name.Left.Set(12f, 0f);
+            name.Top.Set(138f, 0f);
+            name.Width.Set(-24f, 1f);
+            name.Height.Set(50f, 0f);
+            name.IsWrapped = true;
+            panel.Append(name);
+
             string status = !mod.IsInstalled ? "Not installed"
                 : mod.HasNewerVersion ? "Installed - update available"
                 : "Installed v" + mod.InstalledVersion;
-            return CreateActionRow(mod.Name, status, "Details", () => OpenState(new NexusModDetailState(Service, this, InGame, mod.ModId, mod)));
+            var detail = new UIText(status, 0.5f, large: false);
+            detail.Left.Set(12f, 0f);
+            detail.Top.Set(192f, 0f);
+            detail.Width.Set(-24f, 1f);
+            detail.Height.Set(20f, 0f);
+            detail.HAlign = 0f;
+            detail.TextColor = mod.HasNewerVersion ? new Color(242, 188, 84) : new Color(186, 197, 228);
+            panel.Append(detail);
+
+            return panel;
         }
 
         private UIElement CreateInstalledRow(InstalledModRecord mod)
@@ -306,6 +451,62 @@ namespace TerrariaModder.Core.UI
                 if (mod.NexusModId > 0)
                     OpenState(new NexusModDetailState(Service, this, InGame, mod.NexusModId, null));
             });
+        }
+
+        private object GetBrowseTexture(NexusMod mod)
+        {
+            if (mod == null)
+                return null;
+
+            if (_browseTextures.TryGetValue(mod.ModId, out object texture))
+                return texture;
+
+            string cachedPath = Service.GetCachedNexusImagePath(mod.ModId);
+            if (string.IsNullOrWhiteSpace(cachedPath))
+                return null;
+
+            texture = UIRenderer.LoadTexture(cachedPath);
+            if (texture != null)
+                _browseTextures[mod.ModId] = texture;
+
+            return texture;
+        }
+
+        private void RequestBrowseImage(NexusMod mod)
+        {
+            if (mod == null || string.IsNullOrWhiteSpace(mod.PictureUrl) || _requestedImages.Contains(mod.ModId))
+                return;
+
+            _requestedImages.Add(mod.ModId);
+            _ = FetchBrowseImageAsync(mod);
+        }
+
+        private async System.Threading.Tasks.Task FetchBrowseImageAsync(NexusMod mod)
+        {
+            string path = await Service.EnsureNexusImageCachedAsync(mod).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(path))
+                _pendingImagePaths[mod.ModId] = path;
+        }
+
+        private void ApplyPendingImages()
+        {
+            if (_pendingImagePaths.Count == 0)
+                return;
+
+            bool changed = false;
+            foreach (var pair in _pendingImagePaths.ToList())
+            {
+                object texture = UIRenderer.LoadTexture(pair.Value);
+                if (texture == null)
+                    continue;
+
+                _browseTextures[pair.Key] = texture;
+                changed = true;
+                _pendingImagePaths.Remove(pair.Key);
+            }
+
+            if (changed)
+                RebuildList();
         }
 
         private UIElement CreateActionRow(string title, string subtitle, string buttonLabel, Action onClick)
@@ -347,6 +548,59 @@ namespace TerrariaModder.Core.UI
             public List<NexusMod> Mods { get; } = new List<NexusMod>();
             public List<InstalledModRecord> InstalledMods { get; } = new List<InstalledModRecord>();
             public string Status { get; set; }
+        }
+
+        private sealed class FeedOption
+        {
+            public FeedOption(string key, string label)
+            {
+                Key = key;
+                Label = label;
+            }
+
+            public string Key { get; }
+            public string Label { get; }
+        }
+
+        private sealed class BrowseIconElement : UIElement
+        {
+            private readonly object _textureSource;
+
+            public BrowseIconElement(object textureSource)
+            {
+                _textureSource = textureSource;
+            }
+
+            protected override void DrawSelf(SpriteBatch spriteBatch)
+            {
+                base.DrawSelf(spriteBatch);
+
+                Texture2D texture = ResolveTexture(_textureSource);
+                if (texture == null)
+                    return;
+
+                CalculatedStyle dimensions = GetInnerDimensions();
+                float scale = Math.Min(dimensions.Width / texture.Width, dimensions.Height / texture.Height);
+                int drawWidth = Math.Max(1, (int)(texture.Width * scale));
+                int drawHeight = Math.Max(1, (int)(texture.Height * scale));
+                var destination = new Rectangle(
+                    (int)(dimensions.X + ((dimensions.Width - drawWidth) * 0.5f)),
+                    (int)(dimensions.Y + ((dimensions.Height - drawHeight) * 0.5f)),
+                    drawWidth,
+                    drawHeight);
+
+                spriteBatch.Draw(texture, destination, Color.White);
+            }
+
+            private static Texture2D ResolveTexture(object textureSource)
+            {
+                if (textureSource is Texture2D texture)
+                    return texture;
+
+                var sourceType = textureSource?.GetType();
+                var valueProperty = sourceType?.GetProperty("Value");
+                return valueProperty?.GetValue(textureSource, null) as Texture2D;
+            }
         }
     }
 
@@ -451,9 +705,10 @@ namespace TerrariaModder.Core.UI
 
                 result.Files = await Service.GetNexusModFilesAsync(_modId).ConfigureAwait(false) ?? new List<NexusModFile>();
                 var installed = await Service.GetInstalledModsAsync(includeUpdates: true).ConfigureAwait(false);
-                result.Installed = installed.FirstOrDefault(m => m.NexusModId == _modId || (m.Manifest != null && m.Manifest.NexusId == _modId));
+                result.Installed = Service.FindInstalledModMatch(result.Mod, installed);
                 if (result.Mod != null && result.Installed != null)
                 {
+                    Service.LinkInstalledMod(result.Installed, _modId);
                     result.Mod.IsInstalled = true;
                     result.Mod.InstalledVersion = result.Installed.Version;
                     result.Mod.HasNewerVersion = result.Installed.HasUpdate || NexusUpdateTracker.IsNewerVersion(result.Mod.Version ?? string.Empty, result.Installed.Version ?? string.Empty);
@@ -693,15 +948,6 @@ namespace TerrariaModder.Core.UI
                 }
             }
 
-            string summary = !string.IsNullOrWhiteSpace(_mod?.Summary) ? _mod.Summary : "No summary provided.";
-            var summaryText = new UIText(summary, 0.56f, large: false);
-            summaryText.Left.Set(332f, 0f);
-            summaryText.Top.Set(20f, 0f);
-            summaryText.Width.Set(-348f, 1f);
-            summaryText.Height.Set(-32f, 1f);
-            summaryText.IsWrapped = true;
-            summaryText.TextColor = new Color(186, 197, 228);
-            _metaPanel.Append(summaryText);
         }
 
         private static UIText CreateMetaText(string text, float top)

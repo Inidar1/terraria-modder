@@ -432,6 +432,12 @@ namespace TerrariaModder.Core.UI
             }
         }
 
+        internal string GetCachedNexusImagePath(int modId)
+        {
+            string filePath = Path.Combine(_imageCacheDir, modId.ToString(CultureInfo.InvariantCulture) + ".png");
+            return File.Exists(filePath) ? filePath : null;
+        }
+
         private static bool IsWebp(byte[] bytes)
         {
             return bytes != null
@@ -465,8 +471,13 @@ namespace TerrariaModder.Core.UI
 
             foreach (var mod in mods)
             {
-                if (installedByNexusId.TryGetValue(mod.ModId, out InstalledModRecord local))
+                InstalledModRecord local = null;
+                if (!installedByNexusId.TryGetValue(mod.ModId, out local))
+                    local = FindInstalledModMatch(mod, installed);
+
+                if (local != null)
                 {
+                    LinkInstalledMod(local, mod.ModId);
                     mod.IsInstalled = true;
                     mod.InstalledVersion = local.Version;
                     mod.HasNewerVersion = local.HasUpdate || NexusUpdateTracker.IsNewerVersion(mod.Version ?? string.Empty, local.Version ?? string.Empty);
@@ -480,6 +491,85 @@ namespace TerrariaModder.Core.UI
                     mod.InstalledFileId = 0;
                 }
             }
+        }
+
+        internal InstalledModRecord FindInstalledModMatch(NexusMod nexusMod, IEnumerable<InstalledModRecord> installedMods)
+        {
+            if (nexusMod == null || installedMods == null)
+                return null;
+
+            InstalledModRecord directMatch = installedMods.FirstOrDefault(mod => _updateTracker.GetNexusModId(mod) == nexusMod.ModId);
+            if (directMatch != null)
+                return directMatch;
+
+            string nexusCompactName = NormalizeCompactToken(nexusMod.Name);
+            string nexusCompactAuthor = NormalizeCompactToken(nexusMod.Author);
+            string nexusIdCandidate = NormalizeKebabToken(nexusMod.Name);
+            InstalledModRecord bestMatch = null;
+            int bestScore = 0;
+
+            foreach (var installed in installedMods)
+            {
+                if (installed == null || installed.IsCore)
+                    continue;
+
+                int score = 0;
+                string installedIdKebab = NormalizeKebabToken(installed.Id);
+                string installedIdCompact = NormalizeCompactToken(installed.Id);
+                string installedNameCompact = NormalizeCompactToken(installed.Name);
+                string installedAuthorCompact = NormalizeCompactToken(installed.Author);
+
+                if (!string.IsNullOrWhiteSpace(nexusIdCandidate) && string.Equals(installedIdKebab, nexusIdCandidate, StringComparison.Ordinal))
+                    score = Math.Max(score, 90);
+                if (!string.IsNullOrWhiteSpace(nexusCompactName) && string.Equals(installedNameCompact, nexusCompactName, StringComparison.Ordinal))
+                    score = Math.Max(score, 96);
+                if (!string.IsNullOrWhiteSpace(nexusCompactName) && string.Equals(installedIdCompact, nexusCompactName, StringComparison.Ordinal))
+                    score = Math.Max(score, 92);
+                if (!string.IsNullOrWhiteSpace(nexusCompactAuthor) && string.Equals(installedAuthorCompact, nexusCompactAuthor, StringComparison.Ordinal))
+                    score += 2;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestMatch = installed;
+                }
+            }
+
+            return bestScore >= 90 ? bestMatch : null;
+        }
+
+        internal void LinkInstalledMod(InstalledModRecord installed, int nexusModId)
+        {
+            if (installed == null || nexusModId <= 0)
+                return;
+
+            installed.NexusModId = nexusModId;
+            _updateTracker.RecordInstall(installed.Id, nexusModId);
+        }
+
+        private static string NormalizeCompactToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            return new string(value
+                .ToLowerInvariant()
+                .Where(char.IsLetterOrDigit)
+                .ToArray());
+        }
+
+        private static string NormalizeKebabToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var chars = value.ToLowerInvariant()
+                .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
+                .ToArray();
+            string normalized = new string(chars);
+            while (normalized.Contains("--"))
+                normalized = normalized.Replace("--", "-");
+            return normalized.Trim('-');
         }
 
         private async Task<List<NexusMod>> LoadAllTerrariaModderModsAsync()
