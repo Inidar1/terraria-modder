@@ -226,6 +226,7 @@ namespace TerrariaModder.Core
 
                 // Initialize mod menu (UI)
                 ModMenu.Initialize(_log);
+                NativeModsMenu.Initialize(_log);
 
                 // Initialize command registry
                 CommandRegistry.Initialize(_log);
@@ -680,6 +681,7 @@ namespace TerrariaModder.Core
             {
                 EventPatches.ApplyPatches();
                 AssetSystem.ApplyPatches();
+                NativeModsMenu.ApplyPatches();
                 FrameEvents.OnUIOverlay += DrawTitleScreenOverlay;
                 FrameEvents.OnPostUpdate += AssetSystem.OnUpdate;
             }

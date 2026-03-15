@@ -1,0 +1,173 @@
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Terraria;
+using Terraria.Audio;
+using Terraria.GameContent.UI.Elements;
+using Terraria.Localization;
+using Terraria.UI;
+using Terraria.UI.Gamepad;
+
+namespace TerrariaModder.Core.UI
+{
+    internal abstract class NativeModsStateBase : UIState
+    {
+        protected readonly NativeModsService Service;
+        protected readonly UIState PreviousState;
+        protected readonly bool InGame;
+        protected UIList List;
+        protected UIPanel Panel;
+        protected UIElement Root;
+        protected UITextPanel<string> StatusPanel;
+        protected UITextPanel<LocalizedText> BackPanel;
+
+        protected NativeModsStateBase(NativeModsService service, UIState previousState, bool inGame)
+        {
+            Service = service;
+            PreviousState = previousState;
+            InGame = inGame;
+        }
+
+        public override void OnInitialize()
+        {
+            Root = new UIElement();
+            Root.Width.Set(0f, 0.86f);
+            Root.MaxWidth.Set(900f, 0f);
+            Root.Height.Set(-140f, 1f);
+            Root.HAlign = 0.5f;
+            Root.VAlign = 0.5f;
+
+            Panel = new UIPanel();
+            Panel.Width.Set(0f, 1f);
+            Panel.Height.Set(-110f, 1f);
+            Panel.BackgroundColor = new Color(33, 43, 79) * 0.8f;
+            Root.Append(Panel);
+
+            List = new UIList();
+            List.Width.Set(-30f, 1f);
+            List.Height.Set(-20f, 1f);
+            List.Top.Set(10f, 0f);
+            List.ListPadding = 6f;
+            Panel.Append(List);
+
+            var scrollbar = new UIScrollbar();
+            scrollbar.SetView(100f, 1000f);
+            scrollbar.Height.Set(-20f, 1f);
+            scrollbar.HAlign = 1f;
+            scrollbar.Top.Set(10f, 0f);
+            Panel.Append(scrollbar);
+            List.SetScrollbar(scrollbar);
+
+            var title = new UITextPanel<string>(GetTitle(), 0.8f, large: true);
+            title.HAlign = 0.5f;
+            title.Top.Set(-42f, 0f);
+            title.SetPadding(15f);
+            title.BackgroundColor = new Color(73, 94, 171);
+            Root.Append(title);
+
+            BackPanel = new UITextPanel<LocalizedText>(Language.GetText("UI.Back"), 0.7f, large: true);
+            BackPanel.Width.Set(-10f, 0.5f);
+            BackPanel.Height.Set(50f, 0f);
+            BackPanel.VAlign = 1f;
+            BackPanel.Top.Set(-45f, 0f);
+            BackPanel.OnMouseOver += FadedMouseOver;
+            BackPanel.OnMouseOut += FadedMouseOut;
+            BackPanel.OnLeftClick += (_, __) => GoBack();
+            BackPanel.SetSnapPoint("Back", 0);
+            Root.Append(BackPanel);
+
+            StatusPanel = new UITextPanel<string>(string.Empty, 0.6f, large: false);
+            StatusPanel.Width.Set(0f, 1f);
+            StatusPanel.Height.Set(36f, 0f);
+            StatusPanel.VAlign = 1f;
+            StatusPanel.Top.Set(-92f, 0f);
+            StatusPanel.BackgroundColor = new Color(24, 31, 57) * 0.95f;
+            StatusPanel.BorderColor = new Color(73, 94, 171);
+            Root.Append(StatusPanel);
+
+            Append(Root);
+            RebuildList();
+            SetStatus(string.Empty);
+        }
+
+        protected abstract string GetTitle();
+        protected abstract void RebuildList();
+
+        protected UITextPanel<string> CreateButton(string text, System.Action onClick, float height = 40f)
+        {
+            var button = new UITextPanel<string>(text, 0.72f, large: false);
+            button.Width.Set(0f, 1f);
+            button.Height.Set(height, 0f);
+            button.SetPadding(12f);
+            button.BackgroundColor = new Color(63, 82, 151) * 0.7f;
+            button.OnMouseOver += FadedMouseOver;
+            button.OnMouseOut += FadedMouseOut;
+            button.OnLeftClick += (_, __) => onClick();
+            return button;
+        }
+
+        protected UITextPanel<string> CreateInfoRow(string text, float height = 34f)
+        {
+            var row = new UITextPanel<string>(text, 0.65f, large: false);
+            row.Width.Set(0f, 1f);
+            row.Height.Set(height, 0f);
+            row.SetPadding(10f);
+            row.BackgroundColor = new Color(24, 31, 57) * 0.7f;
+            row.BorderColor = new Color(55, 66, 114);
+            return row;
+        }
+
+        protected void SetStatus(string text)
+        {
+            StatusPanel?.SetText(string.IsNullOrEmpty(text) ? " " : text);
+        }
+
+        protected void GoBack()
+        {
+            SoundEngine.PlaySound(11);
+            if (InGame)
+            {
+                if (PreviousState != null)
+                    Main.InGameUI.SetState(PreviousState);
+                else
+                    IngameFancyUI.Close(quiet: true);
+                return;
+            }
+
+            if (PreviousState != null)
+            {
+                Main.menuMode = 888;
+                Main.MenuUI.SetState(PreviousState);
+            }
+            else
+            {
+                Main.menuMode = 0;
+                Main.MenuUI.SetState(null);
+            }
+        }
+
+        private static void FadedMouseOver(UIMouseEvent evt, UIElement listeningElement)
+        {
+            SoundEngine.PlaySound(12);
+            if (evt.Target is UIPanel panel)
+            {
+                panel.BackgroundColor = new Color(73, 94, 171);
+                panel.BorderColor = Color.White;
+            }
+        }
+
+        private static void FadedMouseOut(UIMouseEvent evt, UIElement listeningElement)
+        {
+            if (evt.Target is UIPanel panel)
+            {
+                panel.BackgroundColor = new Color(63, 82, 151) * 0.7f;
+                panel.BorderColor = Color.Black;
+            }
+        }
+
+        protected override void DrawSelf(SpriteBatch spriteBatch)
+        {
+            base.DrawSelf(spriteBatch);
+            UILinkPointNavigator.Shortcuts.BackButtonCommand = 1;
+        }
+    }
+}
