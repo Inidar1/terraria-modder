@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
@@ -47,6 +48,7 @@ namespace TerrariaModder.Core.UI
             List.Height.Set(-20f, 1f);
             List.Top.Set(10f, 0f);
             List.ListPadding = 6f;
+            List.ManualSortMethod = PreserveInsertionOrder;
             Panel.Append(List);
 
             Scrollbar = new UIScrollbar();
@@ -85,7 +87,7 @@ namespace TerrariaModder.Core.UI
 
         protected UITextPanel<string> CreateButton(string text, System.Action onClick, float height = 40f)
         {
-            var button = new UITextPanel<string>(text, 0.72f, large: false);
+            var button = new UITextPanel<string>(text ?? string.Empty, 0.72f, large: false);
             button.Width.Set(0f, 1f);
             button.Height.Set(height, 0f);
             button.SetPadding(12f);
@@ -98,7 +100,7 @@ namespace TerrariaModder.Core.UI
 
         protected UITextPanel<string> CreateInfoRow(string text, float height = 34f)
         {
-            var row = new UITextPanel<string>(text, 0.65f, large: false);
+            var row = new UITextPanel<string>(text ?? string.Empty, 0.65f, large: false);
             row.Width.Set(0f, 1f);
             row.Height.Set(height, 0f);
             row.SetPadding(10f);
@@ -160,6 +162,15 @@ namespace TerrariaModder.Core.UI
             }
         }
 
+        protected void OpenState(UIState state)
+        {
+            SoundEngine.PlaySound(10);
+            if (InGame)
+                Main.InGameUI.SetState(state);
+            else
+                Main.MenuUI.SetState(state);
+        }
+
         protected static void FadedMouseOver(UIMouseEvent evt, UIElement listeningElement)
         {
             SoundEngine.PlaySound(12);
@@ -189,6 +200,11 @@ namespace TerrariaModder.Core.UI
         {
             if (CanGoBack())
                 GoBack();
+        }
+
+        private static void PreserveInsertionOrder(List<UIElement> items)
+        {
+            _ = items;
         }
     }
 }

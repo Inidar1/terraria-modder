@@ -16,7 +16,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" Version="2.1.9" />
     <PackageReference Include="Lib.Harmony" Version="2.3.3" />
+    <PackageReference Include="SharpCompress" Version="0.37.2" />
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,6 +27,7 @@
       <HintPath>$(TerrariaAssemblyPath)</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="System.Net.Http" />
     <Reference Include="Microsoft.Xna.Framework">
       <HintPath>C:\Windows\Microsoft.NET\assembly\GAC_32\Microsoft.Xna.Framework\v4.0_4.0.0.0__842cf8be1de50553\Microsoft.Xna.Framework.dll</HintPath>
       <Private>False</Private>

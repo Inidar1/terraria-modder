@@ -95,6 +95,7 @@ namespace TerrariaModder.Core.Manifest
             manifest.EntryDll = ExtractString(json, "entry_dll");
             manifest.Homepage = ExtractString(json, "homepage");
             manifest.Icon = ExtractString(json, "icon");
+            manifest.NexusId = ExtractInt(json, "nexus_id");
 
             manifest.Dependencies = ExtractStringArray(json, "dependencies");
             manifest.OptionalDependencies = ExtractStringArray(json, "optional_dependencies");
@@ -182,6 +183,15 @@ namespace TerrariaModder.Core.Manifest
                 return UnescapeJson(match.Groups[1].Value);
             }
             return null;
+        }
+
+        private static int ExtractInt(string json, string key)
+        {
+            var pattern = $"\"{key}\"\\s*:\\s*(\\d+)";
+            var match = Regex.Match(json, pattern);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out int value))
+                return value;
+            return 0;
         }
 
         private static List<string> ExtractStringArray(string json, string key)

@@ -13,12 +13,27 @@
                     and Exists('$(TerrariaModderDeployRoot)')">
     <PropertyGroup>
       <_DeployCoreDir>$(TerrariaModderDeployRoot)\core</_DeployCoreDir>
+      <_DeployCoreDepsDir>$(TerrariaModderDeployRoot)\core\deps</_DeployCoreDepsDir>
     </PropertyGroup>
 
     <MakeDir Directories="$(_DeployCoreDir)" />
+    <MakeDir Directories="$(_DeployCoreDepsDir)" />
     <Copy SourceFiles="$(TargetPath)"
           DestinationFiles="$(_DeployCoreDir)\$(TargetFileName)"
           SkipUnchangedFiles="true" />
+
+    <ItemGroup>
+      <_DeployCoreDependency Include="@(ReferenceCopyLocalPaths)"
+                             Condition="'%(ReferenceCopyLocalPaths.Filename)%(ReferenceCopyLocalPaths.Extension)' != 'Terraria.exe'
+                                      and '%(ReferenceCopyLocalPaths.Filename)%(ReferenceCopyLocalPaths.Extension)' != 'Microsoft.Xna.Framework.dll'
+                                      and '%(ReferenceCopyLocalPaths.Filename)%(ReferenceCopyLocalPaths.Extension)' != 'Microsoft.Xna.Framework.Graphics.dll'
+                                      and '%(ReferenceCopyLocalPaths.Filename)%(ReferenceCopyLocalPaths.Extension)' != 'Microsoft.Xna.Framework.Game.dll'" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_DeployCoreDependency)"
+          DestinationFolder="$(_DeployCoreDepsDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_DeployCoreDependency)' != ''" />
 
     <Message Importance="High" Text="[Deploy] Core -&gt; $(_DeployCoreDir)" />
   </Target>

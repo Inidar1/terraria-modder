@@ -31,6 +31,15 @@ namespace TerrariaModder.Core.UI
             List.Add(CreateUtilityRow("Load Order", "Adjust startup order and dependency placement.", () => OpenState(new LoadOrderState(Service, this, InGame))));
             List.Add(CreateUtilityRow("Conflicts", "Review patch collisions and keybind conflicts.", () => OpenState(new ConflictsState(Service, this, InGame))));
             List.Add(CreateUtilityRow("Logs", "Inspect recent framework and mod log entries.", () => OpenState(new LogsState(Service, this, InGame))));
+            if (!InGame)
+            {
+                List.Add(CreateUtilityRow("Browse Nexus", "Browse, install, update, and delete Nexus mods.", () => OpenState(new NexusBrowseState(Service, this, inGame: false))));
+                List.Add(CreateUtilityRow("Nexus Settings", "Manage Nexus API key, browser login, and auth status.", () => OpenState(new NexusSettingsState(Service, this, inGame: false))));
+            }
+            else
+            {
+                List.Add(CreateInfoRow("Nexus browsing and installs are only available from the title screen.", 44f));
+            }
 
             List.Add(CreateSectionRow("Mods"));
             foreach (var mod in Service.GetMods())
@@ -172,16 +181,6 @@ namespace TerrariaModder.Core.UI
                     return "Discovered";
             }
         }
-
-        private void OpenState(UIState state)
-        {
-            SoundEngine.PlaySound(10);
-            if (InGame)
-                Main.InGameUI.SetState(state);
-            else
-                Main.MenuUI.SetState(state);
-        }
-
         private static void PreserveInsertionOrder(System.Collections.Generic.List<UIElement> items)
         {
             _ = items;

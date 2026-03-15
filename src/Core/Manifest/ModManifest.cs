@@ -30,6 +30,7 @@ namespace TerrariaModder.Core.Manifest
         public string Homepage { get; set; }
         public string Icon { get; set; }
         public List<string> Tags { get; set; } = new List<string>();
+        public int NexusId { get; set; }
 
         // Runtime properties (set by loader, not from JSON)
         public string FolderPath { get; set; }
