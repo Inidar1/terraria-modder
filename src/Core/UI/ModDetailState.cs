@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.GameInput;
 using Terraria.GameContent.UI.Elements;
@@ -13,6 +15,10 @@ namespace TerrariaModder.Core.UI
     internal sealed class ModDetailState : NativeModsStateBase
     {
         private readonly ModInfo _mod;
+        private UIElement _summaryArea;
+        private UIPanel _iconPanel;
+        private UIPanel _metaPanel;
+
         private string _editingFieldKey;
         private string _editingBuffer;
         private bool _editingIsNumber;
@@ -25,7 +31,13 @@ namespace TerrariaModder.Core.UI
             _mod = mod;
         }
 
-        protected override string GetTitle() => _mod.Manifest.Name;
+        protected override string GetTitle() => "Mod Details";
+
+        public override void OnInitialize()
+        {
+            base.OnInitialize();
+            BuildDetailLayout();
+        }
 
         public override void Update(GameTime gameTime)
         {
@@ -45,71 +57,448 @@ namespace TerrariaModder.Core.UI
         {
             List.Clear();
 
-            List.Add(CreateInfoRow($"ID: {_mod.Manifest.Id}"));
-            List.Add(CreateInfoRow($"Version: {_mod.Manifest.Version ?? "?"}"));
-            List.Add(CreateInfoRow($"Author: {_mod.Manifest.Author ?? "Unknown"}"));
-            List.Add(CreateInfoRow($"State: {_mod.State}"));
             if (Service.ModNeedsRestart(_mod))
-                List.Add(CreateInfoRow("Restart required for some changes to apply."));
+                List.Add(CreateBannerRow("Restart required for some changes to apply."));
 
             if (_mod.Context?.Config != null && _mod.Context.Config.Schema.Count > 0)
             {
-                List.Add(CreateInfoRow("Configuration"));
+                List.Add(CreateSectionRow("Configuration"));
                 foreach (var field in _mod.Context.Config.Schema.Values)
                     List.Add(CreateConfigRow(field));
 
-                List.Add(CreateButton("Reset Config To Defaults", () =>
+                List.Add(CreateActionRow("Reset Config To Defaults", "Restore every field in this mod to its schema default.", () =>
                 {
                     Service.ResetConfigToDefaults(_mod);
                     SetStatus("Config reset to defaults.");
                     RebuildList();
                 }));
             }
-
-            var keybinds = Service.GetKeybinds(_mod.Manifest.Id);
-            bool anyKeybinds = false;
-            foreach (var keybind in keybinds)
+            else
             {
-                if (!anyKeybinds)
-                {
-                    List.Add(CreateInfoRow("Keybinds"));
-                    anyKeybinds = true;
-                }
-
-                List.Add(CreateKeybindRow(keybind));
+                List.Add(CreateBannerRow("This mod does not expose any configuration fields."));
             }
+
+            var keybinds = new List<Keybind>(Service.GetKeybinds(_mod.Manifest.Id));
+            if (keybinds.Count > 0)
+            {
+                List.Add(CreateSectionRow("Keybinds"));
+                foreach (var keybind in keybinds)
+                    List.Add(CreateKeybindRow(keybind));
+            }
+        }
+
+        private void BuildDetailLayout()
+        {
+            PluginLoader.LoadModIcons();
+
+            Root.MaxWidth.Set(1040f, 0f);
+
+            Panel.Top.Set(212f, 0f);
+            Panel.Height.Set(-320f, 1f);
+            Panel.BackgroundColor = new Color(22, 30, 52) * 0.92f;
+
+            List.Top.Set(62f, 0f);
+            List.Height.Set(-74f, 1f);
+            List.ListPadding = 10f;
+
+            var configTitle = new UIText("Config Options", 0.9f, large: true);
+            configTitle.HAlign = 0.5f;
+            configTitle.Top.Set(18f, 0f);
+            Panel.Append(configTitle);
+
+            _summaryArea = new UIElement();
+            _summaryArea.Width.Set(0f, 1f);
+            _summaryArea.Height.Set(176f, 0f);
+            _summaryArea.Top.Set(4f, 0f);
+            Root.Append(_summaryArea);
+
+            _iconPanel = new UIPanel();
+            _iconPanel.Width.Set(188f, 0f);
+            _iconPanel.Height.Set(176f, 0f);
+            _iconPanel.BackgroundColor = new Color(28, 37, 66) * 0.95f;
+            _summaryArea.Append(_iconPanel);
+
+            _metaPanel = new UIPanel();
+            _metaPanel.Left.Set(202f, 0f);
+            _metaPanel.Width.Set(-202f, 1f);
+            _metaPanel.Height.Set(176f, 0f);
+            _metaPanel.BackgroundColor = new Color(28, 37, 66) * 0.95f;
+            _summaryArea.Append(_metaPanel);
+
+            BuildIconContents();
+            BuildMetaContents();
+        }
+
+        private void BuildIconContents()
+        {
+            object texture = _mod.IconTexture ?? PluginLoader.DefaultIcon;
+            if (texture != null)
+            {
+                var image = new ModIconElement(texture);
+                image.Width.Set(132f, 0f);
+                image.Height.Set(132f, 0f);
+                image.HAlign = 0.5f;
+                image.VAlign = 0.5f;
+                _iconPanel.Append(image);
+                return;
+            }
+
+            var placeholder = new UIText("MOD\nPICTURE", 0.9f, large: true);
+            placeholder.HAlign = 0.5f;
+            placeholder.VAlign = 0.5f;
+            _iconPanel.Append(placeholder);
+        }
+
+        private void BuildMetaContents()
+        {
+            float top = 18f;
+
+            var name = new UIText(_mod.Manifest.Name ?? _mod.Manifest.Id, 1.0f, large: true);
+            name.Left.Set(16f, 0f);
+            name.Top.Set(top, 0f);
+            _metaPanel.Append(name);
+            top += 40f;
+
+            _metaPanel.Append(CreateMetaText($"Mod ID: {_mod.Manifest.Id}", top));
+            top += 28f;
+            _metaPanel.Append(CreateMetaText($"Version: {_mod.Manifest.Version ?? "?"}", top));
+            top += 28f;
+            _metaPanel.Append(CreateMetaText($"Author: {_mod.Manifest.Author ?? "Unknown"}", top));
+            top += 28f;
+            _metaPanel.Append(CreateMetaText($"State: {_mod.State}", top));
+
+            if (!string.IsNullOrWhiteSpace(_mod.ErrorMessage))
+            {
+                top += 34f;
+                var error = CreateMetaText(_mod.ErrorMessage, top);
+                error.TextColor = new Color(255, 180, 120);
+                _metaPanel.Append(error);
+            }
+        }
+
+        private static UIText CreateMetaText(string text, float top)
+        {
+            var uiText = new UIText(text, 0.72f, large: false);
+            uiText.Left.Set(16f, 0f);
+            uiText.Top.Set(top, 0f);
+            return uiText;
+        }
+
+        private UIElement CreateSectionRow(string title)
+        {
+            var panel = new UIPanel();
+            panel.Width.Set(0f, 1f);
+            panel.Height.Set(42f, 0f);
+            panel.BackgroundColor = new Color(45, 61, 108) * 0.95f;
+            panel.BorderColor = new Color(100, 123, 184);
+
+            var text = new UIText(title, 0.72f, large: true);
+            text.Top.Set(8f, 0f);
+            text.HAlign = 0.5f;
+            panel.Append(text);
+            return panel;
+        }
+
+        private UIElement CreateBannerRow(string text)
+        {
+            var panel = new UIPanel();
+            panel.Width.Set(0f, 1f);
+            panel.Height.Set(46f, 0f);
+            panel.BackgroundColor = new Color(56, 42, 23) * 0.96f;
+            panel.BorderColor = new Color(175, 129, 52);
+
+            var label = new UIText(text, 0.66f, large: false);
+            label.Left.Set(14f, 0f);
+            label.Top.Set(11f, 0f);
+            panel.Append(label);
+            return panel;
+        }
+
+        private UIElement CreateActionRow(string title, string subtitle, Action onClick)
+        {
+            var panel = CreateRowContainer(68f);
+            var button = CreateControlButton(title);
+            button.Width.Set(230f, 0f);
+            button.Height.Set(38f, 0f);
+            button.VAlign = 0.5f;
+            button.HAlign = 1f;
+            button.OnLeftClick += (_, __) => onClick();
+            panel.Append(button);
+
+            panel.Append(CreateRowTitle(title));
+            panel.Append(CreateRowSubtitle(subtitle));
+            return panel;
         }
 
         private UIElement CreateConfigRow(ConfigField field)
         {
-            string label = field.Label ?? field.Key;
-            string suffix = string.IsNullOrEmpty(field.Description) ? string.Empty : $" - {field.Description}";
-            var row = CreateButton($"{label}: {FormatConfigValue(field)}{suffix}", () => ActivateField(field), 44f);
-            row.OnRightClick += (_, __) =>
+            switch (field.Type)
             {
-                DecrementField(field);
+                case ConfigFieldType.Bool:
+                    return CreateBoolConfigRow(field);
+                case ConfigFieldType.Enum:
+                    return CreateEnumConfigRow(field);
+                case ConfigFieldType.Int:
+                case ConfigFieldType.Float:
+                    return CreateNumericConfigRow(field);
+                default:
+                    return CreateTextConfigRow(field);
+            }
+        }
+
+        private UIElement CreateBoolConfigRow(ConfigField field)
+        {
+            bool value = _mod.Context.Config.Get<bool>(field.Key);
+            var panel = CreateRowContainer(70f);
+            panel.Append(CreateRowTitle(field.Label ?? field.Key));
+            panel.Append(CreateRowSubtitle(GetFieldDescription(field)));
+
+            var checkbox = CreateControlButton(value ? "X" : string.Empty);
+            checkbox.Width.Set(42f, 0f);
+            checkbox.Height.Set(42f, 0f);
+            checkbox.VAlign = 0.5f;
+            checkbox.HAlign = 1f;
+            checkbox.TextScale = 0.95f;
+            checkbox.BackgroundColor = value ? new Color(96, 148, 106) * 0.95f : new Color(19, 26, 44) * 0.95f;
+            checkbox.BorderColor = value ? new Color(170, 221, 176) : new Color(90, 108, 164);
+            checkbox.OnLeftClick += (_, __) =>
+            {
+                Service.SetConfigValue(_mod, field, !value);
+                SetStatus($"{field.Label ?? field.Key} updated.");
                 RebuildList();
             };
-            return row;
+            panel.Append(checkbox);
+
+            return panel;
+        }
+
+        private UIElement CreateNumericConfigRow(ConfigField field)
+        {
+            var panel = CreateRowContainer(78f);
+            panel.Append(CreateRowTitle(field.Label ?? field.Key));
+            panel.Append(CreateRowSubtitle(GetNumericDescription(field)));
+
+            var minusButton = CreateControlButton("-");
+            minusButton.Width.Set(34f, 0f);
+            minusButton.Height.Set(38f, 0f);
+            minusButton.Left.Set(-206f, 1f);
+            minusButton.Top.Set(20f, 0f);
+            minusButton.OnLeftClick += (_, __) =>
+            {
+                ApplyNumericDelta(field, -1);
+                SetStatus($"{field.Label ?? field.Key} updated.");
+                RebuildList();
+            };
+            panel.Append(minusButton);
+
+            var valueButton = CreateControlButton(GetDisplayValue(field));
+            valueButton.Width.Set(128f, 0f);
+            valueButton.Height.Set(38f, 0f);
+            valueButton.Left.Set(-166f, 1f);
+            valueButton.Top.Set(20f, 0f);
+            valueButton.TextScale = 0.62f;
+            valueButton.BackgroundColor = IsEditingField(field.Key)
+                ? new Color(101, 77, 32) * 0.95f
+                : new Color(19, 26, 44) * 0.95f;
+            valueButton.OnLeftClick += (_, __) =>
+            {
+                BeginEditing(field.Key, GetStoredFieldValue(field), isNumber: true);
+                RebuildList();
+            };
+            panel.Append(valueButton);
+
+            var plusButton = CreateControlButton("+");
+            plusButton.Width.Set(34f, 0f);
+            plusButton.Height.Set(38f, 0f);
+            plusButton.Left.Set(-32f, 1f);
+            plusButton.Top.Set(20f, 0f);
+            plusButton.OnLeftClick += (_, __) =>
+            {
+                ApplyNumericDelta(field, 1);
+                SetStatus($"{field.Label ?? field.Key} updated.");
+                RebuildList();
+            };
+            panel.Append(plusButton);
+
+            return panel;
+        }
+
+        private UIElement CreateEnumConfigRow(ConfigField field)
+        {
+            var panel = CreateRowContainer(78f);
+            panel.Append(CreateRowTitle(field.Label ?? field.Key));
+            panel.Append(CreateRowSubtitle(GetFieldDescription(field)));
+
+            var previousButton = CreateControlButton("<");
+            previousButton.Width.Set(34f, 0f);
+            previousButton.Height.Set(38f, 0f);
+            previousButton.Left.Set(-206f, 1f);
+            previousButton.Top.Set(20f, 0f);
+            previousButton.OnLeftClick += (_, __) =>
+            {
+                CycleEnum(field, -1);
+                RebuildList();
+            };
+            panel.Append(previousButton);
+
+            var valueButton = CreateControlButton(GetDisplayValue(field));
+            valueButton.Width.Set(128f, 0f);
+            valueButton.Height.Set(38f, 0f);
+            valueButton.Left.Set(-166f, 1f);
+            valueButton.Top.Set(20f, 0f);
+            valueButton.TextScale = 0.62f;
+            valueButton.OnLeftClick += (_, __) =>
+            {
+                CycleEnum(field, 1);
+                RebuildList();
+            };
+            panel.Append(valueButton);
+
+            var nextButton = CreateControlButton(">");
+            nextButton.Width.Set(34f, 0f);
+            nextButton.Height.Set(38f, 0f);
+            nextButton.Left.Set(-32f, 1f);
+            nextButton.Top.Set(20f, 0f);
+            nextButton.OnLeftClick += (_, __) =>
+            {
+                CycleEnum(field, 1);
+                RebuildList();
+            };
+            panel.Append(nextButton);
+
+            return panel;
+        }
+
+        private UIElement CreateTextConfigRow(ConfigField field)
+        {
+            var panel = CreateRowContainer(78f);
+            panel.Append(CreateRowTitle(field.Label ?? field.Key));
+            panel.Append(CreateRowSubtitle(GetFieldDescription(field)));
+
+            var valueButton = CreateControlButton(GetDisplayValue(field));
+            valueButton.Width.Set(168f, 0f);
+            valueButton.Height.Set(38f, 0f);
+            valueButton.Left.Set(-172f, 1f);
+            valueButton.Top.Set(20f, 0f);
+            valueButton.TextScale = 0.62f;
+            valueButton.BackgroundColor = IsEditingField(field.Key)
+                ? new Color(101, 77, 32) * 0.95f
+                : new Color(19, 26, 44) * 0.95f;
+            valueButton.OnLeftClick += (_, __) =>
+            {
+                BeginEditing(field.Key, GetStoredFieldValue(field), isNumber: false);
+                RebuildList();
+            };
+            panel.Append(valueButton);
+
+            return panel;
         }
 
         private UIElement CreateKeybindRow(Keybind keybind)
         {
-            var row = CreateButton($"{keybind.Label}: {keybind.CurrentKey}", () =>
+            var panel = CreateRowContainer(78f);
+            panel.Append(CreateRowTitle(keybind.Label));
+            panel.Append(CreateRowSubtitle("Click to capture a new binding. Backspace clears, right click resets."));
+
+            string keybindLabel = _capturingKeybind && _capturingKeybindId == keybind.Id
+                ? "Press a key..."
+                : keybind.CurrentKey == null || keybind.CurrentKey.Key == KeyCode.None ? "Unbound" : keybind.CurrentKey.ToString();
+            var valueButton = CreateControlButton(keybindLabel);
+            valueButton.Width.Set(168f, 0f);
+            valueButton.Height.Set(38f, 0f);
+            valueButton.Left.Set(-172f, 1f);
+            valueButton.Top.Set(20f, 0f);
+            valueButton.TextScale = 0.62f;
+            valueButton.BackgroundColor = _capturingKeybind && _capturingKeybindId == keybind.Id
+                ? new Color(101, 77, 32) * 0.95f
+                : new Color(19, 26, 44) * 0.95f;
+            valueButton.OnLeftClick += (_, __) =>
             {
                 _capturingKeybind = true;
                 _capturingKeybindId = keybind.Id;
                 SetStatus($"Press a key for {keybind.Label}. Escape cancels, Backspace clears.");
-            }, 40f);
-
-            row.OnRightClick += (_, __) =>
+                RebuildList();
+            };
+            valueButton.OnRightClick += (_, __) =>
             {
                 Service.ResetKeybind(keybind);
                 SetStatus($"{keybind.Label} reset.");
                 RebuildList();
             };
+            panel.Append(valueButton);
 
-            return row;
+            return panel;
+        }
+
+        private UIPanel CreateRowContainer(float height)
+        {
+            var panel = new UIPanel();
+            panel.Width.Set(0f, 1f);
+            panel.Height.Set(height, 0f);
+            panel.BackgroundColor = new Color(29, 38, 66) * 0.96f;
+            panel.BorderColor = new Color(68, 86, 140);
+            return panel;
+        }
+
+        private UIText CreateRowTitle(string text)
+        {
+            var title = new UIText(text, 0.78f, large: false);
+            title.Left.Set(14f, 0f);
+            title.Top.Set(12f, 0f);
+            return title;
+        }
+
+        private UIText CreateRowSubtitle(string text)
+        {
+            var subtitle = new UIText(text, 0.56f, large: false);
+            subtitle.Left.Set(14f, 0f);
+            subtitle.Top.Set(40f, 0f);
+            subtitle.TextColor = new Color(184, 196, 225);
+            return subtitle;
+        }
+
+        private UITextPanel<string> CreateControlButton(string text)
+        {
+            var button = new UITextPanel<string>(text, 0.68f, large: false);
+            button.SetPadding(8f);
+            button.BackgroundColor = new Color(54, 72, 122) * 0.95f;
+            button.BorderColor = new Color(126, 147, 208);
+            button.OnMouseOver += (_, __) =>
+            {
+                button.BackgroundColor = new Color(73, 94, 171);
+                button.BorderColor = Color.White;
+            };
+            button.OnMouseOut += (_, __) =>
+            {
+                button.BackgroundColor = new Color(54, 72, 122) * 0.95f;
+                button.BorderColor = new Color(126, 147, 208);
+            };
+            return button;
+        }
+
+        private bool IsEditingField(string fieldKey) => string.Equals(_editingFieldKey, fieldKey, StringComparison.Ordinal);
+
+        private string GetDisplayValue(ConfigField field)
+        {
+            if (IsEditingField(field.Key))
+                return string.IsNullOrEmpty(_editingBuffer) ? "_" : _editingBuffer + "_";
+
+            return FormatConfigValue(field);
+        }
+
+        private string GetStoredFieldValue(ConfigField field)
+        {
+            switch (field.Type)
+            {
+                case ConfigFieldType.Bool:
+                    return _mod.Context.Config.Get<bool>(field.Key).ToString();
+                case ConfigFieldType.Int:
+                    return _mod.Context.Config.Get<int>(field.Key).ToString(CultureInfo.InvariantCulture);
+                case ConfigFieldType.Float:
+                    return _mod.Context.Config.Get<float>(field.Key).ToString("0.###", CultureInfo.InvariantCulture);
+                default:
+                    return _mod.Context.Config.Get<string>(field.Key, string.Empty);
+            }
         }
 
         private string FormatConfigValue(ConfigField field)
@@ -119,7 +508,7 @@ namespace TerrariaModder.Core.UI
                 switch (field.Type)
                 {
                     case ConfigFieldType.Bool:
-                        return _mod.Context.Config.Get<bool>(field.Key) ? "On" : "Off";
+                        return _mod.Context.Config.Get<bool>(field.Key) ? "Checked" : "Unchecked";
                     case ConfigFieldType.Int:
                         return _mod.Context.Config.Get<int>(field.Key).ToString(CultureInfo.InvariantCulture);
                     case ConfigFieldType.Float:
@@ -130,82 +519,78 @@ namespace TerrariaModder.Core.UI
             }
             catch (Exception ex)
             {
-                return $"(error: {ex.Message})";
+                return $"error: {ex.Message}";
             }
         }
 
-        private void ActivateField(ConfigField field)
+        private string GetFieldDescription(ConfigField field)
         {
-            switch (field.Type)
-            {
-                case ConfigFieldType.Bool:
-                    Service.SetConfigValue(_mod, field, !_mod.Context.Config.Get<bool>(field.Key));
-                    SetStatus($"{field.Label ?? field.Key} updated.");
-                    RebuildList();
-                    break;
-                case ConfigFieldType.Enum:
-                    CycleEnum(field, 1);
-                    RebuildList();
-                    break;
-                case ConfigFieldType.Int:
-                case ConfigFieldType.Float:
-                    if (field.Min.HasValue && field.Max.HasValue)
-                    {
-                        ApplyNumericDelta(field, 1);
-                        RebuildList();
-                    }
-                    else
-                    {
-                        BeginEditing(field.Key, FormatConfigValue(field), isNumber: true);
-                    }
-                    break;
-                case ConfigFieldType.String:
-                case ConfigFieldType.Key:
-                    BeginEditing(field.Key, FormatConfigValue(field), isNumber: false);
-                    break;
-            }
+            if (!string.IsNullOrWhiteSpace(field.Description))
+                return field.Description;
+
+            if (field.Type == ConfigFieldType.Enum && field.Options != null && field.Options.Count > 0)
+                return $"Options: {string.Join(", ", field.Options)}";
+
+            return "No additional description provided.";
         }
 
-        private void DecrementField(ConfigField field)
+        private string GetNumericDescription(ConfigField field)
         {
-            switch (field.Type)
-            {
-                case ConfigFieldType.Enum:
-                    CycleEnum(field, -1);
-                    SetStatus($"{field.Label ?? field.Key} updated.");
-                    break;
-                case ConfigFieldType.Int:
-                case ConfigFieldType.Float:
-                    if (field.Min.HasValue && field.Max.HasValue)
-                    {
-                        ApplyNumericDelta(field, -1);
-                        SetStatus($"{field.Label ?? field.Key} updated.");
-                    }
-                    break;
-            }
+            string description = GetFieldDescription(field);
+            string stepText = field.Type == ConfigFieldType.Float
+                ? GetFloatStep(field).ToString("0.###", CultureInfo.InvariantCulture)
+                : GetIntStep(field).ToString(CultureInfo.InvariantCulture);
+
+            if (field.Min.HasValue || field.Max.HasValue)
+                return $"{description} Range: {FormatLimit(field.Min)} to {FormatLimit(field.Max)}. Step: {stepText}.";
+
+            return $"{description} Step: {stepText}.";
+        }
+
+        private static string FormatLimit(double? value)
+        {
+            if (!value.HasValue)
+                return "unbounded";
+
+            return value.Value.ToString("0.###", CultureInfo.InvariantCulture);
         }
 
         private void ApplyNumericDelta(ConfigField field, int direction)
         {
-            double step = field.Step ?? 1.0;
             if (field.Type == ConfigFieldType.Int)
             {
                 int current = _mod.Context.Config.Get<int>(field.Key);
-                Service.SetConfigValue(_mod, field, current + (int)Math.Round(step) * direction);
+                Service.SetConfigValue(_mod, field, current + (GetIntStep(field) * direction));
                 return;
             }
 
-            float value = _mod.Context.Config.Get<float>(field.Key);
-            Service.SetConfigValue(_mod, field, value + (float)step * direction);
+            float currentFloat = _mod.Context.Config.Get<float>(field.Key);
+            Service.SetConfigValue(_mod, field, currentFloat + (GetFloatStep(field) * direction));
+        }
+
+        private static int GetIntStep(ConfigField field)
+        {
+            if (field.Step.HasValue)
+                return Math.Max(1, (int)Math.Round(field.Step.Value));
+
+            return 1;
+        }
+
+        private static float GetFloatStep(ConfigField field)
+        {
+            return field.Step.HasValue ? (float)field.Step.Value : 0.1f;
         }
 
         private void CycleEnum(ConfigField field, int direction)
         {
-            if (field.Options == null || field.Options.Count == 0) return;
+            if (field.Options == null || field.Options.Count == 0)
+                return;
 
             string current = _mod.Context.Config.Get<string>(field.Key, field.Options[0]);
             int index = field.Options.IndexOf(current);
-            if (index < 0) index = 0;
+            if (index < 0)
+                index = 0;
+
             index = (index + direction + field.Options.Count) % field.Options.Count;
             Service.SetConfigValue(_mod, field, field.Options[index]);
             SetStatus($"{field.Label ?? field.Key} updated.");
@@ -217,52 +602,64 @@ namespace TerrariaModder.Core.UI
             _editingBuffer = value ?? string.Empty;
             _editingIsNumber = isNumber;
             Main.clrInput();
-            SetStatus($"Editing {fieldKey}. Press Enter to save, Escape to cancel.");
+            SetStatus($"Editing {fieldKey}. Enter saves, Escape cancels.");
         }
 
         private void UpdateTextEditing()
         {
             PlayerInput.WritingText = true;
             Main.instance.HandleIME();
-            _editingBuffer = Main.GetInputText(_editingBuffer);
+
+            string newBuffer = Main.GetInputText(_editingBuffer ?? string.Empty);
+            if (!string.Equals(newBuffer, _editingBuffer, StringComparison.Ordinal))
+            {
+                _editingBuffer = newBuffer;
+                RebuildList();
+            }
 
             if (InputState.IsKeyJustPressed(KeyCode.Escape))
             {
-                CancelEditing();
+                CancelEditing(rebuild: true);
+                SetStatus("Edit cancelled.");
                 return;
             }
 
-            if (!Main.inputTextEnter) return;
+            if (!Main.inputTextEnter)
+                return;
 
             var field = _mod.Context.Config.Schema[_editingFieldKey];
             try
             {
                 if (_editingIsNumber)
                 {
-                    if (field.Type == ConfigFieldType.Int && int.TryParse(_editingBuffer, out int intValue))
+                    if (field.Type == ConfigFieldType.Int)
+                    {
+                        if (!int.TryParse(_editingBuffer, NumberStyles.Integer, CultureInfo.InvariantCulture, out int intValue))
+                            throw new InvalidOperationException("Invalid integer value.");
+
                         Service.SetConfigValue(_mod, field, intValue);
-                    else if (field.Type == ConfigFieldType.Float && float.TryParse(_editingBuffer, NumberStyles.Float, CultureInfo.InvariantCulture, out float floatValue))
-                        Service.SetConfigValue(_mod, field, floatValue);
+                    }
                     else
                     {
-                        SetStatus("Invalid numeric value.");
-                        Main.clrInput();
-                        return;
+                        if (!float.TryParse(_editingBuffer, NumberStyles.Float, CultureInfo.InvariantCulture, out float floatValue))
+                            throw new InvalidOperationException("Invalid decimal value.");
+
+                        Service.SetConfigValue(_mod, field, floatValue);
                     }
                 }
                 else
                 {
-                    Service.SetConfigValue(_mod, field, _editingBuffer);
+                    Service.SetConfigValue(_mod, field, _editingBuffer ?? string.Empty);
                 }
 
                 SetStatus($"{field.Label ?? field.Key} saved.");
+                CancelEditing(rebuild: true);
             }
             catch (Exception ex)
             {
                 SetStatus($"Save failed: {ex.Message}");
+                Main.clrInput();
             }
-
-            CancelEditing(rebuild: true);
         }
 
         private void CancelEditing(bool rebuild = false)
@@ -283,6 +680,7 @@ namespace TerrariaModder.Core.UI
                 _capturingKeybind = false;
                 _capturingKeybindId = null;
                 SetStatus("Keybind capture cancelled.");
+                RebuildList();
                 return;
             }
 
@@ -328,7 +726,7 @@ namespace TerrariaModder.Core.UI
 
         private static int[] BuildKeyCaptureCandidates()
         {
-            var keys = new System.Collections.Generic.List<int>();
+            var keys = new List<int>();
             for (int i = KeyCode.A; i <= KeyCode.Z; i++) keys.Add(i);
             for (int i = KeyCode.D0; i <= KeyCode.D9; i++) keys.Add(i);
             for (int i = KeyCode.F1; i <= KeyCode.F12; i++) keys.Add(i);
@@ -362,6 +760,47 @@ namespace TerrariaModder.Core.UI
             keys.Add(KeyCode.MouseRight);
             keys.Add(KeyCode.MouseMiddle);
             return keys.ToArray();
+        }
+
+        private sealed class ModIconElement : UIElement
+        {
+            private readonly object _textureSource;
+
+            public ModIconElement(object textureSource)
+            {
+                _textureSource = textureSource;
+            }
+
+            protected override void DrawSelf(SpriteBatch spriteBatch)
+            {
+                base.DrawSelf(spriteBatch);
+
+                Texture2D texture = ResolveTexture(_textureSource);
+                if (texture == null)
+                    return;
+
+                CalculatedStyle dimensions = GetInnerDimensions();
+                float scale = Math.Min(dimensions.Width / texture.Width, dimensions.Height / texture.Height);
+                int drawWidth = Math.Max(1, (int)(texture.Width * scale));
+                int drawHeight = Math.Max(1, (int)(texture.Height * scale));
+                var destination = new Rectangle(
+                    (int)(dimensions.X + ((dimensions.Width - drawWidth) * 0.5f)),
+                    (int)(dimensions.Y + ((dimensions.Height - drawHeight) * 0.5f)),
+                    drawWidth,
+                    drawHeight);
+
+                spriteBatch.Draw(texture, destination, Color.White);
+            }
+
+            private static Texture2D ResolveTexture(object textureSource)
+            {
+                if (textureSource is Texture2D texture)
+                    return texture;
+
+                var sourceType = textureSource?.GetType();
+                var valueProperty = sourceType?.GetProperty("Value");
+                return valueProperty?.GetValue(textureSource, null) as Texture2D;
+            }
         }
     }
 }
