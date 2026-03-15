@@ -17,7 +17,7 @@ namespace TerrariaModder.Core.UI
         protected UIList List;
         protected UIPanel Panel;
         protected UIElement Root;
-        protected UITextPanel<string> StatusPanel;
+        protected UIScrollbar Scrollbar;
         protected UITextPanel<LocalizedText> BackPanel;
 
         protected NativeModsStateBase(NativeModsService service, UIState previousState, bool inGame)
@@ -49,13 +49,13 @@ namespace TerrariaModder.Core.UI
             List.ListPadding = 6f;
             Panel.Append(List);
 
-            var scrollbar = new UIScrollbar();
-            scrollbar.SetView(100f, 1000f);
-            scrollbar.Height.Set(-20f, 1f);
-            scrollbar.HAlign = 1f;
-            scrollbar.Top.Set(10f, 0f);
-            Panel.Append(scrollbar);
-            List.SetScrollbar(scrollbar);
+            Scrollbar = new UIScrollbar();
+            Scrollbar.SetView(100f, 1000f);
+            Scrollbar.Height.Set(-20f, 1f);
+            Scrollbar.HAlign = 1f;
+            Scrollbar.Top.Set(10f, 0f);
+            Panel.Append(Scrollbar);
+            List.SetScrollbar(Scrollbar);
 
             var title = new UITextPanel<string>(GetTitle(), 0.8f, large: true);
             title.HAlign = 0.5f;
@@ -75,18 +75,8 @@ namespace TerrariaModder.Core.UI
             BackPanel.SetSnapPoint("Back", 0);
             Root.Append(BackPanel);
 
-            StatusPanel = new UITextPanel<string>(string.Empty, 0.6f, large: false);
-            StatusPanel.Width.Set(0f, 1f);
-            StatusPanel.Height.Set(36f, 0f);
-            StatusPanel.VAlign = 1f;
-            StatusPanel.Top.Set(-92f, 0f);
-            StatusPanel.BackgroundColor = new Color(24, 31, 57) * 0.95f;
-            StatusPanel.BorderColor = new Color(73, 94, 171);
-            Root.Append(StatusPanel);
-
             Append(Root);
             RebuildList();
-            SetStatus(string.Empty);
         }
 
         protected abstract string GetTitle();
@@ -118,7 +108,21 @@ namespace TerrariaModder.Core.UI
 
         protected void SetStatus(string text)
         {
-            StatusPanel?.SetText(string.IsNullOrEmpty(text) ? " " : text);
+            _ = text;
+        }
+
+        protected float GetScrollPosition()
+        {
+            return Scrollbar?.ViewPosition ?? 0f;
+        }
+
+        protected void RestoreScrollPosition(float viewPosition)
+        {
+            if (Scrollbar == null)
+                return;
+
+            List?.Recalculate();
+            Scrollbar.ViewPosition = viewPosition;
         }
 
         protected void GoBack()

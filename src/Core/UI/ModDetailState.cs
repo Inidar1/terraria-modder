@@ -55,6 +55,7 @@ namespace TerrariaModder.Core.UI
 
         protected override void RebuildList()
         {
+            float scrollPosition = GetScrollPosition();
             List.Clear();
 
             if (Service.ModNeedsRestart(_mod))
@@ -85,6 +86,8 @@ namespace TerrariaModder.Core.UI
                 foreach (var keybind in keybinds)
                     List.Add(CreateKeybindRow(keybind));
             }
+
+            RestoreScrollPosition(scrollPosition);
         }
 
         private void BuildDetailLayout()
@@ -93,35 +96,30 @@ namespace TerrariaModder.Core.UI
 
             Root.MaxWidth.Set(1040f, 0f);
 
-            Panel.Top.Set(212f, 0f);
-            Panel.Height.Set(-320f, 1f);
+            Panel.Top.Set(244f, 0f);
+            Panel.Height.Set(-352f, 1f);
             Panel.BackgroundColor = new Color(22, 30, 52) * 0.92f;
 
             List.Top.Set(62f, 0f);
             List.Height.Set(-74f, 1f);
             List.ListPadding = 10f;
 
-            var configTitle = new UIText("Config Options", 0.9f, large: true);
-            configTitle.HAlign = 0.5f;
-            configTitle.Top.Set(18f, 0f);
-            Panel.Append(configTitle);
-
             _summaryArea = new UIElement();
             _summaryArea.Width.Set(0f, 1f);
-            _summaryArea.Height.Set(176f, 0f);
+            _summaryArea.Height.Set(208f, 0f);
             _summaryArea.Top.Set(4f, 0f);
             Root.Append(_summaryArea);
 
             _iconPanel = new UIPanel();
             _iconPanel.Width.Set(188f, 0f);
-            _iconPanel.Height.Set(176f, 0f);
+            _iconPanel.Height.Set(208f, 0f);
             _iconPanel.BackgroundColor = new Color(28, 37, 66) * 0.95f;
             _summaryArea.Append(_iconPanel);
 
             _metaPanel = new UIPanel();
             _metaPanel.Left.Set(202f, 0f);
             _metaPanel.Width.Set(-202f, 1f);
-            _metaPanel.Height.Set(176f, 0f);
+            _metaPanel.Height.Set(208f, 0f);
             _metaPanel.BackgroundColor = new Color(28, 37, 66) * 0.95f;
             _summaryArea.Append(_metaPanel);
 
@@ -166,10 +164,23 @@ namespace TerrariaModder.Core.UI
             _metaPanel.Append(CreateMetaText($"Author: {_mod.Manifest.Author ?? "Unknown"}", top));
             top += 28f;
             _metaPanel.Append(CreateMetaText($"State: {_mod.State}", top));
+            top += 32f;
+
+            string descriptionText = string.IsNullOrWhiteSpace(_mod.Manifest.Description)
+                ? "No description provided."
+                : _mod.Manifest.Description;
+            var description = new UIText(descriptionText, 0.62f, large: false);
+            description.Left.Set(16f, 0f);
+            description.Top.Set(top, 0f);
+            description.Width.Set(-32f, 1f);
+            description.Height.Set(-top - 12f, 1f);
+            description.IsWrapped = true;
+            description.TextColor = new Color(206, 214, 236);
+            _metaPanel.Append(description);
 
             if (!string.IsNullOrWhiteSpace(_mod.ErrorMessage))
             {
-                top += 34f;
+                top += 64f;
                 var error = CreateMetaText(_mod.ErrorMessage, top);
                 error.TextColor = new Color(255, 180, 120);
                 _metaPanel.Append(error);
@@ -188,12 +199,13 @@ namespace TerrariaModder.Core.UI
         {
             var panel = new UIPanel();
             panel.Width.Set(0f, 1f);
-            panel.Height.Set(42f, 0f);
+            panel.Height.Set(48f, 0f);
             panel.BackgroundColor = new Color(45, 61, 108) * 0.95f;
             panel.BorderColor = new Color(100, 123, 184);
 
             var text = new UIText(title, 0.72f, large: true);
-            text.Top.Set(8f, 0f);
+            text.VAlign = 0.5f;
+            text.Top.Set(-4f, 0f);
             text.HAlign = 0.5f;
             panel.Append(text);
             return panel;
