@@ -53,6 +53,11 @@ namespace TerrariaModder.Core.UI
                 UpdateTextEditing();
         }
 
+        protected override bool CanGoBack()
+        {
+            return !_capturingKeybind && string.IsNullOrEmpty(_editingFieldKey);
+        }
+
         protected override void RebuildList()
         {
             float scrollPosition = GetScrollPosition();

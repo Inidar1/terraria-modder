@@ -6,10 +6,9 @@ using Terraria.GameContent.UI.Elements;
 using Terraria.Localization;
 using Terraria.UI;
 using Terraria.UI.Gamepad;
-
 namespace TerrariaModder.Core.UI
 {
-    internal abstract class NativeModsStateBase : UIState
+    internal abstract class NativeModsStateBase : UIState, IHaveBackButtonCommand
     {
         protected readonly NativeModsService Service;
         protected readonly UIState PreviousState;
@@ -81,6 +80,7 @@ namespace TerrariaModder.Core.UI
 
         protected abstract string GetTitle();
         protected abstract void RebuildList();
+        protected virtual bool CanGoBack() => true;
 
         protected UITextPanel<string> CreateButton(string text, System.Action onClick, float height = 40f)
         {
@@ -171,7 +171,13 @@ namespace TerrariaModder.Core.UI
         protected override void DrawSelf(SpriteBatch spriteBatch)
         {
             base.DrawSelf(spriteBatch);
-            UILinkPointNavigator.Shortcuts.BackButtonCommand = 1;
+            UILinkPointNavigator.Shortcuts.BackButtonCommand = 7;
+        }
+
+        public void HandleBackButtonUsage()
+        {
+            if (CanGoBack())
+                GoBack();
         }
     }
 }
