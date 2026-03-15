@@ -17,6 +17,7 @@ namespace TerrariaModder.Core.UI
         protected UIPanel Panel;
         protected UIElement Root;
         protected UIScrollbar Scrollbar;
+        protected UITextPanel<string> TitlePanel;
         protected UITextPanel<LocalizedText> BackPanel;
 
         protected NativeModsStateBase(NativeModsService service, UIState previousState, bool inGame)
@@ -56,12 +57,12 @@ namespace TerrariaModder.Core.UI
             Panel.Append(Scrollbar);
             List.SetScrollbar(Scrollbar);
 
-            var title = new UITextPanel<string>(GetTitle(), 0.8f, large: true);
-            title.HAlign = 0.5f;
-            title.Top.Set(-42f, 0f);
-            title.SetPadding(15f);
-            title.BackgroundColor = new Color(73, 94, 171);
-            Root.Append(title);
+            TitlePanel = new UITextPanel<string>(GetTitle(), 0.8f, large: true);
+            TitlePanel.HAlign = 0.5f;
+            TitlePanel.Top.Set(-42f, 0f);
+            TitlePanel.SetPadding(15f);
+            TitlePanel.BackgroundColor = new Color(73, 94, 171);
+            Root.Append(TitlePanel);
 
             BackPanel = new UITextPanel<LocalizedText>(Language.GetText("UI.Back"), 0.7f, large: true);
             BackPanel.Width.Set(-10f, 0.5f);
@@ -123,6 +124,16 @@ namespace TerrariaModder.Core.UI
 
             List?.Recalculate();
             Scrollbar.ViewPosition = viewPosition;
+        }
+
+        protected void BringToFront(UIElement element)
+        {
+            if (element == null || element.Parent == null)
+                return;
+
+            UIElement parent = element.Parent;
+            parent.RemoveChild(element);
+            parent.Append(element);
         }
 
         protected void GoBack()

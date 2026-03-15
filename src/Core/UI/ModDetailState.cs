@@ -112,7 +112,7 @@ namespace TerrariaModder.Core.UI
             _summaryArea = new UIElement();
             _summaryArea.Width.Set(0f, 1f);
             _summaryArea.Height.Set(208f, 0f);
-            _summaryArea.Top.Set(4f, 0f);
+            _summaryArea.Top.Set(-8f, 0f);
             Root.Append(_summaryArea);
 
             _iconPanel = new UIPanel();
@@ -190,6 +190,8 @@ namespace TerrariaModder.Core.UI
                 error.TextColor = new Color(255, 180, 120);
                 _metaPanel.Append(error);
             }
+
+            BringToFront(TitlePanel);
         }
 
         private static UIText CreateMetaText(string text, float top)
