@@ -1038,25 +1038,32 @@ namespace TerrariaModder.Core.Events
                     process.Start();
                 }
 
-                // Connect client to the local server (same as vanilla)
-                Terraria.Netplay.SetRemoteIP("127.0.0.1");
-                Terraria.Netplay.ListenPort = 7777;
-                Terraria.Netplay.IsHostAndPlay = true;
-                Main.autoPass = true;
-                // Main.statusText = Lang.menu[8].Value — use reflection for Lang
-                var langType = mainType.Assembly.GetType("Terraria.Localization.Lang");
-                var menuField = langType?.GetField("menu", BindingFlags.Public | BindingFlags.Static);
-                if (menuField != null)
+                if (false) // Placeholder variable to toggle Injector server
                 {
-                    var menuArray = menuField.GetValue(null) as Terraria.Localization.LocalizedText[];
-                    if (menuArray != null && menuArray.Length > 8)
-                        Main.statusText = menuArray[8].Value;
-                }
-                Terraria.Netplay.StartTcpClient();
-                Main.menuMode = 10;
+                    Terraria.Netplay.SetRemoteIP("127.0.0.1");
+                    Terraria.Netplay.ListenPort = 7777;
+                    Terraria.Netplay.IsHostAndPlay = true;
+                    Main.autoPass = true;
+                    // Main.statusText = Lang.menu[8].Value — use reflection for Lang
+                    var langType = mainType.Assembly.GetType("Terraria.Localization.Lang");
+                    var menuField = langType?.GetField("menu", BindingFlags.Public | BindingFlags.Static);
+                    if (menuField != null)
+                    {
+                        var menuArray = menuField.GetValue(null) as Terraria.Localization.LocalizedText[];
+                        if (menuArray != null && menuArray.Length > 8)
+                            Main.statusText = menuArray[8].Value;
+                    }
+                    Terraria.Netplay.StartTcpClient();
+                    Main.menuMode = 10;
 
-                _log?.Info("[H&P] Server started via injector, client connecting...");
-                return false; // Skip vanilla HostAndPlay
+                    _log?.Info("[H&P] Server started via injector, client connecting...");
+                    return false; // Skip vanilla HostAndPlay
+                }
+                else
+                {
+                    _log?.Info("[H&P] Injector server disabled, starting vanilla server...");
+                    return true; // Let vanilla handle it
+                }
             }
             catch (Exception ex)
             {
