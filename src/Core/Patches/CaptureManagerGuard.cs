@@ -136,15 +136,20 @@ namespace TerrariaModder.Core.Patches
 
         private static void PatchMethod(Harmony harmony, Type type, string methodName, string prefixName)
         {
-            var method = type.GetMethod(methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (method != null)
+            // GetMethod(name) throws AmbiguousMatchException for overloaded methods
+            // (e.g. Capture() and Capture(CaptureSettings)) — patch every overload.
+            var prefix = new HarmonyMethod(typeof(CaptureManagerGuard).GetMethod(prefixName,
+                BindingFlags.NonPublic | BindingFlags.Static));
+            bool found = false;
+            foreach (var method in type.GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
             {
-                harmony.Patch(method, prefix: new HarmonyMethod(
-                    typeof(CaptureManagerGuard).GetMethod(prefixName,
-                        BindingFlags.NonPublic | BindingFlags.Static)));
+                if (method.Name != methodName)
+                    continue;
+                harmony.Patch(method, prefix: prefix);
+                found = true;
             }
-            else
+            if (!found)
             {
                 _log?.Debug($"CaptureManagerGuard: {methodName} not found, skipping");
             }
