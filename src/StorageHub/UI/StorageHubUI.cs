@@ -167,7 +167,7 @@ namespace StorageHub.UI
             }
             else
             {
-                _searchInput.Unfocus();
+                ReleaseSearchFocus();
                 // Unregister panel bounds - this automatically disables mouse blocking if no other panels
                 UIRenderer.UnregisterPanelBounds("storage-hub");
             }
@@ -181,7 +181,7 @@ namespace StorageHub.UI
             if (_isOpen)
             {
                 _isOpen = false;
-                _searchInput.Unfocus();
+                ReleaseSearchFocus();
                 UIRenderer.UnregisterPanelBounds("storage-hub");
                 UIRenderer.CloseInventory();
             }
@@ -195,9 +195,21 @@ namespace StorageHub.UI
             if (_isOpen)
             {
                 _isOpen = false;
-                _searchInput.Unfocus();
+                ReleaseSearchFocus();
                 UIRenderer.UnregisterPanelBounds("storage-hub");
             }
+        }
+
+        private void ReleaseSearchFocus()
+        {
+            _searchInput.Unfocus();
+            _craftTab.UnfocusSearch();
+            _recipesTab.UnfocusSearch();
+        }
+
+        private bool IsAnySearchFocused()
+        {
+            return _searchInput.IsFocused || _craftTab.IsSearchFocused || _recipesTab.IsSearchFocused;
         }
 
         /// <summary>
@@ -240,8 +252,8 @@ namespace StorageHub.UI
         {
             if (!_isOpen) return;
 
-            // Handle Escape to close storage hub (unless search is focused)
-            if (!_searchInput.IsFocused)
+            // Handle Escape to close storage hub (unless a search field is focused)
+            if (!IsAnySearchFocused())
             {
                 if (InputState.IsKeyJustPressed(KeyCode.Escape))
                 {
