@@ -53,13 +53,13 @@ namespace StorageHub.UI
         public string ActiveTabName => _activeTab >= 0 && _activeTab < TabNames.Length ? TabNames[_activeTab] : "?";
         public void SetActiveTab(int tab)
         {
-            if (tab >= 0 && tab < TabNames.Length) _activeTab = tab;
+            ChangeActiveTab(tab);
         }
         public void SetActiveTab(string name)
         {
             for (int i = 0; i < TabNames.Length; i++)
                 if (string.Equals(TabNames[i], name, System.StringComparison.OrdinalIgnoreCase))
-                { _activeTab = i; return; }
+                { ChangeActiveTab(i); return; }
         }
 
         // UI Components
@@ -131,7 +131,7 @@ namespace StorageHub.UI
             // Set up callbacks
             _recipesTab.OnJumpToCraft = (itemId) =>
             {
-                _activeTab = TabCraft;
+                ChangeActiveTab(TabCraft);
                 _craftTab.NavigateToItem(itemId);
             };
 
@@ -210,6 +210,18 @@ namespace StorageHub.UI
         private bool IsAnySearchFocused()
         {
             return _searchInput.IsFocused || _craftTab.IsSearchFocused || _recipesTab.IsSearchFocused;
+        }
+
+        private void ChangeActiveTab(int tab)
+        {
+            if (tab < 0 || tab >= TabNames.Length || tab == _activeTab)
+                return;
+
+            // A hidden TextInput cannot process Escape, so release its focus before
+            // switching tabs to keep keyboard blocking and focus state in sync.
+            ReleaseSearchFocus();
+            _activeTab = tab;
+            _needsRefresh = true;
         }
 
         /// <summary>
@@ -380,8 +392,7 @@ namespace StorageHub.UI
             var newTab = TabBar.Draw(x, tabY, PanelWidth, TabNames, _activeTab);
             if (newTab != _activeTab)
             {
-                _activeTab = newTab;
-                _needsRefresh = true;
+                ChangeActiveTab(newTab);
                 // Don't reset scroll - preserve scroll position per tab
                 // Each tab maintains its own scroll state internally
             }
