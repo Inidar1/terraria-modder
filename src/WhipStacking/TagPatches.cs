@@ -174,7 +174,7 @@ namespace WhipStacking
         /// ModifyHit — Apply tag damage from ALL active whips on this NPC.
         /// </summary>
         public static bool ModifyHit_Prefix(TagEffectState __instance, Projectile optionalProjectile, NPC npcHit,
-            ref int damageDealt, ref bool crit)
+            ref TagDamageChanges tagDamageChanges)
         {
             if (!Enabled) return true;
             try
@@ -193,11 +193,11 @@ namespace WhipStacking
 
                     if (!entry.Effect.CanRunHitEffects(owner, optionalProjectile, npcHit)) continue;
 
-                    entry.Effect.ModifyTaggedHit(owner, optionalProjectile, npcHit, ref damageDealt, ref crit);
+                    entry.Effect.ModifyTaggedHit(owner, optionalProjectile, npcHit, ref tagDamageChanges);
 
                     if (entry.ProcTimeLeftOnNPC[npcIdx] > 0)
                     {
-                        entry.Effect.ModifyProcHit(owner, optionalProjectile, npcHit, ref damageDealt, ref crit);
+                        entry.Effect.ModifyProcHit(owner, optionalProjectile, npcHit, ref tagDamageChanges);
                     }
                 }
             }

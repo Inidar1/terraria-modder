@@ -29,8 +29,8 @@ namespace TerrariaModder.Core.Server
         private static FieldInfo _playerField;    // Main.player (Player[])
         private static FieldInfo _itemField;      // Main.item   (Item[])
 
-        // Item.NewItem method (the overload used for spawning)
-        // NewItem(IEntitySource, Vector2, int, int, int, int, bool, int)
+        // Item.NewItem method (the ergonomic overload used for spawning)
+        // NewItem(IEntitySource, Vector2, int, int, int, NewItemOwnership, Vector2?, NewItemModifier, bool)
         private static MethodInfo _itemNewItem;
 
         // NetMessage.TrySendData for packet 32 (SyncChestItem) and packet 21 (ItemDrop)
@@ -63,7 +63,7 @@ namespace TerrariaModder.Core.Server
                 var itemType = asm.GetType("Terraria.Item");
                 if (itemType != null)
                 {
-                    // NewItem(IEntitySource source, Vector2 pos, int Width, int Height, int Type, int Stack=1, bool noBroadcast=false, int prefixGiven=0)
+                    // NewItem(IEntitySource source, Vector2 center, int type, int stack = 1, int prefix = 0, NewItemOwnership ownership = NewItemOwnership.None, Vector2? velocity = null, NewItemModifier modifier = null, bool noBroadcast = false)
                     foreach (var m in itemType.GetMethods(BindingFlags.Public | BindingFlags.Static))
                     {
                         if (m.Name != "NewItem") continue;
@@ -181,9 +181,10 @@ namespace TerrariaModder.Core.Server
         /// <summary>Spawn an item drop in the world (server-safe).</summary>
         public static void ItemNewItem(Microsoft.Xna.Framework.Vector2 pos, int width, int height, int itemId, int stack, int prefix)
         {
+            var center = new Microsoft.Xna.Framework.Vector2(pos.X + width / 2, pos.Y + height / 2);
             if (!_isDedServ)
             {
-                try { Terraria.Item.NewItem(null, pos, width, height, itemId, stack, false, prefix); return; } catch { }
+                try { Terraria.Item.NewItem(null, center, itemId, stack, prefix); return; } catch { }
             }
             try
             {
@@ -193,13 +194,10 @@ namespace TerrariaModder.Core.Server
                     var args = new object[prms.Length];
                     for (int i = 0; i < args.Length; i++) args[i] = prms[i].HasDefaultValue ? prms[i].DefaultValue : null;
                     args[0] = null; // IEntitySource
-                    args[1] = pos;
-                    if (prms.Length > 2) args[2] = width;
-                    if (prms.Length > 3) args[3] = height;
-                    if (prms.Length > 4) args[4] = itemId;
-                    if (prms.Length > 5) args[5] = stack;
-                    if (prms.Length > 6) args[6] = false; // noBroadcast
-                    if (prms.Length > 7) args[7] = prefix;
+                    args[1] = center;
+                    if (prms.Length > 2) args[2] = itemId;
+                    if (prms.Length > 3) args[3] = stack;
+                    if (prms.Length > 4) args[4] = prefix;
                     _itemNewItem.Invoke(null, args);
                 }
             }
