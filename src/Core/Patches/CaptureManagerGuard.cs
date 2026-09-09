@@ -23,16 +23,73 @@ namespace TerrariaModder.Core.Patches
     ///    (IsCapturing, DrawTick, Dispose, GetProgress, Capture)
     ///
     /// Applied during LoadPlugins() — before Main.Initialize() runs.
+    ///
+    /// Mono caveat: on the Mono runtime (Linux/macOS native Terraria), Harmony.Patch()
+    /// eagerly runs the target type's static constructor at patch time. Applying this
+    /// guard before a GraphicsDevice exists therefore *causes* the exact cctor poisoning
+    /// it is meant to prevent. On Mono the patch is deferred until OnGameReady(), when
+    /// Main.instance.GraphicsDevice is available and running the cctor is harmless.
     /// </summary>
     internal static class CaptureManagerGuard
     {
         private static ILogger _log;
         private static FieldInfo _cameraField;
+        private static bool _deferredPending;
 
         public static void Apply(ILogger logger)
         {
             _log = logger;
 
+            bool isMono = Type.GetType("Mono.Runtime") != null;
+            if (isMono && !GraphicsDeviceReady())
+            {
+                // Patching now would eagerly run CaptureManager's cctor with a null
+                // GraphicsDevice, permanently poisoning the type. Wait for OnGameReady.
+                _deferredPending = true;
+                _log?.Info("CaptureManagerGuard: deferred until OnGameReady (Mono runs static ctors eagerly on patch; GraphicsDevice not ready yet)");
+                return;
+            }
+
+            ApplyCore();
+        }
+
+        /// <summary>
+        /// Applies a deferred guard (Mono only). Called from PluginLoader.OnGameReady(),
+        /// after Main.Initialize() has created the GraphicsDevice. No-op if the guard
+        /// was already applied in Apply().
+        /// </summary>
+        public static void ApplyDeferred()
+        {
+            if (!_deferredPending)
+                return;
+            _deferredPending = false;
+
+            if (!GraphicsDeviceReady())
+            {
+                // Headless/dedicated-server on Mono: no device will ever exist, and
+                // patching would poison the type. Leave vanilla behavior in place.
+                _log?.Warn("CaptureManagerGuard: skipped — GraphicsDevice still unavailable at OnGameReady (headless?)");
+                return;
+            }
+
+            ApplyCore();
+        }
+
+        private static bool GraphicsDeviceReady()
+        {
+            try
+            {
+                // Game.GraphicsDevice can throw before device creation; treat as not ready.
+                return Main.instance?.GraphicsDevice != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void ApplyCore()
+        {
             try
             {
                 var captureManagerType = typeof(Main).Assembly.GetType("Terraria.Graphics.Capture.CaptureManager");
@@ -79,15 +136,20 @@ namespace TerrariaModder.Core.Patches
 
         private static void PatchMethod(Harmony harmony, Type type, string methodName, string prefixName)
         {
-            var method = type.GetMethod(methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (method != null)
+            // GetMethod(name) throws AmbiguousMatchException for overloaded methods
+            // (e.g. Capture() and Capture(CaptureSettings)) — patch every overload.
+            var prefix = new HarmonyMethod(typeof(CaptureManagerGuard).GetMethod(prefixName,
+                BindingFlags.NonPublic | BindingFlags.Static));
+            bool found = false;
+            foreach (var method in type.GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
             {
-                harmony.Patch(method, prefix: new HarmonyMethod(
-                    typeof(CaptureManagerGuard).GetMethod(prefixName,
-                        BindingFlags.NonPublic | BindingFlags.Static)));
+                if (method.Name != methodName)
+                    continue;
+                harmony.Patch(method, prefix: prefix);
+                found = true;
             }
-            else
+            if (!found)
             {
                 _log?.Debug($"CaptureManagerGuard: {methodName} not found, skipping");
             }

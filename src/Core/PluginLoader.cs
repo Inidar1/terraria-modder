@@ -903,6 +903,10 @@ namespace TerrariaModder.Core
         {
             _log?.Info("Lifecycle: OnGameReady — applying deferred patches");
 
+            // On Mono, CaptureManagerGuard defers its Harmony patches until the
+            // GraphicsDevice exists (see CaptureManagerGuard for details). No-op elsewhere.
+            Patches.CaptureManagerGuard.ApplyDeferred();
+
             // Start HTTP management API for dedicated server (if key configured)
             // Skip if already started during LoadPlugins()
             if (IsDedicatedServer)
