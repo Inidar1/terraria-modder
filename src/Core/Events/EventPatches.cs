@@ -1025,7 +1025,7 @@ namespace TerrariaModder.Core.Events
                 _log?.Info($"[H&P] Launching: {injectorPath} {args}");
 
                 // Launch the server process
-                var socialNetwork = typeof(Terraria.Social.SocialAPI).GetProperty("Network",
+                var socialNetwork = typeof(Terraria.Social.SocialAPI).GetField("Network",
                     BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
                 if (socialNetwork != null)
                 {
