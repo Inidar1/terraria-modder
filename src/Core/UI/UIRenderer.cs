@@ -476,7 +476,18 @@ namespace TerrariaModder.Core.UI
                 _savedRasterizerState = _graphicsDevice.RasterizerState;
 
                 // Set new scissor rect
-                _graphicsDevice.ScissorRectangle = new Rectangle(x, y, width, height);
+                // The scissor rectangle is in physical pixels, but x/y/width/height are in
+                // UI-space (pre-UIScale). Multiply by UIScale to get the correct pixel bounds.
+                // Without this, at >100% scale the clip region is too small and sits in the
+                // wrong place, cutting off content and icons near the right/bottom edges.
+                float clipScale = GetUIScale();
+                if (clipScale <= 0f) clipScale = 1f;
+                _graphicsDevice.ScissorRectangle = new Rectangle(
+                    (int)(x * clipScale),
+                    (int)(y * clipScale),
+                    (int)(width * clipScale),
+                    (int)(height * clipScale)
+                );
 
                 // Set rasterizer state with scissor test enabled
                 _graphicsDevice.RasterizerState = _rasterizerStateScissor;
