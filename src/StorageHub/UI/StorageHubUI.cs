@@ -53,13 +53,13 @@ namespace StorageHub.UI
         public string ActiveTabName => _activeTab >= 0 && _activeTab < TabNames.Length ? TabNames[_activeTab] : "?";
         public void SetActiveTab(int tab)
         {
-            if (tab >= 0 && tab < TabNames.Length) _activeTab = tab;
+            ChangeActiveTab(tab);
         }
         public void SetActiveTab(string name)
         {
             for (int i = 0; i < TabNames.Length; i++)
                 if (string.Equals(TabNames[i], name, System.StringComparison.OrdinalIgnoreCase))
-                { _activeTab = i; return; }
+                { ChangeActiveTab(i); return; }
         }
 
         // UI Components
@@ -131,7 +131,7 @@ namespace StorageHub.UI
             // Set up callbacks
             _recipesTab.OnJumpToCraft = (itemId) =>
             {
-                _activeTab = TabCraft;
+                ChangeActiveTab(TabCraft);
                 _craftTab.NavigateToItem(itemId);
             };
 
@@ -167,7 +167,7 @@ namespace StorageHub.UI
             }
             else
             {
-                _searchInput.Unfocus();
+                ReleaseSearchFocus();
                 // Unregister panel bounds - this automatically disables mouse blocking if no other panels
                 UIRenderer.UnregisterPanelBounds("storage-hub");
             }
@@ -181,7 +181,7 @@ namespace StorageHub.UI
             if (_isOpen)
             {
                 _isOpen = false;
-                _searchInput.Unfocus();
+                ReleaseSearchFocus();
                 UIRenderer.UnregisterPanelBounds("storage-hub");
                 UIRenderer.CloseInventory();
             }
@@ -195,9 +195,33 @@ namespace StorageHub.UI
             if (_isOpen)
             {
                 _isOpen = false;
-                _searchInput.Unfocus();
+                ReleaseSearchFocus();
                 UIRenderer.UnregisterPanelBounds("storage-hub");
             }
+        }
+
+        private void ReleaseSearchFocus()
+        {
+            _searchInput.Unfocus();
+            _craftTab.UnfocusSearch();
+            _recipesTab.UnfocusSearch();
+        }
+
+        private bool IsAnySearchFocused()
+        {
+            return _searchInput.IsFocused || _craftTab.IsSearchFocused || _recipesTab.IsSearchFocused;
+        }
+
+        private void ChangeActiveTab(int tab)
+        {
+            if (tab < 0 || tab >= TabNames.Length || tab == _activeTab)
+                return;
+
+            // A hidden TextInput cannot process Escape, so release its focus before
+            // switching tabs to keep keyboard blocking and focus state in sync.
+            ReleaseSearchFocus();
+            _activeTab = tab;
+            _needsRefresh = true;
         }
 
         /// <summary>
@@ -240,8 +264,8 @@ namespace StorageHub.UI
         {
             if (!_isOpen) return;
 
-            // Handle Escape to close storage hub (unless search is focused)
-            if (!_searchInput.IsFocused)
+            // Handle Escape to close storage hub (unless a search field is focused)
+            if (!IsAnySearchFocused())
             {
                 if (InputState.IsKeyJustPressed(KeyCode.Escape))
                 {
@@ -368,8 +392,7 @@ namespace StorageHub.UI
             var newTab = TabBar.Draw(x, tabY, PanelWidth, TabNames, _activeTab);
             if (newTab != _activeTab)
             {
-                _activeTab = newTab;
-                _needsRefresh = true;
+                ChangeActiveTab(newTab);
                 // Don't reset scroll - preserve scroll position per tab
                 // Each tab maintains its own scroll state internally
             }

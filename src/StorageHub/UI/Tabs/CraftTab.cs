@@ -93,7 +93,15 @@ namespace StorageHub.UI.Tabs
             _config = config;
             _modConfig = modConfig;
             _executor = new CraftingExecutor(log, storage);
+            _searchBar.KeyBlockId = "storage-hub-search";
         }
+
+        /// <summary>
+        /// Release search focus and keyboard input block when the panel closes.
+        /// </summary>
+        public void UnfocusSearch() => _searchBar.Unfocus();
+
+        public bool IsSearchFocused => _searchBar.IsFocused;
 
         /// <summary>
         /// Mark data as needing refresh.
