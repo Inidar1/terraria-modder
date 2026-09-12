@@ -27,11 +27,12 @@ namespace TerrariaModder.Core.Server
         // Main fields
         private static FieldInfo _chestField;     // Main.chest  (Chest[])
         private static FieldInfo _playerField;    // Main.player (Player[])
-        private static FieldInfo _itemField;      // Main.item   (Item[])
+        private static FieldInfo _itemField;      // Main.item   (WorldItem[] in 1.4.5.8)
 
-        // Item.NewItem method (the overload used for spawning)
-        // NewItem(IEntitySource, Vector2, int, int, int, int, bool, int)
+        // Item.NewItem method (the ergonomic center-based overload added in 1.4.5.8)
+        // NewItem(IEntitySource, Vector2 center, int type, int stack, int prefix, ...)
         private static MethodInfo _itemNewItem;
+        private static Type _itemType;
 
         // NetMessage.TrySendData for packet 32 (SyncChestItem) and packet 21 (ItemDrop)
         // TrySendData(int msgType, int remoteClient, int ignoreClient, NetworkText text, int number, ...)
@@ -44,7 +45,11 @@ namespace TerrariaModder.Core.Server
             _log = log;
             _isDedServ = Environment.GetEnvironmentVariable("TERRARIA_MODDER_DEDSERV") == "1";
 
-            if (!_isDedServ) return;
+            if (!_isDedServ)
+            {
+                _itemType = typeof(Terraria.Item);
+                return;
+            }
 
             // Resolve from TerrariaServer assembly — avoids Terraria.exe XNA cctor
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
@@ -63,12 +68,20 @@ namespace TerrariaModder.Core.Server
                 var itemType = asm.GetType("Terraria.Item");
                 if (itemType != null)
                 {
-                    // NewItem(IEntitySource source, Vector2 pos, int Width, int Height, int Type, int Stack=1, bool noBroadcast=false, int prefixGiven=0)
+                    _itemType = itemType;
+                    // Match the exact 1.4.5.8 ergonomic overload. Matching only by name and a
+                    // Vector2 second parameter is too broad if Terraria adds another overload.
                     foreach (var m in itemType.GetMethods(BindingFlags.Public | BindingFlags.Static))
                     {
                         if (m.Name != "NewItem") continue;
                         var prms = m.GetParameters();
-                        if (prms.Length >= 5 && prms[1].ParameterType.Name == "Vector2")
+                        if (prms.Length == 9 &&
+                            prms[0].ParameterType.FullName == "Terraria.DataStructures.IEntitySource" &&
+                            prms[1].ParameterType.FullName == "Microsoft.Xna.Framework.Vector2" &&
+                            prms[2].ParameterType == typeof(int) &&
+                            prms[3].ParameterType == typeof(int) &&
+                            prms[4].ParameterType == typeof(int) &&
+                            prms[8].ParameterType == typeof(bool))
                         {
                             _itemNewItem = m;
                             break;
@@ -181,9 +194,12 @@ namespace TerrariaModder.Core.Server
         /// <summary>Spawn an item drop in the world (server-safe).</summary>
         public static void ItemNewItem(Microsoft.Xna.Framework.Vector2 pos, int width, int height, int itemId, int stack, int prefix)
         {
+            // Callers supply the top-left corner and spawn rectangle, matching the legacy API.
+            // Terraria's ergonomic overload instead accepts the rectangle center.
+            var center = new Microsoft.Xna.Framework.Vector2(pos.X + width / 2, pos.Y + height / 2);
             if (!_isDedServ)
             {
-                try { Terraria.Item.NewItem(null, pos, width, height, itemId, stack, false, prefix); return; } catch { }
+                try { Terraria.Item.NewItem(null, center, itemId, stack, prefix); return; } catch { }
             }
             try
             {
@@ -193,13 +209,10 @@ namespace TerrariaModder.Core.Server
                     var args = new object[prms.Length];
                     for (int i = 0; i < args.Length; i++) args[i] = prms[i].HasDefaultValue ? prms[i].DefaultValue : null;
                     args[0] = null; // IEntitySource
-                    args[1] = pos;
-                    if (prms.Length > 2) args[2] = width;
-                    if (prms.Length > 3) args[3] = height;
-                    if (prms.Length > 4) args[4] = itemId;
-                    if (prms.Length > 5) args[5] = stack;
-                    if (prms.Length > 6) args[6] = false; // noBroadcast
-                    if (prms.Length > 7) args[7] = prefix;
+                    args[1] = center;
+                    args[2] = itemId;
+                    args[3] = stack;
+                    args[4] = prefix;
                     _itemNewItem.Invoke(null, args);
                 }
             }
@@ -253,6 +266,7 @@ namespace TerrariaModder.Core.Server
         /// </summary>
         public static int TakeFromChest(int chestIndex, int slot, int count)
         {
+            if (count <= 0) return 0;
             try
             {
                 var chests = GetChestArray();
@@ -293,6 +307,7 @@ namespace TerrariaModder.Core.Server
         /// </summary>
         public static int DepositToChest(int chestIndex, int itemId, int count, int prefix)
         {
+            if (count <= 0) return 0;
             try
             {
                 var chests = GetChestArray();
@@ -345,20 +360,14 @@ namespace TerrariaModder.Core.Server
         {
             try
             {
-                // Instantiate a temporary item, call SetDefaults, read maxStack
-                Type itemType = null;
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    if (asm.GetName().Name != "TerrariaServer" && asm.GetName().Name != "Terraria") continue;
-                    itemType = asm.GetType("Terraria.Item");
-                    if (itemType != null) break;
-                }
-                if (itemType == null) return 9999;
+                // Use the Item type selected during initialization. On dedicated servers this
+                // is the TerrariaServer assembly, never the simultaneously loaded client type.
+                if (_itemType == null) return 9999;
 
-                var tempItem = Activator.CreateInstance(itemType);
-                var setDefaults = itemType.GetMethod("SetDefaults", new[] { typeof(int) });
+                var tempItem = Activator.CreateInstance(_itemType);
+                var setDefaults = _itemType.GetMethod("SetDefaults", new[] { typeof(int) });
                 setDefaults?.Invoke(tempItem, new object[] { itemId });
-                var maxStackField = itemType.GetField("maxStack", BindingFlags.Public | BindingFlags.Instance);
+                var maxStackField = _itemType.GetField("maxStack", BindingFlags.Public | BindingFlags.Instance);
                 if (maxStackField != null)
                 {
                     int ms = (int)maxStackField.GetValue(tempItem);
@@ -542,9 +551,19 @@ namespace TerrariaModder.Core.Server
         {
             try
             {
-                var f = obj?.GetType().GetField(name, BindingFlags.Public | BindingFlags.Instance);
-                if (f == null) return fallback;
-                return (T)f.GetValue(obj);
+                var type = obj?.GetType();
+                var field = type?.GetField(name, BindingFlags.Public | BindingFlags.Instance);
+                if (field != null)
+                    return (T)field.GetValue(obj);
+
+                // Terraria 1.4.5 moved world drops from Item[] to WorldItem[].
+                // WorldItem exposes item state (type, stack, prefix, maxStack) as
+                // public properties that forward to its inner Item.
+                var property = type?.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+                if (property?.CanRead == true)
+                    return (T)property.GetValue(obj);
+
+                return fallback;
             }
             catch { return fallback; }
         }
@@ -553,8 +572,17 @@ namespace TerrariaModder.Core.Server
         {
             try
             {
-                var f = obj?.GetType().GetField(name, BindingFlags.Public | BindingFlags.Instance);
-                f?.SetValue(obj, value);
+                var type = obj?.GetType();
+                var field = type?.GetField(name, BindingFlags.Public | BindingFlags.Instance);
+                if (field != null)
+                {
+                    field.SetValue(obj, value);
+                    return;
+                }
+
+                var property = type?.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+                if (property?.CanWrite == true)
+                    property.SetValue(obj, value);
             }
             catch { }
         }
