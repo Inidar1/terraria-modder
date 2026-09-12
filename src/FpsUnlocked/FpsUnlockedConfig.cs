@@ -15,10 +15,10 @@ namespace FpsUnlocked
         [Client, Label("Max FPS (Capped Mode)"), Description("Maximum frame rate when mode is set to Capped (30-1000)."), Range(30, 1000)]
         public int MaxFps { get; set; } = 144;
 
-        [Client, Label("Frame Interpolation"), Description("Smooth entity motion between game ticks. Keeps game logic at 60hz while rendering at display rate. Disable for raw FPS unlock where game speed scales with FPS.")]
+        [Client, Label("Frame Interpolation"), Description("Smooth entity motion between 60hz game ticks. When disabled, motion remains discrete while the display and mouse can still update at the selected frame rate.")]
         public bool Interpolation { get; set; } = true;
 
-        [Client, Label("Responsive Mouse"), Description("Update mouse position every render frame for lower input lag (only applies when interpolation is enabled).")]
+        [Client, Label("Responsive Mouse"), Description("Update mouse position every render frame for lower input lag while the game is focused.")]
         public bool MouseEveryFrame { get; set; } = true;
     }
 }

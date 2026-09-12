@@ -1,12 +1,12 @@
 ---
-title: Tested Modding Patterns for Terraria 1.4.5
-description: Proven code patterns for Terraria 1.4.5 modding. Harmony patches, reflection, tile scanning, inventory manipulation, and UI drawing techniques that work.
+title: Tested Modding Patterns for Terraria 1.4.5.8
+description: Proven code patterns for Terraria 1.4.5.8 modding. Harmony patches, reflection, tile scanning, inventory manipulation, and UI drawing techniques that work.
 nav_order: 7
 ---
 
 # Tested Patterns
 
-These patterns are extracted from the framework's bundled mods and are proven to work with Terraria 1.4.5.
+These patterns are extracted from the framework's bundled mods and are proven to work with Terraria 1.4.5.8.
 
 For comprehensive Harmony documentation, see [Harmony Basics](harmony-basics.md).
 
@@ -55,7 +55,7 @@ public static class PlayerUpdatePatch
 
 All patches must be applied **manually** using `_harmony.Patch()`. Attribute-based patches (`[HarmonyPatch]` attributes) are **not** auto-applied — they are only used in the Core framework itself. Mod patches must use the manual approach shown below.
 
-**Manual patches** use the `OnGameReady` lifecycle hook. The injector calls this when `Main.Initialize()` completes:
+**Manual patches** normally use `IModLifecycle.OnContentReady`, after Core initializes all mods and assigns runtime content IDs:
 
 ```csharp
 private static Harmony _harmony;
@@ -66,7 +66,7 @@ public void Initialize(ModContext context)
     _log = context.Logger;
 }
 
-public static void OnGameReady()
+public void OnContentReady(ModContext context)
 {
     _harmony = new Harmony("com.yourname.yourmod");
     try

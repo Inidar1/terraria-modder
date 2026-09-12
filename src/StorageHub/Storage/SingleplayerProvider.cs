@@ -150,48 +150,11 @@ namespace StorageHub.Storage
         public virtual bool TakeItem(int sourceChestIndex, int sourceSlot, int count, out ItemSnapshot taken)
         {
             taken = default;
+            if (count <= 0) return false;
 
             try
             {
-                Item[] itemArray = null;
-
-                if (sourceChestIndex == SourceIndex.PlayerInventory)
-                {
-                    var player = GetLocalPlayer();
-                    if (player != null) itemArray = player.inventory;
-                }
-                else if (sourceChestIndex == SourceIndex.PiggyBank)
-                {
-                    var player = GetLocalPlayer();
-                    if (player != null) itemArray = player.bank.item;
-                }
-                else if (sourceChestIndex == SourceIndex.Safe)
-                {
-                    var player = GetLocalPlayer();
-                    if (player != null) itemArray = player.bank2.item;
-                }
-                else if (sourceChestIndex == SourceIndex.DefendersForge)
-                {
-                    var player = GetLocalPlayer();
-                    if (player != null) itemArray = player.bank3.item;
-                }
-                else if (sourceChestIndex == SourceIndex.VoidVault)
-                {
-                    var player = GetLocalPlayer();
-                    if (player != null) itemArray = player.bank4.item;
-                }
-                else if (sourceChestIndex >= 0)
-                {
-                    var chests = Main.chest;
-                    if (chests != null && sourceChestIndex < chests.Length)
-                    {
-                        var chest = chests[sourceChestIndex];
-                        if (chest != null)
-                        {
-                            itemArray = chest.item;
-                        }
-                    }
-                }
+                var itemArray = ResolveItems(GetLocalPlayer(), sourceChestIndex);
 
                 if (itemArray == null) return false;
 
@@ -679,6 +642,19 @@ namespace StorageHub.Storage
             catch
             {
                 return true;
+            }
+        }
+
+        internal static Item[] ResolveItems(Player player, int source)
+        {
+            switch (source)
+            {
+                case SourceIndex.PlayerInventory: return player?.inventory;
+                case SourceIndex.PiggyBank: return player?.bank?.item;
+                case SourceIndex.Safe: return player?.bank2?.item;
+                case SourceIndex.DefendersForge: return player?.bank3?.item;
+                case SourceIndex.VoidVault: return player?.bank4?.item;
+                default: return source >= 0 && Main.chest != null && source < Main.chest.Length ? Main.chest[source]?.item : null;
             }
         }
 

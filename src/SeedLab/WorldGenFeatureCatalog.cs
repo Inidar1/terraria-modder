@@ -17,12 +17,15 @@ namespace SeedLab
         public string MainFlagField;   // e.g. "vampireSeed" (null if none)
 
         public WGFeatureGroupDef[] Groups;
+        public string[] DependencySeedIds;
 
         /// <summary>Special seed constructor.</summary>
-        public WGSeedDef(string id, string displayName, string flagField, string worldGenAlias, WGFeatureGroupDef[] groups)
+        public WGSeedDef(string id, string displayName, string flagField, string worldGenAlias,
+            WGFeatureGroupDef[] groups, string[] dependencySeedIds = null)
         {
             Id = id; DisplayName = displayName; Kind = SeedKind.SpecialSeed;
             FlagField = flagField; WorldGenAlias = worldGenAlias; Groups = groups;
+            DependencySeedIds = dependencySeedIds ?? new string[0];
         }
 
         /// <summary>Secret seed constructor (single group).</summary>
@@ -62,10 +65,12 @@ namespace SeedLab
         public string[] PassNames;           // Gen passes where this group's flag override applies
         public string[] FinalizeMethodNames; // Do*() methods in FinalizeSecretSeeds
         public string[] Conflicts;           // Other group IDs that conflict with this
+        public bool AppliesToAllPasses;       // Composite seed flag remains active for every generation pass
 
         public WGFeatureGroupDef(string id, string displayName, string description,
             string category = "Misc", string easyGroup = null,
-            string[] passNames = null, string[] finalizeMethodNames = null, string[] conflicts = null)
+            string[] passNames = null, string[] finalizeMethodNames = null, string[] conflicts = null,
+            bool appliesToAllPasses = false)
         {
             Id = id; DisplayName = displayName; Description = description;
             Category = category ?? "Misc";
@@ -73,6 +78,7 @@ namespace SeedLab
             PassNames = passNames ?? new string[0];
             FinalizeMethodNames = finalizeMethodNames ?? new string[0];
             Conflicts = conflicts ?? new string[0];
+            AppliesToAllPasses = appliesToAllPasses;
         }
     }
 
@@ -305,9 +311,8 @@ namespace SeedLab
             {
                 new WGFeatureGroupDef("zenith_worldgen", "Zenith",
                     "Combines all seed effects with extreme world generation",
-                    category: "Misc",
-                    passNames: new[] { "Shinies", "Corruption" }),
-            }),
+                    category: "Misc", appliesToAllPasses: true),
+            }, dependencySeedIds: new[] { "remix", "drunk", "ntb", "notraps", "ds", "celebration", "ftw" }),
 
             // --- SKYBLOCK (70 flag checks, 20+ passes) ---
             new WGSeedDef("skyblock", "Skyblock", "skyblockWorld", "skyblockWorldGen", new[]

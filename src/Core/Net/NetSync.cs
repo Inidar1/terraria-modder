@@ -683,12 +683,13 @@ namespace TerrariaModder.Core.Net
 
                 // Assign role via PermissionService
                 var role = PermissionService.OnClientConnect(whoAmI, guid, remoteAddress);
+                string verifiedGuid = PermissionService.GetGuid(whoAmI);
 
-                // Send PermissionSync back to client
-                SendPermissionSync(whoAmI, role, PermissionService.GetModGrants(guid));
+                // All persistence and grant lookups use the validated session identity.
+                SendPermissionSync(whoAmI, role, PermissionService.GetModGrants(verifiedGuid));
 
                 // H4: Send server-authoritative custom item data to client
-                SendCustomItemSync(whoAmI, guid);
+                SendCustomItemSync(whoAmI, verifiedGuid);
 
                 // Send MOTD if configured (cap at 300 chars to stay within Terraria chat limits)
                 string motd = Server.ServerConfig.Instance.Motd;

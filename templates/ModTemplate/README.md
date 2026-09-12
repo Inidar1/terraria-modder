@@ -18,9 +18,9 @@ This is a template for creating new TerrariaModder mods.
    - Change `entry_dll` to match your assembly name (e.g., "YourModName.dll")
 
 4. **Update Mod.cs:**
-   - Update `Id`, `Name`, `Version` properties to match manifest.json
    - Update the namespace to match your mod name
    - Implement your mod's functionality
+   - Keep `ModBase, IModLifecycle` if you use the included content/world lifecycle methods
 
 5. **Add to solution:**
    ```bash
@@ -40,7 +40,7 @@ The template includes a basic config schema with:
 - `exampleNumber` (int) - Example number setting
 - `exampleFloat` (float) - Example decimal setting
 
-Edit `manifest.json` to add/remove/modify config options. Config is accessible in-game via the mod menu (F6).
+Edit the `MyModConfig` properties and attributes in `Mod.cs` to add, remove, or modify config options. Config is accessible in-game through the Mod Menu (F6).
 
 ### Keybinds
 One keybind is pre-configured:
@@ -75,15 +75,15 @@ YourModName/
 ## Tips
 
 - **Logging**: Use `_log.Info()`, `_log.Debug()`, `_log.Warn()`, `_log.Error()`
-- **Config**: Access via `_context.Config.Get<T>("key", defaultValue)` or cache in fields
-- **Reflection**: Access Terraria types via `Type.GetType("Terraria.Main, Terraria")` or `Assembly.Load("Terraria")`
+- **Config**: Define a `ModConfig` subclass and access it with `_context.GetConfig<T>()`
+- **Terraria APIs**: Add direct Terraria/XNA references when your mod needs public game types; use reflection only for inaccessible members or assembly boundaries
 - **Performance**: Avoid heavy work in `OnPostUpdate` - it runs every frame
 - **Cleanup**: Always unsubscribe from events in `Unload()` to prevent memory leaks
 
 ## API Reference
 
 See the main documentation for full API details:
-- `IMod` interface
+- `ModBase` and `IModLifecycle`
 - `ModContext` services
 - Event system
 - Config system

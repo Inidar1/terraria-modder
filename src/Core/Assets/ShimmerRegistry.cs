@@ -1,21 +1,17 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
+using Terraria;
+using Terraria.GameContent.Achievements;
 using TerrariaModder.Core.Logging;
 
 namespace TerrariaModder.Core.Assets
 {
     /// <summary>
-    /// Shimmer transform registry (Phase J3).
-    /// Mods register custom shimmer transforms via context.RegisterShimmer(ShimmerDefinition).
-    ///
-    /// At ApplyPatches() time, a prefix on Item.GetShimmerEquivalentType() is applied:
-    /// if the item's type has a registered transform, the output type is returned early
-    /// (bypassing vanilla logic). A prefix on Item.CanShimmer() returns true for custom
-    /// items with a registered transform.
-    ///
-    /// Server-safe: shimmer transforms are processed server-side in multiplayer.
+    /// Shimmer transform registry for custom items.
+    /// Mods register transforms during initialization; types are resolved after
+    /// custom item IDs have been assigned.
     /// </summary>
     public static class ShimmerRegistry
     {
@@ -23,11 +19,8 @@ namespace TerrariaModder.Core.Assets
         private static ILogger _log;
         private static bool _applied;
 
-        // inputType → ShimmerDefinition (resolved type IDs)
         private static readonly Dictionary<int, ResolvedShimmer> _transforms
             = new Dictionary<int, ResolvedShimmer>();
-
-        // Pending registrations (registered before types assigned — resolved in ApplyPatches)
         private static readonly List<ShimmerDefinition> _pending
             = new List<ShimmerDefinition>();
 
@@ -44,14 +37,15 @@ namespace TerrariaModder.Core.Assets
             _harmony = new Harmony("com.terrariamodder.assets.shimmer");
         }
 
-        /// <summary>Register a shimmer transform. Can be called during Initialize or OnContentReady.</summary>
+        /// <summary>Register a shimmer transform during Initialize or OnContentReady.</summary>
         public static void Register(ShimmerDefinition def)
         {
-            if (def == null || string.IsNullOrEmpty(def.InputId) || string.IsNullOrEmpty(def.OutputId)) return;
+            if (def == null || string.IsNullOrEmpty(def.InputId) || string.IsNullOrEmpty(def.OutputId))
+                return;
             _pending.Add(def);
         }
 
-        /// <summary>Resolve pending registrations and apply patches. Called from AssetSystem.ApplyPatches().</summary>
+        /// <summary>Resolve registrations and patch Terraria's native world-item path.</summary>
         public static void ApplyPatches()
         {
             if (_applied) return;
@@ -66,8 +60,8 @@ namespace TerrariaModder.Core.Assets
 
             try
             {
-                PatchGetShimmerEquivalentType();
                 PatchCanShimmer();
+                PatchWorldItemGetShimmered();
                 _applied = true;
                 _log?.Info($"[ShimmerRegistry] Applied shimmer patches ({_transforms.Count} transform(s))");
             }
@@ -86,27 +80,26 @@ namespace TerrariaModder.Core.Assets
 
                 if (inputType < 0)
                 {
-                    _log?.Warn($"[ShimmerRegistry] Cannot resolve input '{def.InputId}' — skipping");
+                    _log?.Warn($"[ShimmerRegistry] Cannot resolve input '{def.InputId}' - skipping");
                     continue;
                 }
                 if (outputType < 0)
                 {
-                    _log?.Warn($"[ShimmerRegistry] Cannot resolve output '{def.OutputId}' — skipping");
+                    _log?.Warn($"[ShimmerRegistry] Cannot resolve output '{def.OutputId}' - skipping");
                     continue;
                 }
 
                 _transforms[inputType] = new ResolvedShimmer
                 {
-                    OutputType  = outputType,
-                    InputStack  = Math.Max(1, def.InputStack),
+                    OutputType = outputType,
+                    InputStack = Math.Max(1, def.InputStack),
                     OutputStack = Math.Max(1, def.OutputStack),
                 };
-                _log?.Debug($"[ShimmerRegistry] Registered: {def.InputId} (type {inputType}) → {def.OutputId} (type {outputType})");
+                _log?.Debug($"[ShimmerRegistry] Registered: {def.InputId} (type {inputType}) -> {def.OutputId} (type {outputType})");
             }
             _pending.Clear();
         }
 
-        /// <summary>Check if a type has a registered shimmer transform.</summary>
         public static bool TryGetTransform(int inputType, out int outputType)
         {
             if (_transforms.TryGetValue(inputType, out var resolved))
@@ -118,50 +111,27 @@ namespace TerrariaModder.Core.Assets
             return false;
         }
 
-        /// <summary>Check if a type has a registered shimmer transform and return full details.</summary>
         public static bool TryGetTransform(int inputType, out int outputType, out int inputStack, out int outputStack)
         {
             if (_transforms.TryGetValue(inputType, out var resolved))
             {
-                outputType  = resolved.OutputType;
-                inputStack  = resolved.InputStack;
+                outputType = resolved.OutputType;
+                inputStack = resolved.InputStack;
                 outputStack = resolved.OutputStack;
                 return true;
             }
-            outputType = -1; inputStack = 1; outputStack = 1;
+            outputType = -1;
+            inputStack = 1;
+            outputStack = 1;
             return false;
-        }
-
-        private static void PatchGetShimmerEquivalentType()
-        {
-            // Item.GetShimmerEquivalentType(bool forDecrafting = false) — one optional bool param
-            var method = typeof(Terraria.Item).GetMethod("GetShimmerEquivalentType",
-                BindingFlags.Public | BindingFlags.Instance, null,
-                new Type[] { typeof(bool) }, null);
-
-            if (method == null)
-            {
-                _log?.Warn("[ShimmerRegistry] Item.GetShimmerEquivalentType not found — shimmer transform prefix not applied");
-                return;
-            }
-
-            var prefix = typeof(ShimmerRegistry).GetMethod(nameof(GetShimmerEquivalentType_Prefix),
-                BindingFlags.NonPublic | BindingFlags.Static);
-            _harmony.Patch(method, prefix: new HarmonyMethod(prefix));
-            _log?.Debug("[ShimmerRegistry] Patched Item.GetShimmerEquivalentType");
         }
 
         private static void PatchCanShimmer()
         {
-            // Item.CanShimmer() — public instance method, no params
-            var method = typeof(Terraria.Item).GetMethod("CanShimmer",
+            var method = typeof(Item).GetMethod("CanShimmer",
                 BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-
             if (method == null)
-            {
-                _log?.Warn("[ShimmerRegistry] Item.CanShimmer not found — CanShimmer prefix not applied");
-                return;
-            }
+                throw new MissingMethodException(typeof(Item).FullName, "CanShimmer");
 
             var prefix = typeof(ShimmerRegistry).GetMethod(nameof(CanShimmer_Prefix),
                 BindingFlags.NonPublic | BindingFlags.Static);
@@ -169,30 +139,85 @@ namespace TerrariaModder.Core.Assets
             _log?.Debug("[ShimmerRegistry] Patched Item.CanShimmer");
         }
 
-        private static bool GetShimmerEquivalentType_Prefix(Terraria.Item __instance, ref int __result)
+        private static void PatchWorldItemGetShimmered()
         {
-            if (TryGetTransform(__instance.type, out int outputType))
+            var method = typeof(WorldItem).GetMethod("GetShimmered",
+                BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+            if (method == null)
+                throw new MissingMethodException(typeof(WorldItem).FullName, "GetShimmered");
+
+            var prefix = typeof(ShimmerRegistry).GetMethod(nameof(WorldItemGetShimmered_Prefix),
+                BindingFlags.NonPublic | BindingFlags.Static);
+            _harmony.Patch(method, prefix: new HarmonyMethod(prefix));
+            _log?.Debug("[ShimmerRegistry] Patched WorldItem.GetShimmered");
+        }
+
+        private static bool CanShimmer_Prefix(Item __instance, ref bool __result)
+        {
+            if (_transforms.TryGetValue(__instance.type, out var resolved))
             {
-                __result = outputType;
-                return false; // skip vanilla
+                __result = __instance.stack >= resolved.InputStack;
+                return false;
             }
             return true;
         }
 
-        private static bool CanShimmer_Prefix(Terraria.Item __instance, ref bool __result)
+        private static bool WorldItemGetShimmered_Prefix(WorldItem __instance)
         {
-            if (_transforms.ContainsKey(__instance.type))
+            if (!_transforms.TryGetValue(__instance.type, out var resolved))
+                return true;
+
+            int batches = __instance.stack / resolved.InputStack;
+            if (batches <= 0)
+                return false;
+
+            int remainder = __instance.stack - batches * resolved.InputStack;
+            long outputRemaining = (long)batches * resolved.OutputStack;
+
+            var outputPrototype = new Item();
+            outputPrototype.SetDefaults(resolved.OutputType);
+            int outputMaxStack = Math.Max(1, outputPrototype.maxStack);
+            int spawnNumber = 0;
+
+            if (remainder == 0)
             {
-                __result = true;
-                return false; // skip vanilla (which returns false for unknown types)
+                __instance.inner.SetDefaults(resolved.OutputType);
+                int firstStack = (int)Math.Min(outputRemaining, outputMaxStack);
+                __instance.stack = firstStack;
+                outputRemaining -= firstStack;
+                __instance.shimmered = true;
             }
-            return true;
+            else
+            {
+                __instance.stack = remainder;
+            }
+
+            while (outputRemaining > 0)
+            {
+                int stack = (int)Math.Min(outputRemaining, outputMaxStack);
+                __instance.SpawnShimmeredItem(spawnNumber++, resolved.OutputType, stack);
+                outputRemaining -= stack;
+            }
+
+            __instance.shimmerTime = __instance.stack > 0 ? 1f : 0f;
+            __instance.shimmerWet = true;
+            __instance.wet = true;
+            __instance.velocity *= 0.1f;
+            WorldItem.ShimmerEffect(__instance.Center);
+            __instance.SyncItem();
+            AchievementsHelper.NotifyProgressionEvent(27);
+            if (__instance.stack == 0)
+                __instance.TurnToAir();
+
+            return false;
         }
 
         public static void Clear()
         {
+            _harmony?.UnpatchAll("com.terrariamodder.assets.shimmer");
             _transforms.Clear();
             _pending.Clear();
+            _applied = false;
         }
     }
 }

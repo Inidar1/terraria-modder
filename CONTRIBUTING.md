@@ -1,133 +1,66 @@
 # Contributing to TerrariaModder
 
-Thanks for your interest in contributing! This guide will get you set up and explain how we work.
+TerrariaModder targets Terraria 1.4.5.8 on Windows. Contributions to Core or a mod should be built against the current Steam executable and tested through TerrariaInjector.
 
 ## Prerequisites
 
-- **Windows 10/11** (Terraria modding is Windows-only)
-- **[.NET SDK](https://dotnet.microsoft.com/download)** (6.0 or later)
-- **[.NET Framework 4.8 Developer Pack](https://dotnet.microsoft.com/download/dotnet-framework/net48)** (or Visual Studio 2022, which includes both)
-- **Terraria 1.4.5** installed via Steam
+- Windows 10 or 11
+- Terraria 1.4.5.8 from Steam
+- .NET SDK 6 or later
+- .NET Framework 4.8 Developer Pack (recommended for offline builds; the .NET SDK can restore reference assemblies when package restore is available)
+- Git
 
-## Getting Started
+## Setup
 
-### 1. Fork and clone
+1. Fork and clone the repository.
+2. Run `setup.bat` from the repository root.
+3. Confirm the script finds Terraria and completes the Core test build.
+4. Run `build.bat` to build Core and every public mod project.
+5. Run `deploy.bat` to copy local build outputs into the linked development install.
+6. Launch `Terraria/TerrariaInjector.exe`.
 
-Fork this repo on GitHub, then clone your fork:
+The scripts can be called from another working directory; they resolve paths from their own repository root. Output is written under `build/core/` and `build/plugins/`.
 
-```bash
-git clone https://github.com/YOUR-USERNAME/terraria-modder.git
-cd terraria-modder
-```
+## Project structure
 
-### 2. Run setup
+- `src/Core/`: loader, typed config, input, UI, assets, save support, networking, and server administration
+- `src/<Mod>/`: released mod source, manifest, README, and assets
+- `src/DebugTools/`: public Debug Tools with a stable feature set
+- `templates/ModTemplate/`: starter project for new mods
+- `docs/`: MkDocs wiki source
 
-```bash
-setup.bat
-```
+## Starting a mod
 
-This will:
-- Verify your .NET installation
-- Find your Terraria install (auto-detects Steam, or asks you)
-- Link it into the repo so builds can reference `Terraria.exe`
-- Run a test build to make sure everything works
+Copy `templates/ModTemplate/` to `src/YourModName/`, then update the project, namespace, and `manifest.json`. The template inherits `ModBase`, so manifest metadata is authoritative, and implements `IModLifecycle` so its content/world callbacks run.
 
-### 3. Build
+Use direct Terraria and XNA references for accessible APIs. Use reflection for inaccessible members or client/server assembly boundaries. Verify every private member name, overload, parameter order, and numeric Terraria ID against the executable version you are targeting.
 
-```bash
-build.bat
-```
+Apply manual Harmony patches from `IModLifecycle.OnContentReady` and remove them by their unique Harmony ID from `Unload`.
 
-Builds the Core framework and all mods. Output goes to `build/`.
+## Configuration and manifests
 
-### 4. Deploy and test
+Define user settings in a `ModConfig` subclass. Use `Client` and `Server` scopes plus `Range`, `Options`, `OptionProvider`, `RestartRequired`, and migration attributes as appropriate. Implement a public parameterless `OnConfigChanged` method when changes can apply immediately.
 
-```bash
-deploy.bat
-```
+Each `manifest.json` must have a unique lowercase id, display name, semantic version, author, description, entry DLL, and accurate multiplayer category. Add download/homepage metadata when available.
 
-Copies the built DLLs into your Terraria's mod folder. Then launch with:
+## Validation
 
-```bash
-Terraria\TerrariaInjector.exe
-```
+Before opening a pull request:
 
-## Project Structure
+1. Run `build.bat` and resolve every error.
+2. Deploy and drive the actual changed behavior in Terraria 1.4.5.8.
+3. Check the newest `TerrariaModder/core/logs/terrariamodder.client.session-*.log` or server session log for exceptions.
+4. Test save/reopen and full-inventory/storage boundaries for changes involving items, equipment, banks, chests, characters, worlds, configs, or sidecars.
+5. Test Host & Play, a remote client, or a dedicated server when the changed behavior crosses that boundary.
+6. Update the mod README and relevant wiki page when behavior or public API changes.
 
-```
-src/
-├── Core/           # The framework. Mod loading, config, UI, events, input.
-│                   # Don't modify unless necessary — changes here affect all mods.
-├── AdminPanel/     # God mode, teleports, time control
-├── AutoBuffs/      # Auto-apply furniture buffs
-├── DebugTools/     # HTTP debug server, in-game console
-├── FpsUnlocked/    # Framerate unlock with interpolation
-├── ItemSpawner/    # In-game item spawner UI
-├── PetChests/      # Pets as portable piggy banks
-├── QuickKeys/      # Auto-torch, recall, quick-stack hotkeys
-├── SeedLab/        # Secret seed feature toggling
-├── SkipIntro/      # Skip ReLogic splash
-├── StorageHub/     # Unified storage + crafting UI
-└── WhipStacking/   # Pre-1.4.5 whip tag stacking
-```
+Keep changes focused and do not include generated `build/`, `bin/`, `obj/`, local Terraria files, saves, logs, or credentials.
 
-Each mod folder contains:
-- `{ModName}.csproj` — Build project
-- `manifest.json` — Mod metadata (id, name, version, config, keybinds)
-- `Mod.cs` — Entry point implementing `IMod`
-- Additional classes as needed
+## Pull requests
 
-### How mods work
+Explain the concrete trigger, previous behavior, resulting behavior, and validation performed. Do not include unrelated version bumps. Core changes affect every mod, so describe the compatibility impact and update the starter template or API docs when an author-facing contract changes.
 
-Mods are .NET Framework 4.8 class libraries that implement `IMod`. The Core framework loads them at runtime. Most mods use [Harmony](https://harmony.pardeike.net/) to patch Terraria's methods without modifying the game files.
+Use the issue tracker or Discord for questions:
 
-See the [Wiki](https://inidar1.github.io/terraria-modder/) for the full API reference and modding tutorials.
-
-## Making Changes
-
-### Pick what to work on
-
-Check [Issues](https://github.com/Inidar1/terraria-modder/issues) for open tasks. Issues labeled `good first issue` are a great starting point. If you want to work on something, comment on the issue so others know.
-
-For new ideas, open an issue first to discuss before writing code.
-
-### Branch and develop
-
-```bash
-git checkout -b my-feature
-# make changes
-build.bat
-deploy.bat
-# test in-game
-```
-
-### What to test
-
-- **Build passes**: `build.bat` completes without errors
-- **In-game**: Launch with `TerrariaInjector.exe`, verify your changes work
-- **No regressions**: Other mods still work (especially if you touched Core)
-- **Check logs**: `Terraria\TerrariaModder\core\logs\terrariamodder.log` for errors
-
-### Submit a PR
-
-Push your branch and open a pull request. The PR template will guide you through what to include.
-
-Keep PRs focused — one feature or fix per PR. Small PRs get reviewed faster.
-
-## Code Guidelines
-
-- **Follow existing patterns** — Look at how similar mods do things before inventing new approaches
-- **Use the Core API** — Config, keybinds, events, UI components are all provided. See the [API Reference](https://inidar1.github.io/terraria-modder/core-api-reference/)
-- **Don't modify Core without discussion** — Core changes affect every mod. Open an issue first
-- **Use Harmony responsibly** — Prefix/postfix patches only. Avoid transpilers unless absolutely necessary
-- **Test in-game** — Mods interact with a live game. Unit tests can't catch everything
-
-## Code Ownership
-
-See [CODEOWNERS](.github/CODEOWNERS) for who reviews what. PRs are auto-assigned to the right reviewer based on which files you change.
-
-## Getting Help
-
-- **[Discord](https://discord.gg/VvVD5EeYsK)** — Fastest way to get answers
-- **[Wiki](https://inidar1.github.io/terraria-modder/)** — Guides, API docs, mod walkthroughs
-- **[Starter Template](templates/ModTemplate)** — If you're creating a new mod from scratch
+- https://github.com/Inidar1/terraria-modder/issues
+- https://discord.gg/VvVD5EeYsK

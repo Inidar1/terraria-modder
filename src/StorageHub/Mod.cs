@@ -47,7 +47,7 @@ namespace StorageHub
     {
         public string Id => "storage-hub";
         public string Name => "Storage Hub";
-        public string Version => "1.0.0";
+        public string Version => "2.0.0";
 
         private ILogger _log;
         private static ILogger _sLog;
@@ -310,8 +310,10 @@ namespace StorageHub
                 // Initialize crafting system
                 _recipeIndex = new RecipeIndex(_log);
                 _recipeIndex.Build();
-                _craftChecker = new CraftabilityChecker(_log, _recipeIndex, _storageProvider, _hubConfig, _rangeCalc);
-                _craftExecutor = new CraftingExecutor(_log, _storageProvider);
+                var craftingMaterials = new CraftingMaterialSource(_storageProvider, _rangeCalc,
+                    () => (_modConfig?.BlockHotbarFromCrafting ?? false) || _hubConfig.HotbarProtection);
+                _craftChecker = new CraftabilityChecker(_log, _recipeIndex, _storageProvider, _hubConfig, _rangeCalc, craftingMaterials);
+                _craftExecutor = new CraftingExecutor(_log, _storageProvider, craftingMaterials);
                 _recursiveCrafter = new RecursiveCrafter(_log, _recipeIndex, _craftChecker);
                 _recursiveCrafter.SetExecutor(_craftExecutor);
 
@@ -392,6 +394,14 @@ namespace StorageHub
             {
                 { "enabled", _enabled },
                 { "panelOpen", _ui?.IsOpen ?? false },
+                { "activeTab", _ui?.ActiveTabName ?? "" },
+                { "craftableCount", _ui?.CraftableCount ?? 0 },
+                { "recursiveCandidateCount", _ui?.RecursiveCandidateCount ?? 0 },
+                { "lastCraftRefreshMs", _ui?.LastCraftRefreshMilliseconds ?? 0 },
+                { "lastRecursiveScanMs", _ui?.LastRecursiveScanMilliseconds ?? 0 },
+                { "lastChangeProbeMs", _ui?.LastChangeProbeMilliseconds ?? 0 },
+                { "skippedPeriodicRefreshes", _ui?.SkippedPeriodicRefreshes ?? 0 },
+                { "detectedExternalChanges", _ui?.DetectedExternalChanges ?? 0 },
                 { "registeredChestCount", _registry?.Count ?? 0 },
                 { "paintingChestEnabled", _paintingChestEnabled },
                 { "hasProvider", _storageProvider != null }
@@ -454,6 +464,7 @@ namespace StorageHub
 
         public void Unload()
         {
+            NativePickupNotifications.Unload();
             if (Environment.GetEnvironmentVariable("TERRARIA_MODDER_DEDSERV") != "1")
             {
                 FrameEvents.OnPreUpdate -= OnUpdate;
@@ -539,7 +550,7 @@ namespace StorageHub
                         // Execute via server's MultiplayerProvider — broadcasts packet 32 to all clients
                         bool took = _storageProvider.TakeItem(chestIndex, slot, count, out _);
                         _log.Debug($"[StorageHub] {operation} from slot {callerSlot}: chest={chestIndex} slot={slot} count={count} result={took}");
-                        TerrariaModder.Core.Net.NetSync.SendStorageResponseTo(callerSlot, true, operation, "ok");
+                        TerrariaModder.Core.Net.NetSync.SendStorageResponseTo(callerSlot, took, operation, took ? "ok" : "empty");
                         break;
                     }
 

@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
+using Terraria;
 
 namespace TerrariaModder.Core.Assets
 {
@@ -18,21 +21,21 @@ namespace TerrariaModder.Core.Assets
             public bool Favorited { get; set; }
         }
 
-        private static readonly List<PendingItem> _playerItems = new List<PendingItem>();
+        private static List<PendingItem> CurrentPlayerItems => PlayerItemSaveState.For(Main.LocalPlayer).Pending;
         private static readonly List<PendingItem> _worldItems = new List<PendingItem>();
 
         /// <summary>Current pending player items (inventory overflow).</summary>
-        public static IReadOnlyList<PendingItem> PlayerItems => _playerItems;
+        public static IReadOnlyList<PendingItem> PlayerItems => CurrentPlayerItems;
 
         /// <summary>Current pending world items (chest overflow).</summary>
         public static IReadOnlyList<PendingItem> WorldItems => _worldItems;
 
         /// <summary>Total pending items across player + world.</summary>
-        public static int TotalCount => _playerItems.Count + _worldItems.Count;
+        public static int TotalCount => CurrentPlayerItems.Count + _worldItems.Count;
 
         public static void AddPlayerItem(PendingItem item)
         {
-            if (item != null) _playerItems.Add(item);
+            AddPlayerItem(Main.LocalPlayer, item);
         }
 
         public static void AddWorldItem(PendingItem item)
@@ -42,7 +45,7 @@ namespace TerrariaModder.Core.Assets
 
         public static void RemovePlayerItem(PendingItem item)
         {
-            _playerItems.Remove(item);
+            CurrentPlayerItems.Remove(item);
         }
 
         public static void RemoveWorldItem(PendingItem item)
@@ -50,11 +53,11 @@ namespace TerrariaModder.Core.Assets
             _worldItems.Remove(item);
         }
 
-        public static void ClearPlayer() => _playerItems.Clear();
+        public static void ClearPlayer() => ClearPlayer(Main.LocalPlayer);
         public static void ClearWorld() => _worldItems.Clear();
         public static void ClearAll()
         {
-            _playerItems.Clear();
+            ClearPlayer();
             _worldItems.Clear();
         }
 
@@ -62,12 +65,29 @@ namespace TerrariaModder.Core.Assets
         /// Convert pending player items to moddata entries for persistence.
         /// Uses location "pending" so they're recognized on next load.
         /// </summary>
-        public static List<ModdataFile.ItemEntry> GetPlayerModdataEntries()
+        public static IReadOnlyList<PendingItem> GetPlayerItems(Player player) => PlayerItemSaveState.For(player).Pending;
+        public static void AddPlayerItem(Player player, PendingItem item)
         {
+            if (item != null) PlayerItemSaveState.For(player).Pending.Add(item);
+        }
+        /// <summary>Validate and append a complete recovery batch on the game thread.</summary>
+        public static void AddPlayerItems(Player player, IEnumerable<PendingItem> items)
+        {
+            var batch = items.ToArray();
+            if (batch.Any(item => item == null || string.IsNullOrEmpty(item.ItemId) || item.RuntimeType <= 0 || item.Stack <= 0))
+                throw new ArgumentException("Recovery batch contains an invalid item", nameof(items));
+            // Array-backed AddRange reserves capacity before publishing any entries.
+            PlayerItemSaveState.For(player).Pending.AddRange(batch);
+        }
+        public static void ClearPlayer(Player player) => PlayerItemSaveState.For(player).Pending.Clear();
+        public static List<ModdataFile.ItemEntry> GetPlayerModdataEntries() => GetPlayerModdataEntries(Main.LocalPlayer);
+        public static List<ModdataFile.ItemEntry> GetPlayerModdataEntries(Player player)
+        {
+            var items = PlayerItemSaveState.For(player).Pending;
             var entries = new List<ModdataFile.ItemEntry>();
-            for (int i = 0; i < _playerItems.Count; i++)
+            for (int i = 0; i < items.Count; i++)
             {
-                var p = _playerItems[i];
+                var p = items[i];
                 entries.Add(new ModdataFile.ItemEntry
                 {
                     Location = "pending",

@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.GameContent;
@@ -9,11 +10,9 @@ using TerrariaModder.Core.Logging;
 namespace StorageHub.PaintingChest
 {
     /// <summary>
-    /// Extends the chest spritesheet (Tiles_21) to include our custom style 69.
-    /// Creates a blue-recolored chest texture at the style 69 position.
-    ///
-    /// Chest spritesheet layout: each style is 36px wide (2 tiles × 18px), arranged left-to-right.
-    /// Style 69 = column starting at frameX 2484. Requires ~2520px width (HiDef max = 8192px).
+    /// Keeps saved style 69 while packing its animation below the vanilla atlas.
+    /// Draw-only coordinates are remapped after native chest animation is resolved.
+    /// Both the tile and outline atlas remain within XNA Reach's 2048px limit.
     /// </summary>
     internal static class TileTextureExtender
     {
@@ -30,6 +29,58 @@ namespace StorageHub.PaintingChest
         private const int STYLE_WIDTH = 36;  // 2 tiles × 18px per tile
         private const int STYLE_HEIGHT = 38; // 2 tiles × 18px + 2px padding
         private const int SOURCE_STYLE = 1;  // Gold chest — base texture to recolor
+
+        public static int AtlasYOffset { get; private set; }
+
+        private sealed class Replacement
+        {
+            public Array Assets;
+            public int Index;
+            public object Original;
+            public object Installed;
+            public Texture2D Texture;
+        }
+
+        private static readonly List<Replacement> _replacements = new List<Replacement>();
+
+        public static void Unload()
+        {
+            // Called on the game thread after the draw patch has been removed.
+            foreach (var replacement in _replacements)
+            {
+                if (ReferenceEquals(replacement.Assets.GetValue(replacement.Index), replacement.Installed))
+                {
+                    replacement.Assets.SetValue(replacement.Original, replacement.Index);
+                    replacement.Texture.Dispose();
+                }
+                // A later mod may retain our texture. Never dispose resources it now owns.
+            }
+            _replacements.Clear();
+            Main.instance?.TilePaintSystem?.Reset();
+            AtlasYOffset = 0;
+            _tileExtended = _itemExtended = _failed = false;
+            _nullRefCount = 0;
+            _graphicsDevice = null;
+        }
+
+        private static Replacement PrepareReplacement(Array assets, int index, Texture2D texture)
+        {
+            var original = assets.GetValue(index);
+            var installed = CreateAssetWrapper(original.GetType(), texture, GetAssetName(original));
+            if (installed == null)
+            {
+                texture.Dispose();
+                throw new InvalidOperationException("Could not wrap chest texture asset");
+            }
+            return new Replacement { Assets = assets, Index = index, Original = original,
+                Installed = installed, Texture = texture };
+        }
+
+        private static void Install(Replacement replacement)
+        {
+            replacement.Assets.SetValue(replacement.Installed, replacement.Index);
+            _replacements.Add(replacement);
+        }
 
         public static void Initialize(ILogger logger)
         {
@@ -103,99 +154,60 @@ namespace StorageHub.PaintingChest
 
         private static bool ExtendChestSpritesheet()
         {
-            var tileArray = typeof(TextureAssets).GetField("Tile", BindingFlags.Public | BindingFlags.Static)
-                ?.GetValue(null) as Array;
-            if (tileArray == null) return false;
-            if (PaintingChestManager.TILE_TYPE >= tileArray.Length) return false;
+            int type = PaintingChestManager.TILE_TYPE;
+            var tileArray = typeof(TextureAssets).GetField("Tile").GetValue(null) as Array;
+            var outlineArray = typeof(TextureAssets).GetField("HighlightMask").GetValue(null) as Array;
+            if (tileArray == null || outlineArray == null) return false;
+            // Load originals first, then respect any texture already installed by another mod.
+            if (ForceLoadAsset("Images/Tiles_" + type) == null ||
+                ForceLoadAsset("Images/Misc/TileOutlines/Tiles_" + type) == null) return false;
+            var original = GetTexture2DFromAsset(tileArray.GetValue(type));
+            var outline = GetTexture2DFromAsset(outlineArray.GetValue(type));
+            if (original == null || outline == null) return false;
+            if (original.Height != outline.Height)
+                throw new InvalidOperationException("Chest tile and outline animation heights differ");
 
-            var existingAsset = tileArray.GetValue(PaintingChestManager.TILE_TYPE);
-            var existingTexture = ForceLoadAsset("Images/Tiles_" + PaintingChestManager.TILE_TYPE);
-            if (existingTexture == null) return false;
-
-            int origWidth = existingTexture.Width;
-            int origHeight = existingTexture.Height;
-
-            // Calculate required width for our style
-            int requiredWidth = (PaintingChestManager.OUR_PLACE_STYLE + 1) * STYLE_WIDTH;
-
-            if (origWidth >= requiredWidth)
-            {
-                // Spritesheet already wide enough — just recolor our style position
-                var pixels = new uint[origWidth * origHeight];
-                existingTexture.GetData(pixels);
-
-                // Copy source style pixels to our style position and recolor
-                int srcX = SOURCE_STYLE * STYLE_WIDTH;
-                int dstX = PaintingChestManager.OUR_PLACE_STYLE * STYLE_WIDTH;
-                CopyAndRecolorStyle(pixels, origWidth, origHeight, srcX, dstX);
-
-                var newTexture = new Texture2D(_graphicsDevice, origWidth, origHeight);
-                newTexture.SetData(pixels);
-                ReplaceTexture(tileArray, existingAsset, newTexture, origWidth, origHeight);
-                return true;
-            }
-            else
-            {
-                // Need to extend width
-                var origPixels = new uint[origWidth * origHeight];
-                existingTexture.GetData(origPixels);
-
-                var newPixels = new uint[requiredWidth * origHeight];
-                // Copy original data row by row (width changes)
-                for (int row = 0; row < origHeight; row++)
-                    Array.Copy(origPixels, row * origWidth, newPixels, row * requiredWidth, origWidth);
-
-                // Copy source style to our style position and recolor
-                int srcX = SOURCE_STYLE * STYLE_WIDTH;
-                int dstX = PaintingChestManager.OUR_PLACE_STYLE * STYLE_WIDTH;
-                CopyAndRecolorStyle(newPixels, requiredWidth, origHeight, srcX, dstX);
-
-                var newTexture = new Texture2D(_graphicsDevice, requiredWidth, origHeight);
-                newTexture.SetData(newPixels);
-                ReplaceTexture(tileArray, existingAsset, newTexture, requiredWidth, origHeight);
-                return true;
-            }
+            var tile = PrepareReplacement(tileArray, type, CreateCompactAtlas(original, true));
+            Replacement mask;
+            try { mask = PrepareReplacement(outlineArray, type, CreateCompactAtlas(outline, false)); }
+            catch { tile.Texture.Dispose(); throw; }
+            Install(tile);
+            Install(mask);
+            AtlasYOffset = original.Height;
+            Main.instance?.TilePaintSystem?.Reset();
+            _log?.Info($"Compact chest atlas {tile.Texture.Width}x{tile.Texture.Height}; saved style {PaintingChestManager.OUR_PLACE_STYLE}, draw row {AtlasYOffset}");
+            return true;
         }
 
-        private static void CopyAndRecolorStyle(uint[] pixels, int width, int height, int srcX, int dstX)
+        private static Texture2D CreateCompactAtlas(Texture2D original, bool recolor)
         {
-            // Copy the FULL column height (all 3 animation frames: closed, half-open, open)
-            for (int row = 0; row < height; row++)
-            {
-                for (int col = 0; col < STYLE_WIDTH; col++)
+            int width = original.Width;
+            int height = original.Height;
+            if (width < (SOURCE_STYLE + 1) * STYLE_WIDTH || width > 2048 || height * 2 > 2048)
+                throw new InvalidOperationException("Chest source atlas cannot fit the Reach texture limit");
+            var source = new uint[width * height];
+            original.GetData(source);
+            var pixels = new uint[width * height * 2];
+            Array.Copy(source, pixels, source.Length);
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < STYLE_WIDTH; x++)
                 {
-                    int srcIdx = row * width + srcX + col;
-                    int dstIdx = row * width + dstX + col;
-                    if (srcIdx >= pixels.Length || dstIdx >= pixels.Length) continue;
-
-                    uint pixel = pixels[srcIdx];
-                    uint alpha = (pixel >> 24) & 0xFF;
-                    if (alpha == 0) { pixels[dstIdx] = 0; continue; }
-
-                    // XNA ABGR: bits 0-7=R, 8-15=G, 16-23=B, 24-31=A
-                    uint r = pixel & 0xFF;
-                    uint g = (pixel >> 8) & 0xFF;
-                    uint b = (pixel >> 16) & 0xFF;
-
-                    // Blue-purple tint for mysterious appearance
-                    uint newR = r * 60 / 255;
-                    uint newG = g * 40 / 255;
-                    uint newB = (uint)Math.Min(255, b * 180 / 255 + 80);
-
-                    pixels[dstIdx] = (alpha << 24) | (newB << 16) | (newG << 8) | newR;
+                    uint pixel = source[y * width + SOURCE_STYLE * STYLE_WIDTH + x];
+                    pixels[(y + height) * width + x] = recolor ? Tint(pixel) : pixel;
                 }
-            }
+            var texture = new Texture2D(_graphicsDevice, width, height * 2);
+            try { texture.SetData(pixels); return texture; }
+            catch { texture.Dispose(); throw; }
         }
 
-        private static void ReplaceTexture(Array tileArray, object existingAsset, Texture2D newTexture, int w, int h)
+        private static uint Tint(uint pixel)
         {
-            var originalName = GetAssetName(existingAsset) ?? "Images/Tiles_" + PaintingChestManager.TILE_TYPE;
-            var newAsset = CreateAssetWrapper(existingAsset.GetType(), newTexture, originalName);
-            if (newAsset != null)
-            {
-                tileArray.SetValue(newAsset, PaintingChestManager.TILE_TYPE);
-                _log?.Info($"Extended chest spritesheet to {w}x{h} (style {PaintingChestManager.OUR_PLACE_STYLE})");
-            }
+            uint alpha = pixel >> 24;
+            if (alpha == 0) return 0;
+            uint r = (pixel & 255) * 60 / 255;
+            uint g = ((pixel >> 8) & 255) * 40 / 255;
+            uint b = (uint)Math.Min(255, ((pixel >> 16) & 255) * 180 / 255 + 80);
+            return (alpha << 24) | (b << 16) | (g << 8) | r;
         }
 
         private static bool GenerateItemTexture()
@@ -219,34 +231,13 @@ namespace StorageHub.PaintingChest
             var pixels = new uint[itemW * itemH];
             srcTexture.GetData(pixels);
 
-            // Apply blue-purple recolor
-            for (int i = 0; i < pixels.Length; i++)
-            {
-                uint pixel = pixels[i];
-                uint alpha = (pixel >> 24) & 0xFF;
-                if (alpha == 0) continue;
-                uint r = pixel & 0xFF;
-                uint g = (pixel >> 8) & 0xFF;
-                uint b = (pixel >> 16) & 0xFF;
-                uint newR = r * 60 / 255;
-                uint newG = g * 40 / 255;
-                uint newB = (uint)Math.Min(255, b * 180 / 255 + 80);
-                pixels[i] = (alpha << 24) | (newB << 16) | (newG << 8) | newR;
-            }
-
+            for (int i = 0; i < pixels.Length; i++) pixels[i] = Tint(pixels[i]);
             var newTexture = new Texture2D(_graphicsDevice, itemW, itemH);
-            newTexture.SetData(pixels);
-
-            var existingItemAsset = itemArray.GetValue(SOURCE_ITEM_ID);
-            var originalItemName = GetAssetName(existingItemAsset) ?? "Images/Item_" + SOURCE_ITEM_ID;
-            var newAsset = CreateAssetWrapper(existingItemAsset.GetType(), newTexture, originalItemName);
-            if (newAsset != null)
-            {
-                itemArray.SetValue(newAsset, ourType);
-                _log?.Info($"Generated mysterious chest item texture (type {ourType})");
-                return true;
-            }
-            return false;
+            try { newTexture.SetData(pixels); }
+            catch { newTexture.Dispose(); throw; }
+            Install(PrepareReplacement(itemArray, ourType, newTexture));
+            _log?.Info($"Generated mysterious chest item texture (type {ourType})");
+            return true;
         }
 
         private static string GetAssetName(object asset)

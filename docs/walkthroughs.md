@@ -1,6 +1,6 @@
 ---
-title: Terraria 1.4.5 Mod Walkthroughs - Learn by Example
-description: Study real working Terraria 1.4.5 mods. Walkthroughs cover Harmony patching, UI building, input handling, tile scanning, and more with full source code.
+title: Terraria 1.4.5.8 Mod Walkthroughs - Learn by Example
+description: Study real working Terraria 1.4.5.8 mods. Walkthroughs cover Harmony patching, UI building, input handling, tile scanning, and more with full source code.
 nav_order: 10
 has_children: true
 ---
@@ -20,7 +20,10 @@ Each walkthrough breaks down a bundled mod, explaining the key concepts and patt
 | [ItemSpawner](walkthroughs/item-spawner.md) | Advanced | Custom UI, item catalog, search |
 | [StorageHub](walkthroughs/storage-hub.md) | Advanced | Multi-tab UI, crafting system, relay network, data persistence |
 | [AdminPanel](walkthroughs/admin-panel.md) | Advanced | UI sliders, Harmony patches, boss detection |
-| [WhipStacking](walkthroughs/whip-stacking.md) | Intermediate | Harmony prefixes, restoring removed mechanics |
-| [DebugTools](walkthroughs/debug-tools.md) | Advanced | HTTP server, console, virtual input, window management |
+| [WhipStacking](walkthroughs/whip-stacking.md) | Intermediate | Native tag-effect capacity, lifecycle patching |
 | [SeedLab](walkthroughs/seed-lab.md) | Advanced | World-gen patching, runtime seed feature toggling |
+| [FPS Unlocked](walkthroughs/fps-unlocked.md) | Advanced | Fixed-step simulation, render interpolation, draw safety |
+| [Biome Spread Control](walkthroughs/biome-spread.md) | Intermediate | Scoped world update and grass-spread patches |
+| [Randomizer](walkthroughs/randomizer.md) | Advanced | Stable seeds, independent modules, reversible state |
+| [Public Debug Tools](walkthroughs/debug-tools.md) | Advanced | HTTP server, console, virtual input, window management |
 | [Asset Experience Mod](walkthroughs/asset-experience-mod.md) | Intermediate | Custom items, textures, hooks, recipes, shops, drops |

@@ -1,6 +1,5 @@
 using System;
 using System.Reflection;
-using System.Threading;
 using HarmonyLib;
 using Terraria;
 using TerrariaModder.Core;
@@ -12,11 +11,11 @@ namespace SkipIntro
     {
         public string Id => "skip-intro";
         public string Name => "Skip Intro";
-        public string Version => "1.0.0";
+        public string Version => "2.0.0";
 
         private ILogger _log;
         private Harmony _harmony;
-        private Timer _patchTimer;
+        private bool _patchesApplied;
         private static bool _hasSkipped = false;
         private static FieldInfo _isAsyncLoadCompleteField;
         private static FieldInfo _splashCounterField;
@@ -45,13 +44,13 @@ namespace SkipIntro
 
             _harmony = new Harmony("com.terrariamodder.skipintro");
 
-            // Delay patching to allow game to initialize
-            _patchTimer = new Timer(PatchAfterDelay, null, 5000, Timeout.Infinite);
-            _log.Info("Skip Intro initialized - patches will apply in 5 seconds");
+            _log.Info("Skip Intro initialized; patches will apply when game content is ready");
         }
 
-        private void PatchAfterDelay(object state)
+        private void ApplyPatches()
         {
+            if (_patchesApplied || _harmony == null) return;
+
             try
             {
                 // _isAsyncLoadComplete and splashCounter are private — must use reflection
@@ -68,6 +67,7 @@ namespace SkipIntro
                 {
                     var postfix = typeof(Mod).GetMethod("DoUpdate_Postfix", BindingFlags.Public | BindingFlags.Static);
                     _harmony.Patch(doUpdateMethod, postfix: new HarmonyMethod(postfix));
+                    _patchesApplied = true;
                     _log.Info("Successfully patched Main.DoUpdate");
                 }
                 else
@@ -120,7 +120,10 @@ namespace SkipIntro
             }
         }
 
-        public void OnContentReady(ModContext context) { }
+        public void OnContentReady(ModContext context)
+        {
+            ApplyPatches();
+        }
 
         public void OnWorldLoad() { }
         public void OnWorldUnload() { }
@@ -128,7 +131,7 @@ namespace SkipIntro
         public void Unload()
         {
             _harmony?.UnpatchAll("com.terrariamodder.skipintro");
-            _patchTimer?.Dispose();
+            _patchesApplied = false;
 
             // Reset static state for hot-reload support
             _hasSkipped = false;

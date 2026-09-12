@@ -60,7 +60,7 @@ namespace Randomizer
         {
             if (pool == null || pool.Count < 2) return new Dictionary<int, int>();
 
-            int subSeed = _seed ^ moduleId.GetHashCode();
+            int subSeed = DeriveSubSeed(moduleId);
             var shuffled = new List<int>(pool);
             var rng = new Random(subSeed);
             for (int i = shuffled.Count - 1; i > 0; i--)
@@ -79,5 +79,25 @@ namespace Randomizer
             return map;
         }
 
+        /// <summary>Derive a stable module-specific seed across runtimes and platforms.</summary>
+        public int DeriveSubSeed(string moduleId)
+        {
+            return _seed ^ DeterministicHash(moduleId ?? "");
+        }
+
+        /// <summary>FNV-1a hash used for persisted text seeds and module sub-seeds.</summary>
+        public static int DeterministicHash(string value)
+        {
+            unchecked
+            {
+                uint hash = 2166136261;
+                foreach (char c in value ?? "")
+                {
+                    hash ^= c;
+                    hash *= 16777619;
+                }
+                return (int)hash;
+            }
+        }
     }
 }

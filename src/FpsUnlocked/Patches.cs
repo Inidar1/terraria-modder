@@ -5,16 +5,19 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Threading;
 using HarmonyLib;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Terraria;
 using Terraria.Enums;
 using Terraria.GameInput;
+using Terraria.Graphics.CameraModifiers;
 using TerrariaModder.Core.Logging;
 
 namespace FpsUnlocked
 {
     /// <summary>
-    /// All 7 Harmony patches for the FPS Unlocked interpolation system.
+    /// Harmony patches for unlocked timing and render interpolation.
     ///
     /// Patch lifecycle per frame:
     ///   1. DoUpdate_Prefix  — save accumulator, prepare for tick detection
@@ -28,9 +31,11 @@ namespace FpsUnlocked
     public static class Patches
     {
         private static ILogger _log;
-        private static double _accumulatorBeforeUpdate;
+        private static uint _gameUpdateCountBeforeUpdate;
         private static double _targetFrameTime;
         private static bool _firstKeyframeCaptured;
+        private static bool _doUpdateVSyncWritesPatched;
+        private static bool _displayModeVSyncWritePatched;
         private static int _diagFrameCount;
         private static int _diagFullTickCount;
 
@@ -41,10 +46,14 @@ namespace FpsUnlocked
         // Track interpolation state transitions
         private static bool _wasInterpolating;
 
-        // VSync state tracking — ApplyChanges() triggers device reset (disposes render targets)
-        // so we must only call it when the value actually changes, and skip the next Draw
-        private static bool _vsyncCurrent = true; // vanilla default
-        private static bool _skipNextDraw;
+        private static bool? _vsyncApplied;
+        private static bool _renderTargetsNeedRebuild;
+        private static bool _rebuildingRenderTargets;
+
+        // Camera modifiers mutate internal duration and offset state when ApplyTo runs.
+        // Partial draw frames reuse the most recent full-tick offset.
+        private static Vector2 _lastCameraModifierOffset;
+        private static bool _hasCameraModifierOffset;
 
         // Stopwatch-based frame limiter (more accurate than XNA's IsFixedTimeStep)
         private static readonly Stopwatch _frameLimiter = Stopwatch.StartNew();
@@ -55,6 +64,7 @@ namespace FpsUnlocked
 
             // Read TARGET_FRAME_TIME constant directly
             _targetFrameTime = Main.TARGET_FRAME_TIME;
+            _vsyncApplied = GetAppliedVSync();
 
             // --- Patch 1: Block SuppressDraw ---
             var suppressDraw = FindSuppressDraw();
@@ -70,38 +80,45 @@ namespace FpsUnlocked
             }
 
             // --- Patch 2: Update postfix (timing overrides) ---
-            MethodInfo updateMethod = null;
-            foreach (var m in typeof(Main).GetMethods(BindingFlags.NonPublic | BindingFlags.Instance))
-            {
-                if (m.Name == "Update" && m.GetParameters().Length == 1)
-                {
-                    updateMethod = m;
-                    break;
-                }
-            }
+            MethodInfo updateMethod = typeof(Main).GetMethod("Update",
+                BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly,
+                null, new[] { typeof(GameTime) }, null);
             if (updateMethod != null)
             {
                 harmony.Patch(updateMethod,
                     postfix: new HarmonyMethod(typeof(Patches), nameof(Update_Postfix)));
-                log.Info("Patch 2: Main.Update postfix");
+                log.Info("Patch 2: Main.Update timing postfix");
             }
 
             // --- Patch 3 & 4: DoUpdate prefix/postfix (keyframe capture) ---
-            MethodInfo doUpdateMethod = null;
-            foreach (var m in typeof(Main).GetMethods(BindingFlags.NonPublic | BindingFlags.Instance))
-            {
-                if (m.Name == "DoUpdate" && m.GetParameters().Length == 1)
-                {
-                    doUpdateMethod = m;
-                    break;
-                }
-            }
+            MethodInfo doUpdateMethod = typeof(Main).GetMethod("DoUpdate",
+                BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly,
+                null, new[] { typeof(GameTime).MakeByRefType() }, null);
             if (doUpdateMethod != null)
             {
                 harmony.Patch(doUpdateMethod,
                     prefix: new HarmonyMethod(typeof(Patches), nameof(DoUpdate_Prefix)) { priority = Priority.First },
-                    postfix: new HarmonyMethod(typeof(Patches), nameof(DoUpdate_Postfix)) { priority = Priority.Last });
-                log.Info("Patch 3+4: Main.DoUpdate prefix (First) + postfix (Last)");
+                    postfix: new HarmonyMethod(typeof(Patches), nameof(DoUpdate_Postfix)) { priority = Priority.Last },
+                    transpiler: new HarmonyMethod(typeof(Patches), nameof(DoUpdate_Transpiler)));
+                log.Info("Patch 3+4: Main.DoUpdate timing, keyframes, and VSync transpiler");
+            }
+            else
+            {
+                log.Error("Patch 3+4: Main.DoUpdate(ref GameTime) not found; unlocked timing is disabled");
+            }
+
+            MethodInfo setDisplayModeMethod = typeof(Main).GetMethod(nameof(Main.SetDisplayMode),
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly,
+                null, new[] { typeof(int), typeof(int), typeof(bool) }, null);
+            if (setDisplayModeMethod != null)
+            {
+                harmony.Patch(setDisplayModeMethod,
+                    transpiler: new HarmonyMethod(typeof(Patches), nameof(SetDisplayMode_Transpiler)));
+                log.Info("Patch 3a: Main.SetDisplayMode VSync transpiler");
+            }
+            else
+            {
+                log.Error("Patch 3a: Main.SetDisplayMode(int, int, bool) not found; unlocked timing is disabled");
             }
 
             // --- Patch 5 & 6: DoDraw prefix/postfix (interpolation) ---
@@ -122,14 +139,29 @@ namespace FpsUnlocked
                 log.Info("Patch 5+6: Main.DoDraw prefix (First) + finalizer (Last)");
             }
 
+            MethodInfo drawMethod = typeof(Main).GetMethod("Draw",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            if (drawMethod != null)
+            {
+                harmony.Patch(drawMethod,
+                    prefix: new HarmonyMethod(typeof(Patches), nameof(MainDraw_Prefix)) { priority = Priority.First });
+                log.Info("Patch 5a: Main.Draw render-target recovery");
+            }
+            else
+            {
+                log.Warn("Patch 5a: Main.Draw not found");
+            }
+
             // --- Patch 7: Camera sub-pixel (remove integer snap via transpiler) ---
             var cameraMethod = typeof(Main).GetMethod("DoDraw_UpdateCameraPosition",
                 BindingFlags.NonPublic | BindingFlags.Static);
             if (cameraMethod != null)
             {
                 harmony.Patch(cameraMethod,
+                    prefix: new HarmonyMethod(typeof(Patches), nameof(CameraPosition_Prefix)) { priority = Priority.First },
+                    postfix: new HarmonyMethod(typeof(Patches), nameof(CameraPosition_Postfix)) { priority = Priority.Last },
                     transpiler: new HarmonyMethod(typeof(Patches), nameof(CameraPosition_Transpiler)));
-                log.Info("Patch 7: DoDraw_UpdateCameraPosition transpiler");
+                log.Info("Patch 7: camera position timing and sub-pixel transpiler");
             }
 
             // --- Patch 8: Skip lighting engine on partial ticks ---
@@ -145,11 +177,38 @@ namespace FpsUnlocked
             {
                 harmony.Patch(lightTilesMethod,
                     prefix: new HarmonyMethod(typeof(Patches), nameof(LightTiles_Prefix)));
-                log.Info("Patch 8: Lighting.LightTiles prefix (cap at 240/sec)");
+                log.Info("Patch 8: Lighting.LightTiles full-tick updates");
             }
             else
             {
-                log.Warn("Patch 8: Lighting.LightTiles not found - torch flicker at >240fps");
+                log.Warn("Patch 8: Lighting.LightTiles not found - lighting may advance at render rate");
+            }
+
+            var updateMainMouse = typeof(PlayerInput).GetMethod(nameof(PlayerInput.UpdateMainMouse),
+                BindingFlags.Public | BindingFlags.Static);
+            if (updateMainMouse != null)
+            {
+                harmony.Patch(updateMainMouse,
+                    postfix: new HarmonyMethod(typeof(Patches), nameof(UpdateMainMouse_Postfix)) { priority = Priority.Last });
+                log.Info("Patch 9: PlayerInput.UpdateMainMouse postfix");
+            }
+            else
+            {
+                log.Warn("Patch 9: PlayerInput.UpdateMainMouse not found");
+            }
+
+            var cameraModifiers = typeof(CameraModifierStack).GetMethod(nameof(CameraModifierStack.ApplyTo),
+                BindingFlags.Public | BindingFlags.Instance);
+            if (cameraModifiers != null)
+            {
+                harmony.Patch(cameraModifiers,
+                    prefix: new HarmonyMethod(typeof(Patches), nameof(CameraModifiers_Prefix)) { priority = Priority.First },
+                    postfix: new HarmonyMethod(typeof(Patches), nameof(CameraModifiers_Postfix)) { priority = Priority.Last });
+                log.Info("Patch 10: CameraModifierStack.ApplyTo full-tick updates");
+            }
+            else
+            {
+                log.Warn("Patch 10: CameraModifierStack.ApplyTo not found");
             }
 
             log.Info("All patches applied successfully");
@@ -173,22 +232,13 @@ namespace FpsUnlocked
         #region Patch 1: SuppressDraw
 
         /// <summary>
-        /// Block SuppressDraw when interpolation is active.
-        /// This ensures Draw runs on every frame (including partial ticks).
+        /// Block SuppressDraw while unlocked timing is active so partial frames are rendered.
         /// </summary>
         public static bool SuppressDraw_Prefix()
         {
-            if (!Mod.Enabled) return true;
-            if (Mod.Mode == "VSync (Vanilla)") return true;
-            if (!Mod.InterpolationEnabled) return true;
+            if (!ShouldUseUnlockedTiming()) return true;
 
-            // Don't interfere with title screen / menus
-            if (Main.gameMenu) return true;
-
-            // Don't block until at least one full tick has captured keyframes
-            if (!_firstKeyframeCaptured) return true;
-
-            // Block SuppressDraw -> allow Draw to proceed on partial ticks
+            // Allow discrete or interpolated draws between 60hz game ticks.
             return false;
         }
 
@@ -197,41 +247,102 @@ namespace FpsUnlocked
         #region Patch 2: Update postfix (timing overrides)
 
         /// <summary>
-        /// Override VSync, FrameSkipMode, IsFixedTimeStep, TargetElapsedTime every frame.
+        /// Apply VSync, frame-skip, and vanilla-mode timing state after each update.
         /// Runs after Main.Update (which includes DoUpdate).
         /// Settings take effect on the NEXT frame's DoUpdate.
         /// </summary>
+        public static IEnumerable<CodeInstruction> DoUpdate_Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var codes = ReplaceVSyncWrites(instructions, out int replaced);
+            _doUpdateVSyncWritesPatched = replaced == 2;
+            if (_doUpdateVSyncWritesPatched)
+                _log?.Info("Main.DoUpdate VSync transpiler replaced 2 setter calls");
+            else
+                _log?.Error($"Main.DoUpdate VSync transpiler expected 2 setter calls, replaced {replaced}; unlocked timing is disabled");
+            return codes;
+        }
+
+        public static IEnumerable<CodeInstruction> SetDisplayMode_Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var codes = ReplaceVSyncWrites(instructions, out int replaced);
+            _displayModeVSyncWritePatched = replaced == 1;
+            if (_displayModeVSyncWritePatched)
+                _log?.Info("Main.SetDisplayMode VSync transpiler replaced 1 setter call");
+            else
+                _log?.Error($"Main.SetDisplayMode VSync transpiler expected 1 setter call, replaced {replaced}; unlocked timing is disabled");
+            return codes;
+        }
+
+        private static List<CodeInstruction> ReplaceVSyncWrites(
+            IEnumerable<CodeInstruction> instructions, out int replaced)
+        {
+            var codes = new List<CodeInstruction>(instructions);
+            MethodInfo replacement = AccessTools.Method(typeof(Patches), nameof(SetTerrariaVSyncRequest));
+            replaced = 0;
+
+            if (replacement == null)
+                return codes;
+
+            foreach (var code in codes)
+            {
+                string called = code.operand?.ToString() ?? "";
+                if ((code.opcode != OpCodes.Call && code.opcode != OpCodes.Callvirt) ||
+                    called.IndexOf("set_SynchronizeWithVerticalRetrace", StringComparison.Ordinal) < 0)
+                    continue;
+
+                code.opcode = OpCodes.Call;
+                code.operand = replacement;
+                replaced++;
+            }
+
+            return codes;
+        }
+
+        public static void SetTerrariaVSyncRequest(GraphicsDeviceManager graphics, bool requested)
+        {
+            if (graphics == null || ReflectionCache.VSyncProp == null)
+                return;
+
+            if (ShouldUseUnlockedTiming())
+                requested = false;
+
+            try
+            {
+                bool current = (bool)ReflectionCache.VSyncProp.GetValue(graphics, null);
+                if (current != requested)
+                    ReflectionCache.VSyncProp.SetValue(graphics, requested, null);
+            }
+            catch (Exception ex)
+            {
+                _log?.Debug($"[FpsUnlocked] VSync request: {ex}");
+            }
+        }
+
         public static void Update_Postfix(object __instance)
         {
             try
             {
-                bool shouldOverride = Mod.Enabled && Mod.Mode != "VSync (Vanilla)" && !Main.gameMenu;
+                bool shouldOverride = ShouldUseUnlockedTiming();
 
-                // Activation transition
                 if (shouldOverride && !_wasOverriding)
                 {
                     _savedFrameSkipMode = Main.FrameSkipMode;
                     _wasOverriding = true;
-                    _firstKeyframeCaptured = false;
+                    ResetTransitionState();
                     _log?.Info($"FPS override activated - Mode: {Mod.Mode}, MaxFPS: {Mod.MaxFps}, " +
                         $"Interpolation: {Mod.InterpolationEnabled}");
                 }
-                // Deactivation transition
                 else if (!shouldOverride && _wasOverriding)
                 {
                     Main.FrameSkipMode = _savedFrameSkipMode;
                     _wasOverriding = false;
-                    _wasInterpolating = false;
-                    _firstKeyframeCaptured = false;
+                    ResetTransitionState();
                     FrameState.Reset();
                     _log?.Info("FPS override deactivated, restoring 60fps");
                 }
 
                 if (!shouldOverride)
                 {
-                    // Enforce 60fps every frame in VSync mode or when disabled.
-                    // On >60hz displays, vanilla Terraria's XNA loop runs at the display
-                    // refresh rate — we must explicitly cap it here with IsFixedTimeStep.
                     SetVSync(true);
                     ReflectionCache.IsFixedTimeStepProp?.SetValue(__instance, true, null);
                     ReflectionCache.TargetElapsedTimeProp?.SetValue(__instance,
@@ -239,38 +350,15 @@ namespace FpsUnlocked
                     return;
                 }
 
-                // --- Apply overrides every frame ---
-
-                // Disable VSync
                 SetVSync(false);
 
-                // FrameSkipMode depends on interpolation
-                if (Mod.InterpolationEnabled)
-                {
-                    // FrameSkipMode.Off enables the accumulator in DoUpdate -> 60hz game logic
-                    Main.FrameSkipMode = FrameSkipMode.Off;
-                }
-                else
-                {
-                    // FrameSkipMode.On skips accumulator -> every frame is a full tick -> game speed scales
-                    Main.FrameSkipMode = FrameSkipMode.On;
-                }
-
-                // Both Capped and Uncapped use variable timestep.
-                // Capped mode uses our Stopwatch-based limiter in DoUpdate_Prefix (more accurate).
-                ReflectionCache.IsFixedTimeStepProp?.SetValue(__instance, false, null);
-
-                // Handle interpolation state transitions
-                bool interpolating = Mod.InterpolationEnabled && !IsGamePaused();
-                if (interpolating && !_wasInterpolating)
-                {
-                    // Just enabled interpolation — clear stale keyframes
-                    KeyframeStore.Clear();
-                    _firstKeyframeCaptured = false;
-                }
-                _wasInterpolating = interpolating;
+                // The accumulator in FrameSkipMode.Off keeps game logic at 60hz.
+                // Interpolation controls presentation only and must never change game speed.
+                Main.FrameSkipMode = FrameSkipMode.Off;
+                // DoUpdate selects variable step while focused and fixed 60hz catch-up
+                // while inactive. Preserve that choice so background play does not slow.
             }
-            catch (Exception ex) { _log?.Debug($"[FpsUnlocked] Initialize_Postfix: {ex}"); }
+            catch (Exception ex) { _log?.Debug($"[FpsUnlocked] Update_Postfix: {ex}"); }
         }
 
         private static void SetVSync(bool enabled)
@@ -280,24 +368,106 @@ namespace FpsUnlocked
                 if (ReflectionCache.VSyncProp == null)
                     return;
 
-                // Only call ApplyChanges when VSync state actually changes.
-                // ApplyChanges() triggers a device reset which disposes ALL render targets.
-                // If we call it every frame, we'd crash on the next Draw.
-                if (enabled == _vsyncCurrent) return;
-
                 var gdm = Main.graphics;
                 if (gdm == null) return;
-                ReflectionCache.VSyncProp.SetValue(gdm, enabled, null);
-                ReflectionCache.ApplyChangesMethod?.Invoke(gdm, null);
-                _vsyncCurrent = enabled;
 
-                // Device reset just disposed all render targets.
-                // Skip the next Draw call (same Tick) to avoid ObjectDisposedException.
-                // Terraria will recreate render targets on the next full-tick Draw.
-                _skipNextDraw = true;
-                _log?.Info($"VSync changed to {enabled}, skipping next draw for device reset");
+                // Main.DoUpdate writes this requested value to true every frame without
+                // necessarily applying it. Compare against the graphics device's actual
+                // presentation interval before deciding whether a reset is needed.
+                bool requested = (bool)ReflectionCache.VSyncProp.GetValue(gdm, null);
+                bool? applied = GetAppliedVSync();
+                if (applied.HasValue)
+                    _vsyncApplied = applied;
+                else if (!_vsyncApplied.HasValue)
+                    _vsyncApplied = requested;
+
+                if (_vsyncApplied.HasValue && _vsyncApplied.Value == enabled)
+                {
+                    if (requested != enabled)
+                        ReflectionCache.VSyncProp.SetValue(gdm, enabled, null);
+                    return;
+                }
+
+                if (ReflectionCache.ApplyChangesMethod == null ||
+                    ReflectionCache.InitTargetsMethod == null)
+                {
+                    _log?.Error("VSync transition requires ApplyChanges and Main.InitTargets; unlocked timing is disabled");
+                    return;
+                }
+
+                if (requested != enabled)
+                    ReflectionCache.VSyncProp.SetValue(gdm, enabled, null);
+
+                ReflectionCache.ApplyChangesMethod.Invoke(gdm, null);
+                _renderTargetsNeedRebuild = true;
+                _vsyncApplied = GetAppliedVSync();
+                _log?.Info($"VSync requested {enabled}; applied presentation interval is {GetPresentationInterval()}");
             }
             catch (Exception ex) { _log?.Debug($"[FpsUnlocked] SetVSync: {ex}"); }
+        }
+
+        public static bool MainDraw_Prefix()
+        {
+            if (TerrariaModder.Core.PluginLoader.IsShuttingDown)
+                return false;
+
+            if (!_renderTargetsNeedRebuild || _rebuildingRenderTargets)
+                return true;
+
+            if (!RebuildRenderTargets())
+                return false;
+
+            _renderTargetsNeedRebuild = false;
+            return true;
+        }
+
+        private static bool RebuildRenderTargets()
+        {
+            if (Main.instance == null || Main.dedServ || ReflectionCache.InitTargetsMethod == null)
+                return false;
+
+            _rebuildingRenderTargets = true;
+            bool preventUpdatingTargets = Main.PreventUpdatingTargets;
+            try
+            {
+                Main.PreventUpdatingTargets = true;
+                ReflectionCache.InitTargetsMethod.Invoke(Main.instance, null);
+                Main.instance.ResetAllContentBasedRenderTargets();
+                _log?.Info("Render targets rebuilt before drawing after graphics device reset");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _log?.Error($"Render-target rebuild failed after graphics device reset: {ex}");
+                return false;
+            }
+            finally
+            {
+                Main.PreventUpdatingTargets = preventUpdatingTargets;
+                _rebuildingRenderTargets = false;
+            }
+        }
+
+        internal static bool VSyncWritesPatched => _doUpdateVSyncWritesPatched && _displayModeVSyncWritePatched;
+
+        internal static string GetPresentationInterval()
+        {
+            try
+            {
+                return Main.instance?.GraphicsDevice?.PresentationParameters?.PresentationInterval.ToString()
+                    ?? "Unavailable";
+            }
+            catch
+            {
+                return "Unavailable";
+            }
+        }
+
+        internal static bool? GetAppliedVSync()
+        {
+            string interval = GetPresentationInterval();
+            if (interval == "Unavailable") return null;
+            return interval != PresentInterval.Immediate.ToString();
         }
 
         #endregion
@@ -314,7 +484,7 @@ namespace FpsUnlocked
             {
                 // Stopwatch-based frame limiter for Capped mode
                 // (XNA's IsFixedTimeStep has ~7fps overshoot due to timer granularity)
-                if (Mod.Enabled && Mod.Mode == "Capped" && !Main.gameMenu)
+                if (ShouldUseUnlockedTiming() && Mod.Mode == "Capped")
                 {
                     double targetMs = 1000.0 / Math.Max(1, Mod.MaxFps);
                     double elapsed = _frameLimiter.Elapsed.TotalMilliseconds;
@@ -330,9 +500,9 @@ namespace FpsUnlocked
                     _frameLimiter.Restart();
                 }
 
-                if (!ShouldInterpolate()) return;
+                if (!ShouldUseUnlockedTiming()) return;
 
-                _accumulatorBeforeUpdate = Main.UpdateTimeAccumulator;
+                _gameUpdateCountBeforeUpdate = Main.GameUpdateCount;
             }
             catch (Exception ex) { _log?.Debug($"[FpsUnlocked] DoUpdate_Prefix: {ex}"); }
         }
@@ -349,55 +519,53 @@ namespace FpsUnlocked
         {
             try
             {
-                if (!ShouldInterpolate())
+                bool timingActive = ShouldUseUnlockedTiming();
+                FrameState.TimingActive = timingActive;
+                if (!timingActive)
                 {
                     FrameState.Active = false;
+                    FrameState.WasFullTick = false;
+                    FrameState.IsPartialTick = false;
                     return;
                 }
 
+                FrameState.FrameCount++;
                 double accAfter = Main.UpdateTimeAccumulator;
+                bool wasFullTick = Main.GameUpdateCount != _gameUpdateCountBeforeUpdate;
 
-                // Detect full tick: accumulator decreased (normal case at >60fps)
-                // OR accumulator >= TARGET_FRAME_TIME (lag case: drained but elapsed > TFT)
-                bool wasFullTick = (accAfter < _accumulatorBeforeUpdate) ||
-                                   (accAfter >= _targetFrameTime);
-
+                FrameState.WasFullTick = wasFullTick;
+                FrameState.IsPartialTick = !wasFullTick;
                 if (wasFullTick)
+                    FrameState.TickCount++;
+
+                bool interpolating = Mod.InterpolationEnabled && !IsGamePaused();
+                if (interpolating != _wasInterpolating)
+                {
+                    KeyframeStore.Clear();
+                    _firstKeyframeCaptured = false;
+                    _hasCameraModifierOffset = false;
+                }
+                _wasInterpolating = interpolating;
+
+                if (interpolating && wasFullTick)
                 {
                     if (_firstKeyframeCaptured)
-                    {
-                        // Shift: previous End becomes new Begin
                         SwapKeyframes();
-                    }
 
-                    // Capture End keyframe (current entity state after game logic)
                     KeyframeStore.CaptureEndKeyframe();
-
                     if (!_firstKeyframeCaptured)
                     {
-                        // First tick: copy End to Begin (no prior state to interpolate from)
                         CopyEndToBegin();
                         _firstKeyframeCaptured = true;
                     }
-
-                    FrameState.WasFullTick = true;
-                    FrameState.TickCount++;
-                }
-                else
-                {
-                    FrameState.WasFullTick = false;
                 }
 
-                // Compute PartialTick: how far between Begin and End are we?
-                // accAfter / TARGET_FRAME_TIME gives 0..1 progression
                 float pt = (float)(accAfter / _targetFrameTime);
                 if (pt < 0f) pt = 0f;
                 if (pt > 1f) pt = 1f;
                 FrameState.PartialTick = pt;
-                FrameState.IsPartialTick = !wasFullTick;
-                FrameState.Active = _firstKeyframeCaptured;
+                FrameState.Active = interpolating && _firstKeyframeCaptured;
 
-                // Periodic diagnostics (every ~5 seconds at 60 UPS)
                 _diagFrameCount++;
                 if (wasFullTick) _diagFullTickCount++;
                 if (_diagFullTickCount >= 300)
@@ -419,25 +587,14 @@ namespace FpsUnlocked
         /// <summary>
         /// Apply interpolated positions to all entities before rendering.
         /// Priority.First ensures this runs before Core's DoDraw prefix.
-        /// Returns false to skip the entire DoDraw when render targets are invalid (device reset).
         /// </summary>
         public static bool DoDraw_Prefix()
         {
             try
             {
-                // After a device reset (VSync change), render targets are disposed.
-                // Skip the entire DoDraw to avoid ObjectDisposedException on RenderTarget2D.
-                // Terraria recreates render targets during the next Draw that actually runs.
-                if (_skipNextDraw)
-                {
-                    _skipNextDraw = false;
-                    return false;
-                }
-
                 if (!FrameState.Active) return true;
 
                 Interpolator.ApplyAll();
-                PollMouse();
             }
             catch (Exception ex) { _log?.Debug($"[FpsUnlocked] DoDraw_Prefix: {ex}"); }
             return true;
@@ -449,10 +606,11 @@ namespace FpsUnlocked
         /// </summary>
         private static bool _mouseLoggedOnce;
 
-        private static void PollMouse()
+        public static void UpdateMainMouse_Postfix()
         {
             if (!Mod.MouseEveryFrame) return;
-            if (!FrameState.IsPartialTick) return; // Full ticks handle mouse normally
+            if (!FrameState.TimingActive || !FrameState.IsPartialTick) return;
+            if (Main.instance == null || !Main.instance.IsActive) return;
 
             try
             {
@@ -469,12 +627,14 @@ namespace FpsUnlocked
                 int mouseX = (int)(rawX * scaleX);
                 int mouseY = (int)(rawY * scaleY);
 
+                PlayerInput.MouseX = mouseX;
+                PlayerInput.MouseY = mouseY;
                 Main.mouseX = mouseX;
                 Main.mouseY = mouseY;
 
                 if (!_mouseLoggedOnce)
                 {
-                    _log?.Info($"PollMouse: first poll OK - raw=({rawX},{rawY}), scaled=({mouseX},{mouseY})");
+                    _log?.Info($"Responsive mouse active - raw=({rawX},{rawY}), scaled=({mouseX},{mouseY})");
                     _mouseLoggedOnce = true;
                 }
             }
@@ -482,7 +642,7 @@ namespace FpsUnlocked
             {
                 if (!_mouseLoggedOnce)
                 {
-                    _log?.Error($"PollMouse error: {ex.Message}");
+                    _log?.Error($"Responsive mouse error: {ex.Message}");
                     _mouseLoggedOnce = true;
                 }
             }
@@ -516,7 +676,37 @@ namespace FpsUnlocked
 
         #endregion
 
-        #region Patch 7: Camera sub-pixel
+        #region Patch 7: Camera timing and sub-pixel positioning
+
+        public static void CameraPosition_Prefix(out Vector2 __state)
+        {
+            __state = new Vector2(Main.cameraX, Main.cameraY);
+        }
+
+        public static void CameraPosition_Postfix(Vector2 __state)
+        {
+            if (!FrameState.TimingActive || !FrameState.IsPartialTick) return;
+            Main.cameraX = __state.X;
+            Main.cameraY = __state.Y;
+        }
+
+        public static bool CameraModifiers_Prefix(ref Vector2 cameraPosition, out Vector2 __state)
+        {
+            __state = cameraPosition;
+            if (!FrameState.TimingActive || !FrameState.IsPartialTick)
+                return true;
+
+            if (_hasCameraModifierOffset)
+                cameraPosition += _lastCameraModifierOffset;
+            return false;
+        }
+
+        public static void CameraModifiers_Postfix(ref Vector2 cameraPosition, Vector2 __state)
+        {
+            if (!FrameState.TimingActive || FrameState.IsPartialTick) return;
+            _lastCameraModifierOffset = cameraPosition - __state;
+            _hasCameraModifierOffset = true;
+        }
 
         /// <summary>
         /// Transpiler that removes the integer snap on screenPosition in DoDraw_UpdateCameraPosition.
@@ -547,45 +737,36 @@ namespace FpsUnlocked
 
         #region Patch 8: Lighting engine skip
 
-        // Lighting engine runs a 4-state cycle advancing once per LightTiles call.
-        // At 60 ticks/sec, it needs exactly 4 calls/tick = 240 calls/sec.
-        // Above 240fps, excess calls cause per-frame lights (held torch) to flicker
-        // because the Blur state clears the light list each pass.
-        // Fix: cap at 4 LightTiles calls per game tick (1 full + 3 partial).
-        private static int _lightCallsThisTick;
-        private static long _lastLightTick;
-        private const int MAX_LIGHT_CALLS_PER_TICK = 4;
-
+        // Lighting state advances with game logic. Partial draw frames reuse the
+        // current light map instead of advancing the lighting engine again.
         public static bool LightTiles_Prefix()
         {
-            if (!Mod.Enabled || Mod.Mode == "VSync (Vanilla)" || !Mod.InterpolationEnabled)
+            if (!FrameState.TimingActive)
                 return true;
 
-            if (!FrameState.Active)
-                return true;
-
-            long currentTick = FrameState.TickCount;
-            if (currentTick != _lastLightTick)
-            {
-                _lastLightTick = currentTick;
-                _lightCallsThisTick = 0;
-            }
-
-            _lightCallsThisTick++;
-            if (_lightCallsThisTick > MAX_LIGHT_CALLS_PER_TICK)
-                return false; // cap reached — skip to prevent torch flicker
-
-            return true;
+            return FrameState.WasFullTick;
         }
 
         #endregion
 
         #region Helpers
 
-        private static bool ShouldInterpolate()
+        private static bool ShouldUseUnlockedTiming()
         {
-            return Mod.Enabled && Mod.Mode != "VSync (Vanilla)" &&
-                   Mod.InterpolationEnabled && !IsGamePaused();
+            return VSyncWritesPatched &&
+                   ReflectionCache.ApplyChangesMethod != null &&
+                   ReflectionCache.InitTargetsMethod != null &&
+                   Mod.Enabled && Mod.Mode != "VSync (Vanilla)" && !Main.gameMenu;
+        }
+
+        public static void ResetTransitionState()
+        {
+            _wasInterpolating = false;
+            _firstKeyframeCaptured = false;
+            _hasCameraModifierOffset = false;
+            _lastCameraModifierOffset = Vector2.Zero;
+            _diagFrameCount = 0;
+            _diagFullTickCount = 0;
         }
 
         private static bool IsGamePaused()

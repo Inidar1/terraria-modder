@@ -272,7 +272,10 @@ namespace TerrariaModder.Core.Server
             int playerCount = 0;
             try { playerCount = PermissionService.GetConnectedPlayers().Count; } catch { }
 
-            return $"{{\"uptime\":\"{(int)uptime.TotalSeconds}s\",\"worldName\":\"{Esc(worldName)}\",\"playerCount\":{playerCount},\"port\":{_config.ManagementApiPort}}}";
+            return $"{{\"uptime\":\"{(int)uptime.TotalSeconds}s\",\"worldName\":\"{Esc(worldName)}\",\"playerCount\":{playerCount},\"port\":{_config.ManagementApiPort}," +
+                $"\"pid\":{System.Diagnostics.Process.GetCurrentProcess().Id}," +
+                $"\"sessionId\":\"{Esc(Environment.GetEnvironmentVariable("TERRARIA_MODDER_DEV_SESSION") ?? "")}\"," +
+                $"\"coreAssembly\":\"{Esc(typeof(PluginLoader).Assembly.Location)}\"}}";
         }
 
         private string HandleMods()
@@ -562,15 +565,19 @@ namespace TerrariaModder.Core.Server
 
                 var output = new System.Collections.Generic.List<string>();
                 Action<string> capture = line => output.Add(line);
+                bool executed;
                 CommandRegistry.OnOutput += capture;
                 try
                 {
-                    CommandRegistry.Execute(command);
+                    executed = CommandRegistry.Execute(command);
                 }
                 finally
                 {
                     CommandRegistry.OnOutput -= capture;
                 }
+
+                if (!executed)
+                    return $"{{\"ok\":false,\"error\":\"Unknown command: {Esc(command.Split(' ')[0])}\"}}";
 
                 var sb = new StringBuilder("[");
                 for (int i = 0; i < output.Count; i++)

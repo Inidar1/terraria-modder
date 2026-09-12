@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using Terraria;
 
 namespace FpsUnlocked
 {
@@ -12,7 +13,7 @@ namespace FpsUnlocked
     public static class KeyframeStore
     {
         // Per-entity field count (number of floats per entity in the keyframe arrays):
-        // Player: posX, posY, gfxOffY, headRot, bodyRot, legRot, itemLocX, itemLocY, itemRot = 9
+        // Player: bottomX, bottomY, gfxOffY, headRot, bodyRot, legRot, itemOffsetX, itemOffsetY, itemRot = 9
         // NPC: posX, posY, rotation, gfxOffY = 4
         // Projectile: posX, posY, rotation = 3
         // Gore: posX, posY, rotation = 3
@@ -204,18 +205,19 @@ namespace FpsUnlocked
                 for (int i = 0; i < count; i++)
                 {
                     var p = players.GetValue(i);
-                    if (p == null) continue;
+                    var player = p as Player;
+                    if (player == null) continue;
                     int offset = i * PlayerStride;
-                    float endX = ReflectionCache.PlayerPosX(p);
-                    float endY = ReflectionCache.PlayerPosY(p);
+                    float endX = player.Bottom.X;
+                    float endY = player.Bottom.Y;
                     PlayerEnd[offset + 0] = endX;
                     PlayerEnd[offset + 1] = endY;
                     PlayerEnd[offset + 2] = ReflectionCache.PlayerGfxOffY(p);
                     PlayerEnd[offset + 3] = ReflectionCache.PlayerHeadRot(p);
                     PlayerEnd[offset + 4] = ReflectionCache.PlayerBodyRot(p);
                     PlayerEnd[offset + 5] = ReflectionCache.PlayerLegRot(p);
-                    PlayerEnd[offset + 6] = ReflectionCache.PlayerItemLocX(p);
-                    PlayerEnd[offset + 7] = ReflectionCache.PlayerItemLocY(p);
+                    PlayerEnd[offset + 6] = ReflectionCache.PlayerItemLocX(p) - endX;
+                    PlayerEnd[offset + 7] = ReflectionCache.PlayerItemLocY(p) - endY;
                     PlayerEnd[offset + 8] = ReflectionCache.PlayerItemRot(p);
 
                     // Teleport detection: if actual movement >> expected (velocity-based)

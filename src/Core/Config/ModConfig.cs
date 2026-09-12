@@ -138,6 +138,7 @@ namespace TerrariaModder.Core.Config
                 var optionProvider = prop.GetCustomAttribute<OptionProviderAttribute>();
                 if (optionProvider != null)
                 {
+                    meta.HasOptionProvider = true;
                     meta.OptionsProvider = BuildOptionsProvider(prop, optionProvider);
                 }
 
@@ -175,7 +176,9 @@ namespace TerrariaModder.Core.Config
             }
 
             const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance;
-            var method = GetType().GetMethod(attr.MethodName, flags, null, Type.EmptyTypes, null);
+            var method = GetType().GetMethods(flags).FirstOrDefault(candidate =>
+                candidate.Name == attr.MethodName && !candidate.ContainsGenericParameters &&
+                candidate.GetParameters().Length == 0);
             if (method == null)
             {
                 Log?.Warn($"[{ModId}] [OptionProvider] Method '{attr.MethodName}' was not found for property '{prop.Name}'.");

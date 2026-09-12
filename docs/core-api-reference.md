@@ -8,45 +8,54 @@ nav_order: 8
 
 This documents the validated APIs in TerrariaModder.Core that are proven to work.
 
-## IMod Interface
+## Mod entry points
 
-Every mod must implement `IMod`:
+Every mod implements `IMod`. Existing mods can provide the three legacy identity properties directly:
 
 ```csharp
 public interface IMod
 {
-    string Id { get; }       // Must match manifest.json
+    string Id { get; }
     string Name { get; }
     string Version { get; }
-
     void Initialize(ModContext context);
     void Unload();
 }
 ```
 
-For world lifecycle hooks, optionally implement `IModLifecycle`:
+Core uses `manifest.json` as the authoritative identity. New mods can inherit `ModBase` to avoid duplicating it:
+
+```csharp
+public class Mod : ModBase, IModLifecycle
+{
+    public override void Initialize(ModContext context) { }
+    public void OnContentReady(ModContext context) { }
+    public void OnWorldLoad() { }
+    public void OnWorldUnload() { }
+    public override void Unload() { }
+}
+```
+
+The loader binds manifest metadata before `Initialize`. Do not read `Id`, `Name`, or `Version` from a `ModBase` constructor.
+
+`IModLifecycle` is optional and preserves binary compatibility with older `IMod` implementations:
 
 ```csharp
 public interface IModLifecycle
 {
-    void OnContentReady(ModContext context);  // All mods initialized, runtime type IDs assigned
-    void OnWorldLoad();                       // Entering a world
-    void OnWorldUnload();                     // Leaving a world
+    void OnContentReady(ModContext context);
+    void OnWorldLoad();
+    void OnWorldUnload();
 }
 ```
 
-**Why two interfaces?** `IModLifecycle` is separate for backward compatibility. Old mods compiled against earlier Core versions that only implement `IMod` will still load correctly — the framework checks for `IModLifecycle` via type casting and only calls the hooks if the mod implements it.
+### Mod lifecycle
 
-**Recompilation required for Core 0.4.0+:** While old DLLs that only use `IMod` + `Initialize` + `Unload` will load, mods that reference changed APIs (like the old `IModConfig` interface) need to be recompiled against the new Core. The injector handles this gracefully — incompatible mods log a clear error and are skipped, without crashing the game or affecting other mods.
-
-### IMod Lifecycle
-
-1. `Initialize()` - Called when mod loads. Set up config, keybinds, UI, events.
-2. `OnContentReady()` *(IModLifecycle)* - Called after all mods initialized and runtime type IDs assigned. Use for cross-mod item lookups (`context.GetItemType`, `context.TryGetItemType`).
-3. `OnWorldLoad()` *(IModLifecycle)* - Called when entering a world.
-4. `OnWorldUnload()` *(IModLifecycle)* - Called when leaving a world.
-5. `Unload()` - Called when game closes. Clean up resources.
-
+1. `Initialize`: read configuration and register keybinds, UI, commands, content, or events.
+2. `OnContentReady`: all mods are initialized and runtime item IDs are assigned. Resolve cross-mod items and apply manual patches that need initialized game/content types here.
+3. `OnWorldLoad`: a world has been entered.
+4. `OnWorldUnload`: the current world is being left.
+5. `Unload`: unsubscribe handlers and remove owned Harmony patches.
 ### Injector Lifecycle Hooks
 
 The injector discovers **public static void** methods on any type in your mod assembly and calls them at specific points during game startup. These are separate from the IMod interface; they fire for the assembly, not per-mod-instance.
@@ -218,7 +227,7 @@ Log output format:
 [2024-01-30 12:34:56] [INFO ] [my-mod] Normal message
 ```
 
-All logs go to `TerrariaModder/core/logs/terrariamodder.log`.
+Each process writes a separate session log under `TerrariaModder/core/logs/`. Client files begin with `terrariamodder.client.session-` and dedicated-server files begin with `terrariamodder.server.session-`. The combined `terrariamodder.log` and `terrariamodder.server.log` files remain available for compatibility.
 
 ## Config System
 
@@ -273,7 +282,8 @@ config.ResetToDefaults(); // Reset all properties to declared defaults
 | `[Label("...")]` | Display label in settings UI |
 | `[Description("...")]` | Tooltip description |
 | `[Range(min, max)]` | Numeric range constraint (shows slider in UI) |
-| `[Options("a", "b", "c")]` | Dropdown options for string properties |
+| `[Options("a", "b", "c")]` | Fixed choices for a string property |
+| `[OptionProvider("MethodName")]` | Runtime choices returned by a parameterless instance method as `IEnumerable<string>` |
 | `[RestartRequired]` | Marks property as requiring restart to take effect |
 | `[FormerlySerializedAs("oldName")]` | Migration support for renamed properties |
 
@@ -306,13 +316,13 @@ The automatic migration ensures existing users keep their settings when you upda
 - Type-safe properties with validation attributes (`[Range]`, `[Options]`)
 - Hot reload via `OnConfigChanged()`
 
-The legacy migration layer will eventually be removed in a future Core version. Plan to migrate your config when convenient.
+New mods should use class-based configuration. The legacy migration path remains available for existing user settings.
 
 ### Hot Reload Support
 
 Implement `OnConfigChanged()` in your mod class to handle live config updates from the mod menu.
 
-*Note: This method is discovered via reflection - it's not part of the IMod interface. Just add it as a public void method on your mod class.*
+*Note: This method is discovered via reflection and is not part of `IMod`. Core accepts an inherited public parameterless instance method. Overloads or methods with parameters are rejected.*
 
 ```csharp
 public class Mod : IMod
@@ -1615,7 +1625,7 @@ bool exists = CommandRegistry.HasCommand("help");
 ### Events
 
 ```csharp
-// Subscribe to command output (used by DebugTools mod)
+// Subscribe to command output (used by public Debug Tools)
 CommandRegistry.OnOutput += (message) => { };
 
 // Subscribe to clear events
@@ -1631,15 +1641,14 @@ The framework includes Harmony for runtime patching. See [Harmony Basics](harmon
 
 All mod patches must be applied **manually** using `_harmony.Patch()`. Attribute-based `[HarmonyPatch]` attributes are only used internally by the Core framework and are not auto-applied for mods.
 
-**Manual patches** should be applied in the `OnGameReady` lifecycle hook:
+**Manual patches** should normally be applied in `IModLifecycle.OnContentReady`:
 
 ```csharp
-private static Harmony _harmony;
+private Harmony _harmony;
 
-public static void OnGameReady()
+public void OnContentReady(ModContext context)
 {
     _harmony = new Harmony("com.yourname.yourmod");
-    // Apply manual patches here -- game types are ready
     _harmony.Patch(method, postfix: new HarmonyMethod(typeof(Mod), "MyPostfix"));
 }
 
@@ -1648,7 +1657,6 @@ public void Unload()
     _harmony?.UnpatchAll("com.yourname.yourmod");
 }
 ```
-
 See also: [Tested Patterns](tested-patterns.md) for practical examples.
 
 ## Custom Assets System

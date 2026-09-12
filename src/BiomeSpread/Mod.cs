@@ -1,6 +1,6 @@
 using System;
 using System.Reflection;
-using System.Threading;
+using Terraria.ID;
 using HarmonyLib;
 using Terraria;
 using TerrariaModder.Core;
@@ -12,12 +12,11 @@ namespace BiomeSpread
     {
         public string Id => "biome-spread";
         public string Name => "Biome Spread Control";
-        public string Version => "1.0.0";
+        public string Version => "2.0.0";
 
         private static ILogger _log;
         private static ModContext _context;
         private static Harmony _harmony;
-        private static Timer _patchTimer;
         private static BiomeSpreadConfig _config;
 
         // Config
@@ -37,8 +36,7 @@ namespace BiomeSpread
             try
             {
                 _harmony = new Harmony("com.terrariamodder.biomespread");
-                _patchTimer = new Timer(PatchAfterDelay, null, 5000, Timeout.Infinite);
-                _log.Info("Patches will be applied after 5 seconds...");
+                _log.Info("Patches will be applied when game content is ready.");
             }
             catch (Exception ex)
             {
@@ -46,7 +44,7 @@ namespace BiomeSpread
             }
         }
 
-        private static void PatchAfterDelay(object state)
+        private static void ApplyPatches()
         {
             try
             {
@@ -66,6 +64,11 @@ namespace BiomeSpread
 
                 _harmony.Patch(hardUpdateMethod, prefix: new HarmonyMethod(prefix));
                 _log?.Info("Successfully patched WorldGen.hardUpdateWorld");
+                // Native infection suppression deliberately still permits evil grass on
+                // bare dirt/mud. Natural SpreadGrass calls use repeat:false; generation
+                // and explicit recursive grass operations keep their native behavior.
+                _harmony.Patch(typeof(WorldGen).GetMethod("SpreadGrass", BindingFlags.Public | BindingFlags.Static),
+                    prefix: new HarmonyMethod(typeof(Mod), nameof(SpreadGrass_Prefix)));
             }
             catch (Exception ex)
             {
@@ -83,10 +86,14 @@ namespace BiomeSpread
         public void OnConfigChanged()
         {
             LoadConfig();
+            if (!Enabled || !DisableSpread)
+            {
+                try { WorldGen.AllowedToSpreadInfections = true; } catch { }
+            }
             _log.Info($"Config reloaded - Enabled: {Enabled}, DisableSpread: {DisableSpread}");
         }
 
-        public void OnContentReady(ModContext context) { }
+        public void OnContentReady(ModContext context) { if (_harmony != null) ApplyPatches(); }
 
         public void OnWorldLoad()
         {
@@ -100,10 +107,16 @@ namespace BiomeSpread
 
         public void Unload()
         {
-            _patchTimer?.Dispose();
             _harmony?.UnpatchAll("com.terrariamodder.biomespread");
-            _patchTimer = null;
             _log.Info("Biome Spread Control unloaded");
+        }
+
+        public static bool SpreadGrass_Prefix(int grass, bool repeat)
+        {
+            if (!Enabled || !DisableSpread || repeat || WorldGen.isGeneratingOrLoadingWorld) return true;
+            return grass != TileID.CorruptGrass && grass != TileID.CrimsonGrass &&
+                grass != TileID.HallowedGrass && grass != TileID.GolfGrassHallowed &&
+                grass != TileID.CorruptJungleGrass && grass != TileID.CrimsonJungleGrass;
         }
 
         public static void HardUpdateWorld_Prefix()

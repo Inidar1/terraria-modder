@@ -1,6 +1,6 @@
 ---
-title: Harmony Patching Guide for Terraria 1.4.5
-description: Learn Harmony runtime patching for Terraria 1.4.5 modding. Covers prefix, postfix, and transpiler patches with real examples from working mods.
+title: Harmony Patching Guide for Terraria 1.4.5.8
+description: Learn Harmony runtime patching for Terraria 1.4.5.8 modding. Covers prefix, postfix, and transpiler patches with real examples from working mods.
 nav_order: 6
 ---
 
@@ -177,15 +177,15 @@ public class Mod : IMod
     public void Initialize(ModContext context)
     {
         _log = context.Logger;
-        // Don't patch here -- use OnGameReady instead
+        // Defer manual patches to OnContentReady
     }
 
     /// <summary>
-    /// Called by injector when Main.Initialize() completes.
+    /// Called by Core after every mod is initialized and runtime content IDs are assigned.
     /// GraphicsDevice, Window.Handle, and Main.instance are ready.
     /// Safe to apply manual Harmony patches here.
     /// </summary>
-    public static void OnGameReady()
+    public void OnContentReady(ModContext context)
     {
         _harmony = new Harmony("com.yourname.yourmod");
 
@@ -199,7 +199,7 @@ public class Mod : IMod
             {
                 _harmony.Patch(method,
                     postfix: new HarmonyMethod(typeof(Mod), nameof(DoUpdate_Postfix)));
-                _log?.Info("Manual patch applied in OnGameReady");
+                _log?.Info("Manual patch applied in OnContentReady");
             }
         }
         catch (Exception ex)
@@ -220,9 +220,9 @@ public class Mod : IMod
 }
 ```
 
-### Available Lifecycle Hooks
+### Advanced injector lifecycle hooks
 
-The injector discovers these as **public static void** methods on any type in your mod assembly:
+Most mods should implement `IModLifecycle.OnContentReady`. The injector also discovers these lower-level **public static void** assembly hooks:
 
 | Hook | When It Fires | Use Cases |
 |------|---------------|-----------|
@@ -240,14 +240,14 @@ The injector discovers these as **public static void** methods on any type in yo
 3. `Initialize()` finishes → **OnGameReady fires**
 4. First `Update()` → **OnFirstUpdate fires**
 
-If your code needs both content and patches ready, put it in `OnGameReady` since by that point `LoadContent` has already completed. The Core framework handles this: `AssetSystem.OnContentLoaded()` is a no-op if patches aren't applied yet, and runs the real logic from `OnGameReady` instead.
+Core-backed mods should use `IModLifecycle.OnContentReady`, which runs after Core has initialized all mods and assigned runtime content IDs. Use the injector hooks only when the earlier or later assembly-level timing is specifically required.
 
 ### When to Use What
 
 | Scenario | Approach |
 |----------|----------|
-| All game method patches | **Manual** `_harmony.Patch()` in **OnGameReady** lifecycle hook |
-| Custom texture loading | **OnGameReady** (content + GraphicsDevice ready) |
+| Normal Core mod patches | **Manual** `_harmony.Patch()` in **IModLifecycle.OnContentReady** |
+| Core custom items and textures | Register during **Initialize**; resolve cross-mod content in **OnContentReady** |
 | One-time setup needing full game loop | **OnFirstUpdate** |
 | Saving state on exit | **OnShutdown** |
 
@@ -282,7 +282,7 @@ This ensures:
 - No memory leaks from dangling patch references
 - Clean state for mod reload
 
-**Note:** All mod patches are manual. Create your Harmony instance in `OnGameReady()` and call `UnpatchAll()` in `Unload()` with your unique ID to clean up your patches.
+**Note:** Mod patches are manual. Create or apply them from `OnContentReady()` and call `UnpatchAll()` in `Unload()` with your unique ID.
 
 ## Common Pitfalls
 
@@ -379,7 +379,7 @@ public static void Postfix()
 ### Log Everything
 
 ```csharp
-public static void OnGameReady()
+public void OnContentReady(ModContext context)
 {
     _log.Debug("Starting patch process...");
 

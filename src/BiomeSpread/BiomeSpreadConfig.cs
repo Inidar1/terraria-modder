@@ -10,6 +10,6 @@ namespace BiomeSpread
         public bool Enabled { get; set; } = true;
 
         [Client, Label("Disable Evil Spread"), Description("When enabled, prevents corruption, crimson, and hallow from spreading to new tiles. Crystal shards and chlorophyte are unaffected.")]
-        public bool DisableSpread { get; set; } = false;
+        public bool DisableSpread { get; set; } = true;
     }
 }

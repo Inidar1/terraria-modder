@@ -31,7 +31,7 @@ namespace Randomizer.Modules
         public override void BuildShuffleMap()
         {
             Instance = this;
-            _rng = new Random(Seed.Seed ^ Id.GetHashCode());
+            _rng = new Random(Seed.DeriveSubSeed(Id));
             _tickCounter = 0;
             _nextChangeAt = 60 * (30 + _rng.Next(31)); // 30-60 seconds at 60fps
             _gravityMultiplier = 1.0f;

@@ -1,49 +1,31 @@
 # Item Spawner
 
-In-game item spawner UI for testing and creative mode. Search for any item and spawn it directly into your inventory.
+A searchable in-game catalog for spawning vanilla and registered TerrariaModder items.
 
 ## Features
 
-- Search all Terraria items by name
-- Left-click to spawn a full stack
-- Right-click to spawn a single item
-- Items sorted alphabetically for easy browsing
-- Singleplayer only by default (prevents cheating in multiplayer)
+- Searches vanilla and registered modded items by display name
+- Sorts the catalog alphabetically
+- Left-click spawns one item; right-click spawns a full stack
+- Hold Shift to send the result to inventory instead of the cursor
+- Uses server-authorized item spawning in multiplayer
 
-## Keybinds
+## Keybind
 
-| Default Key | Action |
-|-------------|--------|
-| Insert | Toggle Spawner UI |
-
-All keybinds are rebindable via F6 menu.
+Press Insert to open or close Item Spawner. The key can be changed in the F6 Mod Menu.
 
 ## Configuration
 
 | Setting | Default | Description |
-|---------|---------|-------------|
-| Enabled | true | Enable ItemSpawner |
-| Singleplayer Only | true | Only allow in singleplayer |
+| --- | --- | --- |
+| Enabled | On | Enables the Item Spawner panel |
 
-All settings configurable via F6 menu in-game.
-
-**Note:** This mod does not support hot reload. Config changes require restarting the game to take effect.
+The setting takes effect immediately.
 
 ## Multiplayer
 
-Singleplayer only.
+Works in singleplayer, Host & Play, and on dedicated servers. Multiplayer use requires administrator permission or an Item Spawner grant from the server.
 
 ## Installation
 
-Requires TerrariaModder Core.
-
-Extract this zip into your Terraria folder. The mod goes into
-`TerrariaModder/mods/item-spawner/`.
-
-## Credits
-
-**Author**: Inidar
-
-**Dependencies**:
-- [TerrariaInjector](https://github.com/ConfuzzedCat/TerrariaInjector) by ConfuzzedCat
-- [Harmony](https://github.com/pardeike/Harmony) by pardeike
+Requires TerrariaModder Core. Replace the existing <code>TerrariaModder/mods/item-spawner/</code> folder with the downloaded mod folder, then launch through <code>TerrariaInjector.exe</code>.

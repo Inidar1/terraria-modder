@@ -1,6 +1,5 @@
 using System;
 using System.Reflection;
-using System.Threading;
 using HarmonyLib;
 using Terraria;
 using Terraria.GameContent.Items;
@@ -13,12 +12,12 @@ namespace WhipStacking
     {
         public string Id => "whip-stacking";
         public string Name => "Whip Stacking";
-        public string Version => "1.0.0";
+        public string Version => "2.0.0";
 
         private static ILogger _log;
         private static ModContext _context;
         private static Harmony _harmony;
-        private static Timer _patchTimer;
+        private static bool _patchesApplied;
         private static WhipStackingConfig _config;
 
         internal static bool Enabled = true;
@@ -31,49 +30,30 @@ namespace WhipStacking
             LoadConfig();
 
             _harmony = new Harmony("com.terrariamodder.whipstacking");
-            _patchTimer = new Timer(ApplyPatches, null, 5000, Timeout.Infinite);
-            _log.Info("Whip Stacking initializing, patches in 5s...");
+            _log.Info("Whip Stacking initialized; patches will apply when game content is ready");
         }
 
-        private static void ApplyPatches(object state)
+        private static void ApplyPatches()
         {
+            if (_patchesApplied || _harmony == null) return;
+
             try
             {
-                if (!TagPatches.Initialize(_log))
+                var updateEquips = typeof(Player).GetMethod("UpdateEquips",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null, new[] { typeof(int) }, null);
+                var postfix = typeof(TagPatches).GetMethod(nameof(TagPatches.UpdateEquips_Postfix),
+                    BindingFlags.Public | BindingFlags.Static);
+
+                if (updateEquips == null || postfix == null)
                 {
-                    _log.Error("Reflection init failed, mod disabled");
+                    _log.Error("Whip Stacking: Player.UpdateEquips native-stack adapter not found");
                     return;
                 }
 
-                var tagType = typeof(TagEffectState);
-                var npcType = typeof(NPC);
-                var projType = typeof(Projectile);
-                var patchType = typeof(TagPatches);
-
-                int count = 0;
-                count += Patch(tagType, "TrySetActiveEffect", new[] { typeof(int) },
-                    patchType, nameof(TagPatches.TrySetActiveEffect_Prefix));
-                count += Patch(tagType, "TryApplyTagToNPC", new[] { typeof(int), npcType },
-                    patchType, nameof(TagPatches.TryApplyTagToNPC_Prefix));
-                count += Patch(tagType, "ModifyHit",
-                    new[] { projType, npcType, typeof(int).MakeByRefType(), typeof(bool).MakeByRefType() },
-                    patchType, nameof(TagPatches.ModifyHit_Prefix));
-                count += Patch(tagType, "OnHit", new[] { projType, npcType, typeof(int) },
-                    patchType, nameof(TagPatches.OnHit_Prefix));
-                count += Patch(tagType, "Update", Type.EmptyTypes,
-                    patchType, nameof(TagPatches.Update_Prefix));
-                count += Patch(tagType, "IsNPCTagged", new[] { typeof(int) },
-                    patchType, nameof(TagPatches.IsNPCTagged_Prefix));
-                count += Patch(tagType, "CanProcOnNPC", new[] { typeof(int) },
-                    patchType, nameof(TagPatches.CanProcOnNPC_Prefix));
-                count += Patch(tagType, "TryEnableProcOnNPC", new[] { typeof(int), npcType },
-                    patchType, nameof(TagPatches.TryEnableProcOnNPC_Prefix));
-                count += Patch(tagType, "ClearProcOnNPC", new[] { typeof(int) },
-                    patchType, nameof(TagPatches.ClearProcOnNPC_Prefix));
-                count += Patch(tagType, "ResetNPCSlotData", new[] { typeof(int) },
-                    patchType, nameof(TagPatches.ResetNPCSlotData_Prefix));
-
-                _log.Info($"Whip Stacking: {count}/10 patches applied");
+                _harmony.Patch(updateEquips, postfix: new HarmonyMethod(postfix));
+                _patchesApplied = true;
+                _log.Info($"Whip Stacking: Terraria native tag stack enabled ({TagEffectStack.MaxEffects} effects)");
             }
             catch (Exception ex)
             {
@@ -81,29 +61,6 @@ namespace WhipStacking
             }
         }
 
-        private static int Patch(Type targetType, string methodName, Type[] paramTypes,
-            Type patchType, string prefixName)
-        {
-            var original = targetType.GetMethod(methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                null, paramTypes, null);
-            var prefix = patchType.GetMethod(prefixName, BindingFlags.Public | BindingFlags.Static);
-
-            if (original == null)
-            {
-                _log.Error($"Target not found: {methodName}");
-                return 0;
-            }
-            if (prefix == null)
-            {
-                _log.Error($"Prefix not found: {prefixName}");
-                return 0;
-            }
-
-            _harmony.Patch(original, prefix: new HarmonyMethod(prefix));
-            _log.Debug($"  Patched {methodName}");
-            return 1;
-        }
 
         private void LoadConfig()
         {
@@ -114,29 +71,26 @@ namespace WhipStacking
         public void OnConfigChanged()
         {
             LoadConfig();
-            MultiTagState.Reset(); // clear stale timers when toggling enabled/disabled
+
             _log.Info($"Config reloaded - Enabled: {Enabled}");
         }
 
-        public void OnContentReady(ModContext context) { }
+        public void OnContentReady(ModContext context)
+        {
+            ApplyPatches();
+        }
 
         public void OnWorldLoad()
         {
-            MultiTagState.Reset();
-            _log.Info("World loaded, multi-tag state reset");
+            _log.Info("World loaded; native tag stack limit will be applied after equipment effects");
         }
 
-        public void OnWorldUnload()
-        {
-            MultiTagState.Reset();
-        }
+        public void OnWorldUnload() { }
 
         public void Unload()
         {
-            _patchTimer?.Dispose();
             _harmony?.UnpatchAll("com.terrariamodder.whipstacking");
-            MultiTagState.Reset();
-            _patchTimer = null;
+            _patchesApplied = false;
             _log.Info("Whip Stacking unloaded");
         }
     }

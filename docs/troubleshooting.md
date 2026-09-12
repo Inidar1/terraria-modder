@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting TerrariaModder - Fix Common Issues
-description: Solutions for common TerrariaModder problems on Terraria 1.4.5. Fix launch issues, mod loading errors, crashes, keybind conflicts, and more.
+description: Solutions for common TerrariaModder problems on Terraria 1.4.5.8. Fix launch issues, mod loading errors, crashes, keybind conflicts, and more.
 nav_order: 3
 ---
 
@@ -42,7 +42,7 @@ Common issues and solutions for TerrariaModder.
        └── mods/
            └── [mod folders]
    ```
-2. Check logs at `TerrariaModder/core/logs/terrariamodder.log`
+2. Check logs at `TerrariaModder/core/logs/`
 3. Verify you launched via TerrariaInjector.exe (not Terraria.exe directly)
 
 ### "Missing 0Harmony.dll"
@@ -218,7 +218,7 @@ For int/float config fields:
 ### "Game crashes when using mod feature"
 
 **Debug steps:**
-1. Check `TerrariaModder/core/logs/terrariamodder.log` for stack trace
+1. Check `TerrariaModder/core/logs/` for stack trace
 2. Try disabling other mods to isolate issue
 3. Report to mod author with:
    - Error message from log
@@ -293,7 +293,7 @@ If scroll wheel changes hotbar or keys trigger actions while your UI is open:
 ### Where are logs?
 
 ```
-Terraria/TerrariaModder/core/logs/terrariamodder.log
+Terraria/TerrariaModder/core/logs/
 ```
 
 ### Understanding log entries
@@ -347,10 +347,10 @@ Something broke - report to mod author with full stack trace.
 ### "Patches not applying"
 
 **Debug:**
-1. **Manual patches:** Make sure you're applying them in `OnGameReady()` (not `Initialize()`). Log to confirm it runs
-3. Check target method exists (log reflection results)
-4. Verify correct BindingFlags
-5. Harmony ID should be unique
+1. **Manual patches:** Apply them in `IModLifecycle.OnContentReady()` and log that the method ran
+2. Check that the target method exists and matches the current signature
+3. Verify the correct `BindingFlags`
+4. Use a unique Harmony ID
 
 ### "Reflection returns null"
 
@@ -383,7 +383,7 @@ Something broke - report to mod author with full stack trace.
 - [ ] Folder structure correct?
 - [ ] manifest.json valid JSON?
 - [ ] Check mod's config.json for enabled: true (if applicable)?
-- [ ] Check terrariamodder.log for errors?
+- [ ] Checked the newest `terrariamodder.client.session-*.log` or server session log for errors?
 - [ ] Tried disabling other mods?
 - [ ] Tried fresh config (delete config.json)?
-- [ ] Correct Terraria version (1.4.5)?
+- [ ] Correct Terraria version (1.4.5.8)?

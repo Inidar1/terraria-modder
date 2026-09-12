@@ -1,10 +1,12 @@
-# Debug Tools
+# Public Debug Tools
+
+This README documents the public Debug Tools 2.0.0 feature set for Terraria 1.4.5.8. The feature set is stable; compatibility updates and minor defect fixes continue.
 
 All-in-one debug and remote control suite for TerrariaModder. Provides an HTTP API, in-game debug console, virtual input injection, window management, and game state observation.
 
 ## Features
 
-- **HTTP Debug Server**: REST API on `localhost:7878` with 70+ endpoints for game state, input control, menu navigation, inventory/equipment mutation, world manipulation, NPC control, and command execution. Used by the MCP bridge (`tools/mcp-server/`) to connect Claude Code to the running game.
+- **HTTP Debug Server**: REST API on `localhost:7878` with 70+ endpoints for game state, input control, menu navigation, inventory/equipment mutation, world manipulation, NPC control, and command execution. Local tools can discover and use the API directly.
 - **Runtime Introspection**: Reflection browser, field read/write, property path evaluation, dynamic method tracing, and field watching — all via HTTP API. Inspect any Terraria object at runtime without recompiling.
 - **In-Game Console**: Toggle with Ctrl+` (tilde). Supports command history (Up/Down), tab completion, scrollable output, and all registered debug commands.
 - **Virtual Input**: Inject movement, actions, key presses, and mouse events into Terraria's input pipeline via trigger injection (Harmony postfix on `PlayerInput.UpdateInput`).
@@ -38,7 +40,7 @@ Config file: `mods/debug-tools/config.json`
 
 ## HTTP API Quick Reference
 
-All endpoints on `http://localhost:7878`. See `CLAUDE.md` or `docs/API.md` for the full endpoint list with body schemas.
+All endpoints are on `http://localhost:7878`. The quick reference below lists the public routes and request shapes.
 
 **Status & System:**
 - `GET /api/status` — Server uptime

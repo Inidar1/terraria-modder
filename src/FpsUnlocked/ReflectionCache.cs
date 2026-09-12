@@ -44,6 +44,7 @@ namespace FpsUnlocked
         public static PropertyInfo TargetElapsedTimeProp;
         public static PropertyInfo VSyncProp;          // GraphicsDeviceManager.SynchronizeWithVerticalRetrace
         public static MethodInfo ApplyChangesMethod;
+        public static MethodInfo InitTargetsMethod;    // Main.InitTargets (protected)
 
         // --- Entity field accessors (IL-emitted for speed) ---
         // Player
@@ -189,6 +190,8 @@ namespace FpsUnlocked
                     ApplyChangesMethod = gdmType.GetMethod("ApplyChanges",
                         BindingFlags.Public | BindingFlags.Instance);
                 }
+                InitTargetsMethod = MainType.GetMethod("InitTargets",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
 
                 // Max entity counts from Main
                 if (Main.maxNPCs > 0)

@@ -2,6 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.IO;
+using System.Text;
+using System.Threading;
+using TerrariaModder.Core.IO;
 using HarmonyLib;
 using Terraria;
 using Terraria.IO;
@@ -10,38 +14,21 @@ using TerrariaModder.Core.Logging;
 namespace TerrariaModder.Core.Assets
 {
     /// <summary>
-    /// Save interception for player files.
-    ///
-    /// Prefix on Player.SavePlayer:
-    ///   1. Scan all ~352 player item slots for custom items (type >= VanillaItemCount)
-    ///   2. Extract custom items to moddata, replace with air
-    ///   3. Let vanilla save proceed (writes clean .plr)
-    ///   H4: When netMode==1 (dedicated server client), send CustomItemSave packet instead of
-    ///       writing to disk — server is authoritative for player item data.
-    ///
-    /// Postfix on Player.SavePlayer:
-    ///   4. Restore custom items to memory for continued play
-    ///
-    /// Postfix on Player.LoadPlayer:
-    ///   5. Migrate legacy sidecar if needed (one-time, H3)
-    ///   6. Read moddata, resolve string IDs → runtime types, inject items
-    ///   H4: When netMode==1, skip injection — wait for CustomItemSync from server.
-    ///
-    /// Preservation (H2): Items from mods that are NOT currently loaded are stored in
-    /// _preservedItems and written back to the moddata file on save, preventing item
-    /// loss when mods are temporarily uninstalled.
+    /// Saves custom items through an isolated per-call player/item snapshot.
+    /// Native disk serialization is sanitized without removing live gameplay items.
+    /// Existing sidecar load, alias, missing-mod and pending-item recovery is retained.
     /// </summary>
     internal static class PlayerSavePatches
     {
         private static Harmony _harmony;
         private static ILogger _log;
         private static bool _applied;
+        private static MethodInfo _serializeMethod;
 
-        // Temporary storage for extracted items during save (slotKey → Item)
-        private static readonly Dictionary<string, Item> _extractedItems = new Dictionary<string, Item>();
+        // Per-invocation save context, restored by the finalizer.
+        [ThreadStatic] private static PlayerSaveSnapshot _currentSave;
+        [ThreadStatic] private static bool _serializingSave;
 
-        // Items from unloaded mods — preserved across save/load cycles (H2)
-        private static List<ModdataFile.ItemEntry> _preservedItems = new List<ModdataFile.ItemEntry>();
 
         public static void Initialize(ILogger logger)
         {
@@ -64,6 +51,7 @@ namespace TerrariaModder.Core.Assets
             }
             catch (Exception ex)
             {
+                _harmony.UnpatchAll(_harmony.Id);
                 _log?.Error($"[PlayerSavePatches] Failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
@@ -72,7 +60,10 @@ namespace TerrariaModder.Core.Assets
         {
             var saveMethod = typeof(Player).GetMethod("SavePlayer",
                 BindingFlags.Public | BindingFlags.Static, null,
-                new[] { typeof(PlayerFileData), typeof(bool) }, null);
+                new[] { typeof(PlayerFileData), typeof(bool), typeof(bool) }, null)
+                ?? typeof(Player).GetMethod("SavePlayer",
+                    BindingFlags.Public | BindingFlags.Static, null,
+                    new[] { typeof(PlayerFileData), typeof(bool) }, null);
 
             if (saveMethod == null)
             {
@@ -80,9 +71,30 @@ namespace TerrariaModder.Core.Assets
                 return;
             }
 
+            var update = typeof(Main).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Instance,
+                null, new[] { typeof(Microsoft.Xna.Framework.GameTime) }, null)
+                ?? throw new MissingMethodException("Main.Update(GameTime)");
+            const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Static;
+            var fileMethod = typeof(Player).GetMethod("InternalSavePlayerFile", flags)
+                ?? throw new MissingMethodException("Player.InternalSavePlayerFile");
+            var serialize = typeof(Player).GetMethod("Serialize", flags)
+                ?? throw new MissingMethodException("Player.Serialize");
+            _serializeMethod = serialize;
+            var temporary = typeof(Player).GetMethod("SaveTemporaryItemSlotContents", BindingFlags.NonPublic | BindingFlags.Instance)
+                ?? throw new MissingMethodException("Player.SaveTemporaryItemSlotContents");
+            var refunds = typeof(Terraria.GameContent.CraftingRequests).GetMethod("SavePossibleRefunds")
+                ?? throw new MissingMethodException("CraftingRequests.SavePossibleRefunds");
+            _harmony.Patch(update, prefix: new HarmonyMethod(typeof(SaveCaptureThread), nameof(SaveCaptureThread.ObserveUpdateThread)));
             _harmony.Patch(saveMethod,
                 prefix: new HarmonyMethod(typeof(PlayerSavePatches), nameof(SavePlayer_Prefix)),
-                postfix: new HarmonyMethod(typeof(PlayerSavePatches), nameof(SavePlayer_Postfix)));
+                finalizer: new HarmonyMethod(typeof(PlayerSavePatches), nameof(SavePlayer_Finalizer)));
+            _harmony.Patch(fileMethod, prefix: new HarmonyMethod(typeof(PlayerSavePatches), nameof(SaveFile_Prefix)),
+                postfix: new HarmonyMethod(typeof(PlayerSavePatches), nameof(SaveFile_Postfix)),
+                finalizer: new HarmonyMethod(typeof(PlayerSavePatches), nameof(SaveFile_Finalizer)));
+            _harmony.Patch(serialize, prefix: new HarmonyMethod(typeof(PlayerSavePatches), nameof(Serialize_Prefix)),
+                finalizer: new HarmonyMethod(typeof(PlayerSavePatches), nameof(Serialize_Finalizer)));
+            _harmony.Patch(temporary, prefix: new HarmonyMethod(typeof(PlayerSavePatches), nameof(TemporarySlots_Prefix)));
+            _harmony.Patch(refunds, prefix: new HarmonyMethod(typeof(PlayerSavePatches), nameof(Refunds_Prefix)));
         }
 
         private static void PatchLoadPlayer()
@@ -97,159 +109,184 @@ namespace TerrariaModder.Core.Assets
                 return;
             }
 
+            var getFileData = typeof(Player).GetMethod("GetFileData", BindingFlags.Public | BindingFlags.Static,
+                null, new[] { typeof(string), typeof(bool) }, null)
+                ?? throw new MissingMethodException("Player.GetFileData");
+            _harmony.Patch(getFileData, postfix: new HarmonyMethod(typeof(PlayerSavePatches), nameof(GetFileData_Postfix)),
+                finalizer: new HarmonyMethod(typeof(PlayerSavePatches), nameof(GetFileData_Finalizer)));
+            if (!PluginLoader.IsDedicatedServer) TerrariaModder.Core.UI.PlayerLoadFailureUI.Apply(_harmony);
             _harmony.Patch(loadMethod,
-                postfix: new HarmonyMethod(typeof(PlayerSavePatches), nameof(LoadPlayer_Postfix)));
+                prefix: new HarmonyMethod(typeof(PlayerSavePatches), nameof(LoadPlayer_Prefix)),
+                postfix: new HarmonyMethod(typeof(PlayerSavePatches), nameof(LoadPlayer_Postfix)),
+                finalizer: new HarmonyMethod(typeof(PlayerSavePatches), nameof(LoadPlayer_Finalizer)));
         }
 
-        // ── Save prefix: extract custom items, write moddata, replace with air ──
+        // Capture custom items without removing them from live gameplay.
 
-        private static void SavePlayer_Prefix(PlayerFileData playerFile)
+        private static void SavePlayer_Prefix(ref PlayerFileData playerFile, out PlayerSaveSnapshot __state)
         {
+            __state = null;
             if (playerFile?.Player == null) return;
-            _extractedItems.Clear();
-
-            try
-            {
-                var player = playerFile.Player;
-                var customItems = new List<ModdataFile.ItemEntry>();
-
-                // Scan all player storage locations
-                ScanArray(player.inventory, "inventory", customItems, _extractedItems);
-                ScanArray(player.armor, "armor", customItems, _extractedItems);
-                ScanArray(player.dye, "dye", customItems, _extractedItems);
-                ScanArray(player.miscEquips, "misc_equips", customItems, _extractedItems);
-                ScanArray(player.miscDyes, "misc_dyes", customItems, _extractedItems);
-
-                if (player.bank?.item != null)
-                    ScanArray(player.bank.item, "bank", customItems, _extractedItems);
-                if (player.bank2?.item != null)
-                    ScanArray(player.bank2.item, "bank2", customItems, _extractedItems);
-                if (player.bank3?.item != null)
-                    ScanArray(player.bank3.item, "bank3", customItems, _extractedItems);
-                if (player.bank4?.item != null)
-                    ScanArray(player.bank4.item, "bank4", customItems, _extractedItems);
-
-                // Loadouts
-                if (player.Loadouts != null)
-                {
-                    for (int l = 0; l < player.Loadouts.Length && l < 3; l++)
-                    {
-                        if (player.Loadouts[l]?.Armor != null)
-                            ScanArray(player.Loadouts[l].Armor, $"loadout_{l}_armor", customItems, _extractedItems);
-                        if (player.Loadouts[l]?.Dye != null)
-                            ScanArray(player.Loadouts[l].Dye, $"loadout_{l}_dye", customItems, _extractedItems);
-                    }
-                }
-
-                // Special slots
-                ScanSingleSlot(ref Main.mouseItem, "mouse", 0, customItems, _extractedItems);
-                ScanSingleSlot(ref Main.guideItem, "guide", 0, customItems, _extractedItems);
-                ScanSingleSlot(ref Main.reforgeItem, "reforge", 0, customItems, _extractedItems);
-
-                // Trash slot
-                if (player.trashItem != null && !player.trashItem.IsAir && player.trashItem.type >= ItemRegistry.VanillaItemCount)
-                {
-                    string trashFullId = ItemRegistry.GetFullId(player.trashItem.type);
-                    if (trashFullId != null)
-                    {
-                        customItems.Add(new ModdataFile.ItemEntry
-                        {
-                            Location = "trash",
-                            Slot = 0,
-                            ItemId = trashFullId,
-                            Stack = player.trashItem.stack,
-                            Prefix = player.trashItem.prefix,
-                            Favorited = player.trashItem.favorited
-                        });
-                        _extractedItems["trash:0"] = player.trashItem;
-                    }
-                }
-
-                // Include pending items so they persist across save/quit
-                customItems.AddRange(PendingItemStore.GetPlayerModdataEntries());
-
-                // H4: When connected to a dedicated server (netMode==1), the server is
-                // authoritative for player data — send items via packet instead of local write.
-                if (Main.netMode == 1)
-                {
-                    // Send CustomItemSave to server; server will validate and persist
-                    Net.NetSync.SendCustomItemSave(customItems);
-                    _log?.Debug($"[PlayerSavePatches] netMode==1: sent {customItems.Count} items to server (CustomItemSave)");
-
-                    // Still replace with air so vanilla saves a clean .plr (no custom items)
-                    foreach (var kvp in _extractedItems)
-                    {
-                        var parts = kvp.Key.Split(':');
-                        SetAir(player, parts[0], int.Parse(parts[1]));
-                    }
-                    return;
-                }
-
-                // Determine moddata path
-                string moddataPath = ModdataFile.GetPlayerModdataPath(playerFile.Path);
-                if (moddataPath == null)
-                {
-                    _log?.Warn("[PlayerSavePatches] Could not determine moddata path");
-                    RestoreAll(player);
-                    return;
-                }
-
-                if (customItems.Count == 0 && _preservedItems.Count == 0)
-                {
-                    // Delete stale moddata so deleted pending items don't reappear on next load
-                    ModdataFile.Delete(moddataPath);
-                    _log?.Debug("[PlayerSavePatches] No custom items, cleaned up moddata");
-                    return;
-                }
-
-                // Write moddata FIRST (crash safety — data persisted before mutation)
-                if (!ModdataFile.Write(moddataPath, customItems, _preservedItems))
-                {
-                    _log?.Error("[PlayerSavePatches] Failed to write moddata, aborting extraction");
-                    RestoreAll(player);
-                    return;
-                }
-
-                // Now replace custom items with air in memory
-                foreach (var kvp in _extractedItems)
-                {
-                    var parts = kvp.Key.Split(':');
-                    SetAir(player, parts[0], int.Parse(parts[1]));
-                }
-
-                _log?.Info($"[PlayerSavePatches] Extracted {customItems.Count} custom items before save" +
-                    (_preservedItems.Count > 0 ? $" ({_preservedItems.Count} preserved from unloaded mods)" : ""));
-            }
-            catch (Exception ex)
-            {
-                _log?.Error($"[PlayerSavePatches] Prefix error: {ex.Message}");
-                RestoreAll(playerFile.Player);
-            }
+            var original = playerFile;
+            var previous = _currentSave;
+            var snapshot = SaveCaptureThread.Capture(() => CaptureSnapshot(original, previous));
+            __state = snapshot;
+            _currentSave = snapshot;
+            playerFile = snapshot.File;
         }
 
-        // ── Save postfix: restore extracted items to memory ──
-
-        private static void SavePlayer_Postfix(PlayerFileData playerFile)
+        private static PlayerSaveSnapshot CaptureSnapshot(PlayerFileData original, PlayerSaveSnapshot previous)
         {
-            if (playerFile?.Player == null || _extractedItems.Count == 0) return;
-
+            var snapshot = new PlayerSaveSnapshot(original, PlayerItemSaveState.For(original.Player).Preserved, previous);
+            // Serialize while all native mutable/global inputs still belong to this
+            // game-thread capture. Background I/O consumes only the resulting bytes.
+            var priorContext = _currentSave;
+            _currentSave = snapshot;
             try
             {
-                RestoreAll(playerFile.Player);
-                _log?.Debug($"[PlayerSavePatches] Restored {_extractedItems.Count} items after save");
+                using (var stream = new MemoryStream())
+                using (var writer = new BinaryWriter(stream))
+                {
+                    try { _serializeMethod.Invoke(null, new object[] { snapshot.File, snapshot.File.Player, writer }); }
+                    catch (TargetInvocationException ex) when (ex.InnerException != null)
+                    {
+                        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                        throw;
+                    }
+                    writer.Flush();
+                    snapshot.SerializedPlayer = stream.ToArray();
+                }
+                return snapshot;
             }
-            catch (Exception ex)
-            {
-                _log?.Error($"[PlayerSavePatches] Postfix error: {ex.Message}");
-            }
-            finally
-            {
-                _extractedItems.Clear();
-            }
+            finally { _currentSave = priorContext; }
         }
 
-        // ── Load postfix: read moddata, inject custom items ──
+        private static void SavePlayer_Finalizer(ref PlayerFileData playerFile, PlayerSaveSnapshot __state)
+        {
+            if (__state == null) return;
+            playerFile = __state.OriginalFile;
+            _currentSave = __state.Previous;
+        }
 
+        private sealed class NativeWrite
+        {
+            internal PlayerSaveSnapshot Snapshot;
+            internal string StagingPath;
+        }
+        private static void SaveFile_Prefix(ref PlayerFileData playerFile, out NativeWrite __state)
+        {
+            __state = null;
+            var snapshot = _currentSave;
+            if (snapshot == null || !ReferenceEquals(snapshot.File, playerFile) || playerFile.ServerSideCharacter
+                || string.IsNullOrEmpty(playerFile.Path)) return;
+            if (!playerFile.IsCloudSave && Main.netMode == 0)
+            {
+                __state = new NativeWrite { Snapshot = snapshot,
+                    StagingPath = playerFile.Path + ".capturing-" + Guid.NewGuid().ToString("N") };
+                playerFile = snapshot.CreateStagingFile(__state.StagingPath);
+                return;
+            }
+            // Cloud and remote-authority saves retain their existing route until
+            // their distinct storage/authority recovery is implemented and tested.
+            if (Main.netMode == 1) { Net.NetSync.SendCustomItemSave(snapshot.Items); return; }
+            string path = ModdataFile.GetPlayerModdataPath(playerFile.Path);
+            if (path == null || !ModdataFile.Write(path, snapshot.Items, snapshot.Preserved))
+                throw new IOException("Unable to publish player item metadata; native save aborted");
+        }
+        private static void SaveFile_Postfix(PlayerFileData playerFile, NativeWrite __state)
+        {
+            if (__state != null)
+            {
+                var snapshot = __state.Snapshot;
+                string path = snapshot.File.Path;
+                string corePath = ModdataFile.GetPlayerModdataPath(path);
+                var files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [path] = File.ReadAllBytes(__state.StagingPath),
+                    [corePath] = Encoding.UTF8.GetBytes(ModdataFile.Serialize(snapshot.Items, snapshot.Preserved))
+                };
+                foreach (var sidecar in snapshot.Sidecars) files.Add(sidecar.Path, Encoding.UTF8.GetBytes(sidecar.Text));
+                PlayerSaveJournal.Commit(path, corePath, files);
+                return;
+            }
+            var current = _currentSave;
+            if (current != null && ReferenceEquals(current.File, playerFile) && !playerFile.ServerSideCharacter
+                && !string.IsNullOrEmpty(playerFile.Path)) PlayerSaveContributors.Publish(current.Sidecars);
+        }
+        private static void SaveFile_Finalizer(ref PlayerFileData playerFile, NativeWrite __state)
+        {
+            if (__state == null) return;
+            playerFile = __state.Snapshot.File;
+            __state.Snapshot.StagingFile = null;
+            try { if (File.Exists(__state.StagingPath)) File.Delete(__state.StagingPath); } catch { }
+        }
+        private static void LoadPlayer_Prefix(string playerPath, bool cloudSave, out object __state)
+        {
+            __state = null;
+            if (cloudSave || string.IsNullOrEmpty(playerPath)) return;
+            __state = PlayerSaveJournal.Gate(playerPath);
+            Monitor.Enter(__state);
+            try { PlayerSaveJournal.Recover(playerPath, ModdataFile.GetPlayerModdataPath(playerPath)); }
+            catch (Exception ex) { throw new PlayerSaveRecoveryException(playerPath, ex); }
+        }
+        private static void LoadPlayer_Finalizer(object __state)
+        {
+            if (__state != null) Monitor.Exit(__state);
+        }
+
+        private static void GetFileData_Postfix(PlayerFileData __result)
+        {
+            // Apply only after vanilla's backup decision. Setting this in LoadPlayer
+            // would cause GetFileData to move the native .bak independently of sidecars.
+            if (__result?.Player != null && PlayerSaveContributors.GetLoadErrors(__result.Player).Count > 0)
+                __result.Player.loadStatus = Terraria.ID.StatusID.UnknownError;
+        }
+
+        private static Exception GetFileData_Finalizer(string file, bool cloudSave, Exception __exception, ref PlayerFileData __result)
+        {
+            if (!(__exception is PlayerSaveRecoveryException)) return __exception;
+            // Stop only the recovery failure. Native GetFileData must not replace
+            // the player file alone from .bak while its sidecars await recovery.
+            __result = new PlayerFileData(file, cloudSave)
+            {
+                Metadata = FileMetadata.FromCurrentSettings(FileType.Player),
+                Player = new Player { name = Path.GetFileNameWithoutExtension(file), loadStatus = Terraria.ID.StatusID.UnknownError }
+            };
+            _log?.Warn("[PlayerSavePatches] " + __exception.Message);
+            return null;
+        }
+
+        private static bool Serialize_Prefix(PlayerFileData playerFile, BinaryWriter fileIO, out bool __state)
+        {
+            __state = _serializingSave;
+            _serializingSave = _currentSave != null && (ReferenceEquals(playerFile, _currentSave.File) || ReferenceEquals(playerFile, _currentSave.StagingFile));
+            if (_serializingSave && _currentSave.SerializedPlayer != null)
+            {
+                fileIO.Write(_currentSave.SerializedPlayer);
+                return false;
+            }
+            return true;
+        }
+        private static void Serialize_Finalizer(bool __state) { _serializingSave = __state; }
+        private static bool TemporarySlots_Prefix(Player __instance, BinaryWriter writer)
+        {
+            if (!_serializingSave || _currentSave == null || !ReferenceEquals(__instance, _currentSave.File.Player)) return true;
+            var slots = _currentSave.TemporarySlots;
+            BitsByte present = (byte)0;
+            for (int i = 0; i < slots.Length; i++) present[i] = !slots[i].IsAir;
+            writer.Write(present);
+            for (int i = 0; i < slots.Length; i++) if (present[i]) slots[i].Serialize(writer);
+            return false;
+        }
+        private static bool Refunds_Prefix(BinaryWriter writer)
+        {
+            if (!_serializingSave || _currentSave == null) return true;
+            writer.Write(_currentSave.Refunds.Length);
+            foreach (var item in _currentSave.Refunds) item.Serialize(writer);
+            return false;
+        }
+
+        // Load recovery remains compatible with the existing sidecar locations.
         private static void LoadPlayer_Postfix(string playerPath, PlayerFileData __result)
         {
             if (__result?.Player == null) return;
@@ -289,10 +326,13 @@ namespace TerrariaModder.Core.Assets
 
                 // Read moddata: active items (loaded mods) + preserved items (unloaded mods)
                 var items = ModdataFile.Read(v2Path, loadedModIds, out var preserved);
-                _preservedItems = preserved ?? new List<ModdataFile.ItemEntry>();
+                var player = __result.Player;
+                var state = PlayerItemSaveState.For(player);
+                state.Preserved = preserved ?? new List<ModdataFile.ItemEntry>();
+                PendingItemStore.ClearPlayer(player);
 
-                if (_preservedItems.Count > 0)
-                    _log?.Info($"[PlayerSavePatches] Preserving {_preservedItems.Count} item(s) from unloaded mod(s)");
+                if (state.Preserved.Count > 0)
+                    _log?.Info($"[PlayerSavePatches] Preserving {state.Preserved.Count} item(s) from unloaded mod(s)");
 
                 if (items.Count == 0)
                 {
@@ -300,21 +340,21 @@ namespace TerrariaModder.Core.Assets
                     return;
                 }
 
-                var player = __result.Player;
                 int injected = 0, skipped = 0;
-
-                // Clear previous pending items for this player
-                PendingItemStore.ClearPlayer();
 
                 foreach (var entry in items)
                 {
                     try
                     {
                         // Resolve string ID to runtime type (checks canonical + alias map)
-                        int runtimeType = ItemRegistry.GetRuntimeType(entry.ItemId);
+                        int runtimeType = ItemRegistry.ResolvePersistentId(entry.ItemId);
                         if (runtimeType < 0)
                         {
-                            _log?.Debug($"[PlayerSavePatches] Unresolvable item: {entry.ItemId} (mod not loaded?)");
+                            // Pending entries are classified as active even when their mod
+                            // is absent. Keep their original identity/location for future
+                            // resolution instead of losing them at the next save.
+                            state.Preserved.Add(entry);
+                            _log?.Debug($"[PlayerSavePatches] Preserving unresolvable item: {entry.ItemId} (mod not loaded?)");
                             skipped++;
                             continue;
                         }
@@ -327,7 +367,7 @@ namespace TerrariaModder.Core.Assets
                         // Pending items from previous session — re-add to store
                         if (entry.Location == "pending")
                         {
-                            PendingItemStore.AddPlayerItem(new PendingItemStore.PendingItem
+                            PendingItemStore.AddPlayerItem(player, new PendingItemStore.PendingItem
                             {
                                 ItemId = resolvedId ?? entry.ItemId,
                                 RuntimeType = runtimeType,
@@ -380,7 +420,7 @@ namespace TerrariaModder.Core.Assets
                                 if (!placed)
                                 {
                                     _log?.Info($"[PlayerSavePatches] No slot for {entry.ItemId} — added to pending items");
-                                    PendingItemStore.AddPlayerItem(new PendingItemStore.PendingItem
+                                    PendingItemStore.AddPlayerItem(player, new PendingItemStore.PendingItem
                                     {
                                         ItemId = resolvedId ?? entry.ItemId,
                                         RuntimeType = runtimeType,
@@ -400,7 +440,7 @@ namespace TerrariaModder.Core.Assets
                     }
                 }
 
-                int pending = PendingItemStore.PlayerItems.Count;
+                int pending = PendingItemStore.GetPlayerItems(player).Count;
                 _log?.Info($"[PlayerSavePatches] Injected {injected} items, skipped {skipped}" +
                     (pending > 0 ? $", {pending} pending (overflow)" : ""));
             }
@@ -432,7 +472,7 @@ namespace TerrariaModder.Core.Assets
 
                 // Clear any custom items already in inventory (from local moddata load)
                 ClearCustomItems(player);
-                PendingItemStore.ClearPlayer();
+                PendingItemStore.ClearPlayer(player);
 
                 int injected = 0;
                 foreach (var entry in serverItems)
@@ -473,7 +513,7 @@ namespace TerrariaModder.Core.Assets
                             }
                             if (!placed)
                             {
-                                PendingItemStore.AddPlayerItem(new PendingItemStore.PendingItem
+                                PendingItemStore.AddPlayerItem(player, new PendingItemStore.PendingItem
                                 {
                                     ItemId = entry.ItemId,
                                     RuntimeType = runtimeType,
@@ -520,71 +560,6 @@ namespace TerrariaModder.Core.Assets
 
         // ── Scanning helpers ──
 
-        private static void ScanArray(Item[] items, string location,
-            List<ModdataFile.ItemEntry> moddataList, Dictionary<string, Item> extractMap)
-        {
-            if (items == null) return;
-            for (int i = 0; i < items.Length; i++)
-            {
-                var item = items[i];
-                if (item == null || item.IsAir || item.type < ItemRegistry.VanillaItemCount) continue;
-
-                string fullId = ItemRegistry.GetFullId(item.type);
-                if (fullId == null)
-                {
-                    // Check KnownUnknowns — placeholder for Optional mod item from server
-                    if (ItemRegistry.IsKnownUnknown(item.type, out string kuFullId))
-                        fullId = kuFullId;
-                    else
-                    {
-                        _log?.Warn($"[Save] Custom item type {item.type} in {location}[{i}] has no registered ID - item will be lost on save");
-                        continue;
-                    }
-                }
-
-                moddataList.Add(new ModdataFile.ItemEntry
-                {
-                    Location = location,
-                    Slot = i,
-                    ItemId = fullId,
-                    Stack = item.stack,
-                    Prefix = item.prefix,
-                    Favorited = item.favorited
-                });
-
-                extractMap[$"{location}:{i}"] = item;
-            }
-        }
-
-        private static void ScanSingleSlot(ref Item item, string location, int slot,
-            List<ModdataFile.ItemEntry> moddataList, Dictionary<string, Item> extractMap)
-        {
-            if (item == null || item.IsAir || item.type < ItemRegistry.VanillaItemCount) return;
-
-            string fullId = ItemRegistry.GetFullId(item.type);
-            if (fullId == null)
-            {
-                if (ItemRegistry.IsKnownUnknown(item.type, out string kuFullId))
-                    fullId = kuFullId;
-                else
-                    return;
-            }
-
-            moddataList.Add(new ModdataFile.ItemEntry
-            {
-                Location = location,
-                Slot = slot,
-                ItemId = fullId,
-                Stack = item.stack,
-                Prefix = item.prefix,
-                Favorited = item.favorited
-            });
-
-            extractMap[$"{location}:{slot}"] = item;
-        }
-
-        // ── Slot access helpers ──
-
         private static Item GetItem(Player player, string location, int slot)
         {
             try
@@ -600,9 +575,10 @@ namespace TerrariaModder.Core.Assets
                     case "bank2": return player.bank2?.item != null && slot < player.bank2.item.Length ? player.bank2.item[slot] : null;
                     case "bank3": return player.bank3?.item != null && slot < player.bank3.item.Length ? player.bank3.item[slot] : null;
                     case "bank4": return player.bank4?.item != null && slot < player.bank4.item.Length ? player.bank4.item[slot] : null;
-                    case "mouse": return Main.mouseItem;
-                    case "guide": return Main.guideItem;
-                    case "reforge": return Main.reforgeItem;
+                    case "mouse": return PlayerTemporaryItems.Get(player, 0);
+                    case "creative": return PlayerTemporaryItems.Get(player, 1);
+                    case "guide": return PlayerTemporaryItems.Get(player, 2);
+                    case "reforge": return PlayerTemporaryItems.Get(player, 3);
                     case "trash": return player.trashItem;
                     default:
                         if (location.StartsWith("loadout_"))
@@ -633,9 +609,10 @@ namespace TerrariaModder.Core.Assets
                 case "bank2": if (player.bank2?.item != null && slot < player.bank2.item.Length) player.bank2.item[slot] = item; break;
                 case "bank3": if (player.bank3?.item != null && slot < player.bank3.item.Length) player.bank3.item[slot] = item; break;
                 case "bank4": if (player.bank4?.item != null && slot < player.bank4.item.Length) player.bank4.item[slot] = item; break;
-                case "mouse": Main.mouseItem = item; break;
-                case "guide": Main.guideItem = item; break;
-                case "reforge": Main.reforgeItem = item; break;
+                case "mouse": PlayerTemporaryItems.Set(player, 0, item); break;
+                case "creative": PlayerTemporaryItems.Set(player, 1, item); break;
+                case "guide": PlayerTemporaryItems.Set(player, 2, item); break;
+                case "reforge": PlayerTemporaryItems.Set(player, 3, item); break;
                 case "trash": player.trashItem = item; break;
                 default:
                     if (location.StartsWith("loadout_"))
@@ -649,11 +626,6 @@ namespace TerrariaModder.Core.Assets
                     }
                     break;
             }
-        }
-
-        private static void SetAir(Player player, string location, int slot)
-        {
-            SetItem(player, location, slot, new Item());
         }
 
         private static bool IsSlotEmpty(Player player, string location, int slot)
@@ -684,16 +656,6 @@ namespace TerrariaModder.Core.Assets
                 case "bank3": return player.bank3?.item?.Length ?? 0;
                 case "bank4": return player.bank4?.item?.Length ?? 0;
                 default: return 0;
-            }
-        }
-
-        private static void RestoreAll(Player player)
-        {
-            foreach (var kvp in _extractedItems)
-            {
-                var parts = kvp.Key.Split(':');
-                if (parts.Length == 2 && int.TryParse(parts[1], out int slot))
-                    SetItem(player, parts[0], slot, kvp.Value);
             }
         }
 

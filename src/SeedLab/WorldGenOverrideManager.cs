@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.RegularExpressions;
+using System.Text;
+using TerrariaModder.Core.IO;
 using TerrariaModder.Core.Logging;
 
 namespace SeedLab
@@ -161,6 +162,13 @@ namespace SeedLab
             }
 
             if (!seedHasCheckedGroups) return null; // no interference
+
+            // Composite seed groups such as Zenith own the whole generation pipeline.
+            foreach (var group in seed.Groups)
+            {
+                if (group.AppliesToAllPasses && _overrides.TryGetValue(group.Id, out var allPasses) && allPasses == true)
+                    return true;
+            }
 
             // Seed has checked groups. Check if any checked group maps to this pass.
             if (_passToGroups.TryGetValue(passName, out var pairs))
@@ -443,24 +451,14 @@ namespace SeedLab
         {
             try
             {
-                string dir = Path.GetDirectoryName(_configPath);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                    Directory.CreateDirectory(dir);
-
-                var lines = new List<string>();
-                lines.Add("{");
-
-                var entries = new List<string>();
-                foreach (var kvp in _overrides)
+                var data = new Dictionary<string, object>();
+                foreach (var entry in _overrides)
                 {
-                    if (kvp.Value == true)
-                        entries.Add($"  \"{kvp.Key}\": true");
-                    // Only save checked values; unchecked (null) is default
+                    if (entry.Value == true)
+                        data[entry.Key] = true;
                 }
-                lines.Add(string.Join(",\n", entries));
-                lines.Add("}");
 
-                File.WriteAllText(_configPath, string.Join("\n", lines));
+                AtomicFile.WriteText(_configPath, SidecarJson.Serialize(data), new UTF8Encoding(false));
             }
             catch (Exception ex)
             {
@@ -474,17 +472,11 @@ namespace SeedLab
 
             try
             {
-                string json = File.ReadAllText(_configPath);
-                var matches = Regex.Matches(json, @"""([\w]+)""\s*:\s*(true|false|null)");
-                foreach (Match m in matches)
+                var data = SidecarJson.Deserialize(SidecarJson.ReadText(_configPath));
+                foreach (var entry in data)
                 {
-                    string key = m.Groups[1].Value;
-                    string val = m.Groups[2].Value.ToLower();
-
-                    if (!_overrides.ContainsKey(key)) continue;
-
-                    // Two-state: true = checked, anything else = unchecked
-                    _overrides[key] = (val == "true") ? true : (bool?)null;
+                    if (!_overrides.ContainsKey(entry.Key)) continue;
+                    _overrides[entry.Key] = entry.Value is bool enabled && enabled ? true : (bool?)null;
                 }
 
                 _log.Info("[SeedLab] Loaded world-gen overrides");
@@ -545,24 +537,11 @@ namespace SeedLab
         {
             try
             {
-                string dir = Path.GetDirectoryName(_presetsPath);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                    Directory.CreateDirectory(dir);
+                var data = new Dictionary<string, object>();
+                foreach (var entry in _customPresets)
+                    data[entry.Key] = entry.Value;
 
-                var lines = new List<string>();
-                lines.Add("{");
-                var entries = new List<string>();
-                foreach (var kvp in _customPresets)
-                {
-                    var escaped = kvp.Key.Replace("\\", "\\\\").Replace("\"", "\\\"");
-                    var idStrs = new string[kvp.Value.Length];
-                    for (int i = 0; i < kvp.Value.Length; i++)
-                        idStrs[i] = $"\"{kvp.Value[i]}\"";
-                    entries.Add($"  \"{escaped}\": [{string.Join(", ", idStrs)}]");
-                }
-                lines.Add(string.Join(",\n", entries));
-                lines.Add("}");
-                File.WriteAllText(_presetsPath, string.Join("\n", lines));
+                AtomicFile.WriteText(_presetsPath, SidecarJson.Serialize(data), new UTF8Encoding(false));
             }
             catch (Exception ex)
             {
@@ -575,17 +554,19 @@ namespace SeedLab
             if (!File.Exists(_presetsPath)) return;
             try
             {
-                string json = File.ReadAllText(_presetsPath);
-                var presetPattern = new Regex(@"""([^""]+)""\s*:\s*\[([^\]]*)\]");
-                foreach (Match m in presetPattern.Matches(json))
+                var data = SidecarJson.Deserialize(SidecarJson.ReadText(_presetsPath));
+                foreach (var entry in data)
                 {
-                    string name = m.Groups[1].Value;
-                    string idsBlock = m.Groups[2].Value;
-                    var idPattern = new Regex(@"""([\w]+)""");
+                    if (!(entry.Value is System.Collections.IList rawIds))
+                        continue;
+
                     var ids = new List<string>();
-                    foreach (Match im in idPattern.Matches(idsBlock))
-                        ids.Add(im.Groups[1].Value);
-                    _customPresets[name] = ids.ToArray();
+                    foreach (object rawId in rawIds)
+                    {
+                        if (rawId is string id)
+                            ids.Add(id);
+                    }
+                    _customPresets[entry.Key] = ids.ToArray();
                 }
                 if (_customPresets.Count > 0)
                     _log.Info($"[SeedLab] Loaded {_customPresets.Count} custom world-gen presets");

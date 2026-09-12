@@ -1,60 +1,29 @@
 # Pet Chests
 
-Use your cosmetic pets as portable piggy banks! Right-click any summoned pet to access your piggy bank storage.
-
-> **Note for Developers**: This is an advanced mod example showcasing complex Harmony patching and workarounds for vanilla game validation. For learning the basics, start with simpler mods like SkipIntro or AutoBuffs.
+Right-click a summoned cosmetic pet to use it as a portable piggy bank.
 
 ## Features
 
-- Right-click any summoned cosmetic pet to open piggy bank storage
-- Works with ALL cosmetic pets (not light pets like fairies)
-- Pet detection uses `Main.projPet[]` array and filters out light pets via `ProjectileID.Sets.LightPet`
-- Configurable interaction range
-- No consumables or special items needed - just summon your pet and click it
+- Works with cosmetic pet projectiles; light pets, Chester, and the Flying Piggy Bank keep their normal behavior
+- Tracks the exact pet projectile so the correct moving pet keeps the bank open
+- Preserves Terraria's normal weapon, tool, inventory, and partial-stack input while the bank is open
+- Closes when the pet disappears, moves beyond the configured range, the inventory closes, or the mod is disabled
+- Supports switching between Terraria containers without leaving stale pet state
 
 ## Configuration
 
 | Setting | Default | Description |
-|---------|---------|-------------|
-| Enabled | true | Enable pet chest functionality |
-| Interaction Range | 200 | Maximum distance (pixels) to use pet as chest |
+| --- | --- | --- |
+| Enabled | On | Enables pet interaction |
+| Interaction Range | 200 pixels | Maximum player-to-pet distance |
+| Shown Hint | Off until shown | Controls the first-use hint |
 
-All settings configurable via F6 menu in-game.
-
-## Installation
-
-Requires TerrariaModder Core.
-
-Extract this zip into your Terraria folder. The mod goes into
-`TerrariaModder/mods/pet-chests/`.
+Open the F6 Mod Menu to change these settings.
 
 ## Multiplayer
 
-Works in multiplayer.
+Pet Chests is an optional client mod and uses the local player's native piggy-bank container.
 
-## Technical Notes (For Developers)
+## Installation
 
-This mod demonstrates advanced techniques for working around vanilla game validation:
-
-### Challenge
-Terraria validates piggy bank projectiles via `piggyBankProjTracker`. When a piggy bank is opened, vanilla checks that the tracked projectile is type 525 (Flying Piggy) or 960 (Chester). If not, it closes the chest and plays the close sound every frame.
-
-### Solution
-Instead of fighting the tracker, PetChests:
-1. Clears the tracker (`TrackedProjectileReference.Clear()`) so vanilla skips validation
-2. Patches `HandleBeingInChestRange` to skip tile-based chest checks
-3. Patches `PlayInteractiveProjectileOpenCloseSound` to mute spam sounds
-4. Manually maintains the piggy bank UI state
-
-### Key Patterns
-- **Delayed patching**: Patches applied after 5-second timer to avoid initialization issues
-- **Struct reflection**: `TrackedProjectileReference` is a struct - must set back after modification
-- **Input blocking**: Comprehensive input suppression to prevent click sounds and vanilla re-opening
-
-## Credits
-
-**Author**: Inidar
-
-**Dependencies**:
-- [TerrariaInjector](https://github.com/ConfuzzedCat/TerrariaInjector) by ConfuzzedCat
-- [Harmony](https://github.com/pardeike/Harmony) by pardeike
+Requires TerrariaModder Core. Replace the existing <code>TerrariaModder/mods/pet-chests/</code> folder with the downloaded mod folder, then launch through <code>TerrariaInjector.exe</code>.

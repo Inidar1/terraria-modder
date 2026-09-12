@@ -25,7 +25,7 @@ namespace StorageHub.UI.Tabs
         private readonly IStorageProvider _storage;
         private readonly StorageHubConfig _config;
         private readonly RangeCalculator _rangeCalc;
-        private readonly ItemConsumer _itemConsumer;
+        private readonly StorageCostConsumer _itemConsumer;
 
         // UI components
         private readonly ScrollView _scrollView = new ScrollView();
@@ -52,8 +52,7 @@ namespace StorageHub.UI.Tabs
             _storage = storage;
             _config = config;
             _rangeCalc = rangeCalc;
-            _itemConsumer = new ItemConsumer(log);
-            _itemConsumer.SetStorageProvider(storage);
+            _itemConsumer = new StorageCostConsumer(log, storage, GetAccessibleItems);
         }
 
         public void MarkDirty()
@@ -267,7 +266,7 @@ namespace StorageHub.UI.Tabs
                 if (hover && canUpgrade && WidgetInput.MouseLeftClick)
                 {
                     // Consume items and upgrade
-                    if (_itemConsumer.ConsumeItems(nextTier.AcceptedItemIds, nextTier.RequiredCount))
+                    if (ConsumeCost(nextTier.AcceptedItemIds, nextTier.RequiredCount))
                     {
                         _config.Tier = nextTier.TargetTier;
                         _config.Save();
@@ -431,7 +430,7 @@ namespace StorageHub.UI.Tabs
                 if (!isUnlocked && hover && canUnlock && WidgetInput.MouseLeftClick)
                 {
                     _log.Info($"[InfoTab] Attempting to unlock '{kvp.Key}': AcceptedItemIds=[{string.Join(",", unlock.AcceptedItemIds)}], RequiredCount={unlock.RequiredCount}, AvailableCount={availableCount}");
-                    if (_itemConsumer.ConsumeItems(unlock.AcceptedItemIds, unlock.RequiredCount))
+                    if (ConsumeCost(unlock.AcceptedItemIds, unlock.RequiredCount))
                     {
                         _config.SetSpecialUnlock(kvp.Key, true);
                         _config.Save();
@@ -532,7 +531,7 @@ namespace StorageHub.UI.Tabs
                 if (hover && canUnlock && WidgetInput.MouseLeftClick)
                 {
                     var chestItemIds = PaintingChestProgression.GetChestItemIds();
-                    if (_itemConsumer.ConsumeItems(chestItemIds, nextTier.RequiredCount))
+                    if (ConsumeCost(chestItemIds, nextTier.RequiredCount))
                     {
                         _config.PaintingChestLevel = nextTier.TargetLevel;
                         _config.Save();
@@ -559,14 +558,27 @@ namespace StorageHub.UI.Tabs
             return y + 10;
         }
 
+        private bool ConsumeCost(int[] acceptedItemIds, int requiredCount)
+        {
+            // A rejected stale click must refresh the displayed count as well.
+            _needsRefresh = true;
+            return _itemConsumer.ConsumeItems(acceptedItemIds, requiredCount);
+        }
+
+        private List<ItemSnapshot> GetAccessibleItems()
+        {
+            var items = _storage.GetAllItems();
+            if (_rangeCalc == null) return items;
+            _rangeCalc.UpdatePlayerPosition();
+            return _rangeCalc.FilterItemsByRange(items);
+        }
+
         private void RefreshItemCounts()
         {
             _itemCounts.Clear();
 
             // Count items in range only (out-of-range items can't be consumed for upgrades)
-            var allItems = _rangeCalc != null
-                ? _rangeCalc.FilterItemsByRange(_storage.GetAllItems())
-                : _storage.GetAllItems();
+            var allItems = GetAccessibleItems();
             _log.Debug($"[InfoTab] RefreshItemCounts: Scanning {allItems.Count} in-range items from storage");
 
             foreach (var item in allItems)
@@ -604,172 +616,4 @@ namespace StorageHub.UI.Tabs
         }
     }
 
-    /// <summary>
-    /// Helper class to consume items from player inventory and storage.
-    /// </summary>
-    internal class ItemConsumer
-    {
-        private readonly ILogger _log;
-        private IStorageProvider _storage;
-
-        public ItemConsumer(ILogger log)
-        {
-            _log = log;
-        }
-
-        /// <summary>
-        /// Set the storage provider for consuming from chests.
-        /// </summary>
-        public void SetStorageProvider(IStorageProvider storage)
-        {
-            _storage = storage;
-        }
-
-        /// <summary>
-        /// Consume items from player inventory and storage (chests).
-        /// First consumes from inventory, then from storage if needed.
-        /// </summary>
-        /// <param name="acceptedItemIds">Item IDs that can be consumed.</param>
-        /// <param name="requiredCount">Total amount to consume.</param>
-        /// <returns>True if successfully consumed.</returns>
-        public bool ConsumeItems(int[] acceptedItemIds, int requiredCount)
-        {
-            try
-            {
-                // First, count total available from inventory and storage
-                long totalAvailable = 0;
-                var itemSources = new List<ItemSource>();
-
-                // Count from player inventory
-                var player = Main.player[Main.myPlayer];
-                if (player != null)
-                {
-                    var inventory = player.inventory;
-                    if (inventory != null)
-                    {
-                        for (int i = 0; i < Math.Min(inventory.Length, 50); i++)
-                        {
-                            var item = inventory[i];
-                            if (item == null) continue;
-
-                            int itemType = item.type;
-                            int stack = item.stack;
-
-                            if (stack > 0 && IsAcceptedItem(itemType, acceptedItemIds))
-                            {
-                                totalAvailable += stack;
-                                itemSources.Add(new ItemSource
-                                {
-                                    IsInventory = true,
-                                    InventoryItem = item,
-                                    InventorySlot = i,
-                                    ItemId = itemType,
-                                    Stack = stack
-                                });
-                            }
-                        }
-                    }
-                }
-
-                // Count from storage
-                if (_storage != null)
-                {
-                    var allItems = _storage.GetAllItems();
-                    foreach (var storageItem in allItems)
-                    {
-                        if (storageItem.IsEmpty) continue;
-                        // Skip inventory items (already counted above)
-                        if (storageItem.SourceChestIndex < 0) continue;
-
-                        if (IsAcceptedItem(storageItem.ItemId, acceptedItemIds))
-                        {
-                            totalAvailable += storageItem.Stack;
-                            itemSources.Add(new ItemSource
-                            {
-                                IsInventory = false,
-                                StorageSnapshot = storageItem,
-                                ItemId = storageItem.ItemId,
-                                Stack = storageItem.Stack
-                            });
-                        }
-                    }
-                }
-
-                if (totalAvailable < requiredCount)
-                {
-                    _log.Warn($"Not enough items to consume: have {totalAvailable}, need {requiredCount}");
-                    return false;
-                }
-
-                // Consume items - prioritize storage first (preserve player inventory)
-                int remaining = requiredCount;
-
-                // Sort storage items first, inventory last
-                itemSources.Sort((a, b) => a.IsInventory == b.IsInventory ? 0 : (a.IsInventory ? 1 : -1));
-
-                foreach (var source in itemSources)
-                {
-                    if (remaining <= 0) break;
-
-                    int toConsume = Math.Min(source.Stack, remaining);
-
-                    if (source.IsInventory)
-                    {
-                        // Consume from inventory
-                        int newStack = source.Stack - toConsume;
-                        if (newStack <= 0)
-                        {
-                            source.InventoryItem.type = 0;
-                            source.InventoryItem.stack = 0;
-                        }
-                        else
-                        {
-                            source.InventoryItem.stack = newStack;
-                        }
-                        remaining -= toConsume;
-                        _log.Debug($"Consumed {toConsume}x item #{source.ItemId} from inventory slot {source.InventorySlot}");
-                    }
-                    else if (_storage != null)
-                    {
-                        // Consume from storage via TakeItem
-                        if (_storage.TakeItem(source.StorageSnapshot.SourceChestIndex, source.StorageSnapshot.SourceSlot, toConsume, out var taken))
-                        {
-                            remaining -= taken.Stack;
-                            _log.Debug($"Consumed {taken.Stack}x item #{source.ItemId} from chest {source.StorageSnapshot.SourceChestIndex}");
-                        }
-                        else
-                        {
-                            _log.Warn($"Failed to consume from storage: chest {source.StorageSnapshot.SourceChestIndex}, slot {source.StorageSnapshot.SourceSlot}");
-                        }
-                    }
-                }
-
-                return remaining == 0;
-            }
-            catch (Exception ex)
-            {
-                _log.Error($"ConsumeItems failed: {ex.Message}");
-                return false;
-            }
-        }
-
-        private struct ItemSource
-        {
-            public bool IsInventory;
-            public Item InventoryItem;
-            public int InventorySlot;
-            public ItemSnapshot StorageSnapshot;
-            public int ItemId;
-            public int Stack;
-        }
-
-        private bool IsAcceptedItem(int itemType, int[] acceptedItemIds)
-        {
-            foreach (int id in acceptedItemIds)
-            {
-                if (itemType == id) return true;
-            }
-            return false;
-        }
-    }
 }

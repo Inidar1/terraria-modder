@@ -17,7 +17,7 @@ namespace QuickKeys
     {
         public string Id => "quick-keys";
         public string Name => "Quick Keys";
-        public string Version => "1.0.0";
+        public string Version => "2.0.0";
 
         private ILogger _log;
         private ModContext _context;
@@ -35,12 +35,8 @@ namespace QuickKeys
         private static int _swappedSlot = -1;
         private static bool _placingTorch = false;
 
-        // Channeled item support: keep controlUseItem=true while item is animating.
-        // Set when we start a quick-use; cleared in PostUpdate after the revert.
-        // The ItemCheck_Prefix Harmony patch reads this flag to force controlUseItem=true
-        // right before Player.Update()'s own ItemCheck() call, enabling channeled items
-        // (e.g. Magic Mirror) to complete their full animation without the user holding LMB.
-        private static bool _keepUsingItem = false;
+        // One synthetic activation is released on subsequent native ItemCheck calls.
+        private static bool _quickUseActive = false;
         private static Harmony _harmony;
 
         // Terraria item IDs for recall items (priority order)
@@ -92,31 +88,6 @@ namespace QuickKeys
             {
                 _log.Info("QuickKeys is disabled in config (keybinds registered but inactive)");
                 return;
-            }
-
-            // Patch Player.ItemCheck so we can force controlUseItem=true while a quick-use
-            // item is active. This is needed for channeled items (Magic Mirror, etc.) where
-            // Player.Update() would otherwise clear controlUseItem before calling ItemCheck.
-            _harmony = new Harmony("com.terrariamodder.quickkeys");
-            try
-            {
-                var itemCheckMethod = typeof(Player).GetMethod("ItemCheck",
-                    BindingFlags.Public | BindingFlags.Instance,
-                    null, Type.EmptyTypes, null);
-                if (itemCheckMethod != null)
-                {
-                    _harmony.Patch(itemCheckMethod,
-                        prefix: new HarmonyMethod(typeof(Mod), nameof(ItemCheck_Prefix)));
-                    _log.Debug("Patched Player.ItemCheck for channeled item support");
-                }
-                else
-                {
-                    _log.Warn("Player.ItemCheck not found — channeled items (e.g. Magic Mirror) may not complete");
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.Warn($"Failed to patch Player.ItemCheck: {ex.Message}");
             }
 
             // Subscribe to post-update for item restoration
@@ -457,19 +428,20 @@ namespace QuickKeys
                     return;
                 }
 
-                QuickUseItemAt(player, inventory, foundSlot);
+                if (!QuickUseItemAt(player, inventory, foundSlot)) return;
 
                 // Speed up the recall animation. The mirror/phone teleport fires at
                 // itemTime == item.useTime/2, not at 0. Set itemTime to useTime/2+1 so
                 // the next ItemCheck decrement hits the trigger on the very next frame.
-                // itemAnimation=1 ends the animation that same frame so the revert follows immediately.
+                // Keep two frames: Terraria decrements animation before checking the effect.
+                // Recall Potion uses a fixed trigger at 20 instead of useTime/2.
                 try
                 {
                     if (player.itemAnimation > 0)
                     {
                         int useTime = player.inventory[player.selectedItem].useTime;
-                        player.itemTime = useTime / 2 + 1;
-                        player.itemAnimation = 1;
+                        player.itemTime = (inventory[player.selectedItem].type == ItemID.RecallPotion ? 20 : useTime / 2) + 1;
+                        player.itemAnimation = 2;
                     }
                 }
                 catch { }
@@ -515,13 +487,13 @@ namespace QuickKeys
 
         #region Item Quick Use & Restoration
 
-        private void QuickUseItemAt(Player player, Item[] inventory, int slot)
+        private bool QuickUseItemAt(Player player, Item[] inventory, int slot)
         {
-            if (_autoRevertSelectedItem || player == null || inventory == null) return;
+            if (_autoRevertSelectedItem || player == null || inventory == null) return false;
 
             int selectedItem = player.selectedItem;
-            if (selectedItem == slot) return;
-            if (inventory[slot].type == 0) return;
+            if (slot < 0 || slot >= inventory.Length || selectedItem < 0 || selectedItem >= inventory.Length) return false;
+            if (inventory[slot].IsAir) return false;
 
             // Check if player can switch
             int itemAnimation = player.itemAnimation;
@@ -545,24 +517,25 @@ namespace QuickKeys
                 // player isn't holding LMB, which prevents ItemCheck from starting the animation.
                 // By calling ItemCheck() here (while releaseUseItem is still true from the
                 // previous idle frame), we bypass that gate and start the animation correctly.
+                player.releaseUseItem = true;
                 player.controlUseItem = true;
                 player.ItemCheck();
 
-                // Keep controlUseItem=true for subsequent frames via the Harmony prefix on
-                // ItemCheck(), so channeled items (Magic Mirror, etc.) can complete their
-                // full animation. The prefix is a no-op once _keepUsingItem=false.
-                _keepUsingItem = true;
+                // A hotkey is one activation. Native timers continue after release;
+                // holding synthetic use here repeatedly restarts auto-reuse items.
+                _quickUseActive = true;
+                return player.itemAnimation > 0;
             }
+            return false;
         }
 
         // Harmony prefix on Player.ItemCheck() — runs right before each call from Player.Update().
-        // Forces controlUseItem=true while we are holding a quick-use item, so channeled items
-        // (e.g. Magic Mirror useStyle=HoldUp) count down their itemTime and fire their effect.
-        // The flag is cleared in OnPostUpdate after the item animation completes and we revert.
+        // Release the synthetic activation while its item finishes. Mirrors/phones use
+        // native animation timers, not channelled input. Never synthesize an endless hold.
         private static void ItemCheck_Prefix(Player __instance)
         {
-            if (_keepUsingItem && _autoRevertSelectedItem && __instance.whoAmI == Main.myPlayer)
-                __instance.controlUseItem = true;
+            if (_quickUseActive && _autoRevertSelectedItem && __instance.whoAmI == Main.myPlayer)
+                __instance.controlUseItem = false;
         }
 
         private void SwapInventorySlots(Item[] inventory, int slotA, int slotB)
@@ -604,29 +577,72 @@ namespace QuickKeys
                 int reuseDelay = player.reuseDelay;
 
                 if (itemAnimation == 0 && reuseDelay == 0)
-                {
-                    if (_originalSelectedItem >= 0 && _swappedSlot >= 0)
-                    {
-                        SwapInventorySlots(player.inventory, _originalSelectedItem, _swappedSlot);
-                        if (Main.netMode != 0)
-                        {
-                            NetMessage.TrySendData(5, -1, -1, null, Main.myPlayer, _originalSelectedItem);
-                            NetMessage.TrySendData(5, -1, -1, null, Main.myPlayer, _swappedSlot);
-                        }
-                    }
+                    RestorePendingQuickUse(player, syncInventory: Main.netMode != 0);
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"Quick-use item restoration failed: {ex}");
+            }
+        }
 
-                    _keepUsingItem = false;
-                    _autoRevertSelectedItem = false;
-                    _originalSelectedItem = -1;
-                    _swappedSlot = -1;
+        private void RestorePendingQuickUse(Player player, bool syncInventory)
+        {
+            if (!_autoRevertSelectedItem) return;
+            try
+            {
+                if (player != null && player.inventory != null &&
+                    _originalSelectedItem >= 0 && _originalSelectedItem < player.inventory.Length &&
+                    _swappedSlot >= 0 && _swappedSlot < player.inventory.Length)
+                {
+                    SwapInventorySlots(player.inventory, _originalSelectedItem, _swappedSlot);
+                    if (syncInventory)
+                    {
+                        NetMessage.TrySendData(5, -1, -1, null, Main.myPlayer, _originalSelectedItem);
+                        NetMessage.TrySendData(5, -1, -1, null, Main.myPlayer, _swappedSlot);
+                    }
                 }
             }
-            catch { } // Silently fail item restoration - not critical
+            catch (Exception ex)
+            {
+                _log?.Error($"Quick-use item restoration failed: {ex}");
+            }
+            finally
+            {
+                _quickUseActive = false;
+                _autoRevertSelectedItem = false;
+                _originalSelectedItem = -1;
+                _swappedSlot = -1;
+            }
         }
 
         #endregion
 
-        public void OnContentReady(ModContext context) { }
+        public void OnContentReady(ModContext context)
+        {
+            // Patch on the game-thread lifecycle after graphics/content initialization.
+            _harmony = new Harmony("com.terrariamodder.quickkeys");
+            try
+            {
+                var itemCheckMethod = typeof(Player).GetMethod("ItemCheck",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null, Type.EmptyTypes, null);
+                if (itemCheckMethod != null)
+                {
+                    _harmony.Patch(itemCheckMethod,
+                        prefix: new HarmonyMethod(typeof(Mod), nameof(ItemCheck_Prefix)));
+                    _log.Debug("Patched Player.ItemCheck for single-activation quick use");
+                }
+                else
+                {
+                    _log.Warn("Player.ItemCheck not found — quick-use input release is unavailable");
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Warn($"Failed to patch Player.ItemCheck: {ex.Message}");
+            }
+
+        }
 
         public void OnWorldLoad()
         {
@@ -634,21 +650,23 @@ namespace QuickKeys
 
         public void OnWorldUnload()
         {
+            Player player = null;
+            try { player = Main.player[Main.myPlayer]; } catch { }
+            RestorePendingQuickUse(player, syncInventory: false);
             _rulerActive = false;
-            _keepUsingItem = false;
-            _autoRevertSelectedItem = false;
-            _originalSelectedItem = -1;
-            _swappedSlot = -1;
         }
 
         public void Unload()
         {
+            Player player = null;
+            try { player = Main.player[Main.myPlayer]; } catch { }
+            RestorePendingQuickUse(player, syncInventory: false);
             _harmony?.UnpatchAll("com.terrariamodder.quickkeys");
             FrameEvents.OnPostUpdate -= OnPostUpdate;
 
             // Reset static state for hot-reload support
             _placingTorch = false;
-            _keepUsingItem = false;
+            _quickUseActive = false;
             _rulerActive = false;
             _autoRevertSelectedItem = false;
             _originalSelectedItem = -1;

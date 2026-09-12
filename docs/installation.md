@@ -1,6 +1,6 @@
 ---
-title: Install Terraria 1.4.5 Mods - TerrariaModder Setup Guide
-description: Step-by-step guide to install TerrariaModder and mods on Terraria 1.4.5. Download, extract, and launch with TerrariaInjector in minutes.
+title: Install Terraria 1.4.5.8 Mods - TerrariaModder Setup Guide
+description: Step-by-step guide to install TerrariaModder and mods on Terraria 1.4.5.8. Download, extract, and launch with TerrariaInjector in minutes.
 nav_order: 2
 ---
 
@@ -10,16 +10,19 @@ This guide covers installing TerrariaModder for players who want to use mods.
 
 ## Requirements
 
-- **Terraria 1.4.5** (Steam version)
+- **Terraria 1.4.5.8** (Steam version)
 - **Windows** (10 or 11)
 
 ## Option A: Install via the Vault (Recommended)
 
-The **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** is the official mod manager. It handles Core and all mods in one place — no manual extracting.
+The **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** is the official mod manager. It handles Core and mods in one place and keeps installed configuration during ordinary updates.
 
 1. Download and run the Vault from [Nexus Mods](https://www.nexusmods.com/terraria/mods/159)
-2. Click to install Core and any mods you want
-3. Hit **Run Modded** to launch
+2. Select your Terraria installation
+3. Sign in to your own Nexus account. Vault stores the user credential in the operating system's protected credential store; no developer API key is embedded in the app.
+4. Install Core, then choose the mods you want from Browse
+5. Nexus Premium downloads start directly. With a free account, follow **Manual Download** and **Slow Download** in the embedded Nexus page.
+6. Click **Launch Modded** to launch
 
 That's it. The Vault keeps everything up to date and lets you enable/disable mods without touching files. **Most players should use this.**
 
@@ -72,7 +75,7 @@ Terraria/
 
 ### Step 4: Install Mods
 
-Extract each mod zip into your Terraria folder. Each mod adds a folder under `TerrariaModder/mods/`:
+Move an older copy of that mod folder aside, then extract the complete new mod folder under `TerrariaModder/mods/`:
 
 ```
 TerrariaModder/
@@ -107,12 +110,12 @@ ModMenu is built into TerrariaModder Core - no separate installation needed. You
 
 If mods are working, you'll see:
 1. The ReLogic splash screen is skipped (if SkipIntro mod is installed)
-2. A small overlay in the top-left corner on the title screen showing "TerrariaModder v0.1.0 - X mods loaded"
+2. The latest client session log lists Core and each loaded mod without errors
 3. F6 opens the mod menu
 
 ## Adding More Mods
 
-**With the Vault:** Browse the mod list, click to install, done.
+**With the Vault:** Browse the requirement-based catalog and click **Install**. Free Nexus accounts complete the Manual Download / Slow Download step in the embedded page; Premium accounts download directly.
 
 **Manually:**
 
@@ -139,10 +142,10 @@ To remove a mod, simply delete its folder from `TerrariaModder/mods/`.
 
 **Manually:**
 
-1. Back up your `TerrariaModder/mods/` folder (contains your mod configs)
-2. Download the new Core version
-3. Extract over your existing installation
-4. Your mod configs will be preserved
+1. Back up characters, worlds, and the existing `TerrariaModder/` folder
+2. Move the current `TerrariaModder/core/` folder aside
+3. Install the complete new Core folder rather than merging files into the old one
+4. Replace each updated mod folder the same way and keep the backup until the new build is confirmed
 
 ## Uninstalling
 
@@ -156,7 +159,7 @@ To completely remove TerrariaModder:
 
 ### Game doesn't launch
 
-Check `TerrariaModder/core/logs/terrariamodder.log` for errors.
+Check `TerrariaModder/core/logs/` for errors.
 
 ### Mods not loading
 
@@ -174,6 +177,6 @@ Check `TerrariaModder/core/logs/terrariamodder.log` for errors.
 
 1. Check `TerrariaInjector.log` in the Terraria folder
 2. Try removing recently added mods
-3. Verify Terraria version is 1.4.5
+3. Verify Terraria version is 1.4.5.8
 
 See [Troubleshooting](troubleshooting.md) for more solutions.

@@ -203,6 +203,8 @@ namespace SeedLab.Patches
                     }
                 }
 
+                applied += ApplyCompositeSeedDependencies();
+
                 if (applied > 0)
                 {
                     RecalculateDerivedGenVars();
@@ -213,6 +215,34 @@ namespace SeedLab.Patches
             {
                 _log.Error($"[SeedLab] WorldGenResetPatch: Error applying overrides: {ex.Message}");
             }
+        }
+
+        private static int ApplyCompositeSeedDependencies()
+        {
+            int applied = 0;
+            foreach (var composite in WorldGenFeatureCatalog.Seeds)
+            {
+                if (composite.Kind != SeedKind.SpecialSeed || composite.DependencySeedIds == null ||
+                    composite.DependencySeedIds.Length == 0 || _manager.ShouldEnableSeedFlag(composite.Id) != true)
+                    continue;
+
+                foreach (string dependencyId in composite.DependencySeedIds)
+                {
+                    WGSeedDef dependency = null;
+                    foreach (var candidate in WorldGenFeatureCatalog.Seeds)
+                    {
+                        if (candidate.Id == dependencyId) { dependency = candidate; break; }
+                    }
+                    if (dependency == null || dependency.Kind != SeedKind.SpecialSeed) continue;
+
+                    if (dependency.FlagField != null && _mainFields.TryGetValue(dependency.FlagField, out var mainField))
+                        mainField.SetValue(null, true);
+                    if (dependency.WorldGenAlias != null && _worldGenFields.TryGetValue(dependency.WorldGenAlias, out var worldGenField))
+                        worldGenField.SetValue(null, true);
+                    applied++;
+                }
+            }
+            return applied;
         }
 
         private static void RecalculateDerivedGenVars()

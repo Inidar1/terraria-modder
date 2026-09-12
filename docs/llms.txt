@@ -1,67 +1,46 @@
 # TerrariaModder
 
-> A lightweight modding framework for Terraria 1.4.5 (vanilla, not tModLoader)
+> A lightweight Windows modding framework for Terraria 1.4.5.8.
 
-TerrariaModder lets you run mods on Terraria 1.4.5 without waiting for tModLoader updates. It uses Harmony for runtime method patching and reflection to avoid XNA compile-time dependencies. Mods are .NET Framework 4.8 DLLs loaded at runtime via TerrariaInjector.
+TerrariaModder loads .NET Framework 4.8 mods into the normal Steam Terraria process through TerrariaInjector. It provides Harmony patching, typed configuration, keybinds, UI widgets, lifecycle callbacks, custom items, save sidecars, networking, and server administration. Terraria.exe remains the vanilla launch path; TerrariaInjector.exe is the modded launch path.
 
-## What This Is
-
-- A modding framework for Terraria 1.4.5 on Windows (Steam version)
-- Uses Harmony 2.x for prefix/postfix/transpiler patches on game methods
-- Provides a Core framework with lifecycle hooks, config, keybinds, UI widgets, and event system
-- Each mod is a separate DLL with a manifest.json descriptor
-- In-game mod menu (F6) for configuration and keybind rebinding
-- NOT tModLoader - this is a standalone framework for vanilla Terraria 1.4.5
-
-## Key Pages
+## Documentation
 
 - Home: https://inidar1.github.io/terraria-modder/
-- Installation Guide: https://inidar1.github.io/terraria-modder/installation/
-- Available Mods: https://inidar1.github.io/terraria-modder/finding-mods/
+- Installation: https://inidar1.github.io/terraria-modder/installation/
+- Available mods: https://inidar1.github.io/terraria-modder/finding-mods/
 - Troubleshooting: https://inidar1.github.io/terraria-modder/troubleshooting/
 - FAQ: https://inidar1.github.io/terraria-modder/faq/
+- First mod: https://inidar1.github.io/terraria-modder/making-your-first-mod/
+- Harmony: https://inidar1.github.io/terraria-modder/harmony-basics/
+- Core API: https://inidar1.github.io/terraria-modder/core-api-reference/
+- Publishing: https://inidar1.github.io/terraria-modder/publishing-your-mod/
 
-## For Mod Developers
-
-- Making Your First Mod: https://inidar1.github.io/terraria-modder/making-your-first-mod/
-- Harmony Patching Guide: https://inidar1.github.io/terraria-modder/harmony-basics/
-- Tested Patterns: https://inidar1.github.io/terraria-modder/tested-patterns/
-- Core API Reference: https://inidar1.github.io/terraria-modder/core-api-reference/
-- Publishing Your Mod: https://inidar1.github.io/terraria-modder/publishing-your-mod/
-
-## Mod Walkthroughs (real working mods with full source)
-
-- SkipIntro (beginner - Harmony patching): https://inidar1.github.io/terraria-modder/walkthroughs/skip-intro/
-- AutoBuffs (intermediate - tile scanning): https://inidar1.github.io/terraria-modder/walkthroughs/auto-buffs/
-- QuickKeys (advanced - input handling): https://inidar1.github.io/terraria-modder/walkthroughs/quick-keys/
-- PetChests (intermediate - projectile interaction): https://inidar1.github.io/terraria-modder/walkthroughs/pet-chests/
-- ItemSpawner (advanced - custom UI): https://inidar1.github.io/terraria-modder/walkthroughs/item-spawner/
-- StorageHub (advanced - crafting/storage): https://inidar1.github.io/terraria-modder/walkthroughs/storage-hub/
-- AdminPanel (advanced - cheats/god mode): https://inidar1.github.io/terraria-modder/walkthroughs/admin-panel/
-- WhipStacking (intermediate - restoring mechanics): https://inidar1.github.io/terraria-modder/walkthroughs/whip-stacking/
-- DebugTools (advanced - HTTP server/automation): https://inidar1.github.io/terraria-modder/walkthroughs/debug-tools/
-- SeedLab (advanced - world-gen patching): https://inidar1.github.io/terraria-modder/walkthroughs/seed-lab/
-
-## Available Mods
+## Released mods
 
 | Mod | Description |
-|-----|-------------|
-| SkipIntro | Skips the ReLogic splash screen |
-| QuickKeys | Auto-torch, recall hotkey, quick-stack, ruler, extended hotbar |
-| AutoBuffs | Automatically applies nearby furniture buffs |
-| PetChests | Right-click cosmetic pets to access piggy bank |
-| ItemSpawner | In-game item spawner with search (singleplayer) |
-| StorageHub | Unified storage with crafting, shimmer decraft, mysterious chest, relay network |
-| AdminPanel | God mode, speed boost, teleport, time control, respawn settings |
-| WhipStacking | Restores pre-1.4.5 whip tag stacking behavior |
-| SeedLab | Mix and match secret seed features for world generation |
-| DebugTools | HTTP debug server, in-game console, virtual input, window management |
+| --- | --- |
+| Skip Intro | Waits for Terraria startup loading, then skips the splash |
+| Quick Keys | Torch, recall, quick stack, ruler, and optional inventory slots 11-20 |
+| Item Spawner | Search and spawn vanilla or registered modded items |
+| Auto Furniture Buffs | Applies buffs from nearby furniture, including the Dead Cells station |
+| Pet Chests | Uses cosmetic vanity pets as portable piggy banks |
+| Storage Hub | Registered storage, transactional crafting, shimmer, progression, relays, and Mysterious Chest |
+| Admin Panel | God mode, movement, time, teleport, respawn, and NPC controls |
+| Whip Stacking | Enables Terraria's native maximum of five simultaneous whip tag effects |
+| Seed Lab | Mixes secret-seed world-generation and singleplayer runtime features |
+| FPS Unlocked | Renders above 60 FPS while game simulation stays at 60 Hz |
+| Biome Spread Control | Prevents corruption, crimson, and Hallow spread in singleplayer |
+| Randomizer | Deterministic modules for loot, drops, recipes, shops, spawns, and more |
+| Public Debug Tools | Optional in-game console, localhost HTTP API, virtual input, inspection, and window controls |
 
-## Technical Details
+## Mod author notes
 
-- Target: Terraria 1.4.5 (Steam, Windows)
-- Runtime: .NET Framework 4.8
-- Patching: Harmony 2.x (prefix, postfix, transpiler)
-- No compile-time Terraria/XNA dependency (all reflection-based)
+- Core uses manifest.json as authoritative mod metadata.
+- New mods can inherit ModBase and implement IModLifecycle.
+- Direct Terraria/XNA references are supported for accessible APIs.
+- Reflection remains useful for inaccessible members and client/server assembly boundaries.
+- Config properties use Client or Server scope and can declare Range, Options, OptionProvider, RestartRequired, and migration metadata.
+- Each process writes a separate session log under TerrariaModder/core/logs/.
 - Source: https://github.com/Inidar1/terraria-modder
 - Downloads: https://www.nexusmods.com/profile/Inidar/mods

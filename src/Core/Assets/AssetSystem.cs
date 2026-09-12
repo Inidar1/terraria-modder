@@ -159,7 +159,8 @@ namespace TerrariaModder.Core.Assets
                         new ContentTypeDescriptor.NamedField(typeof(Terraria.Item), "claw"),
                     }
                 };
-                TypeExtension.Apply(_log, descriptor);
+                if (TypeExtension.Apply(_log, descriptor) < 0)
+                    throw new InvalidOperationException("Custom content type extension failed; remaining asset patches were not applied");
 
                 // Invalidate any cached array refs that TypeExtension may have resized
                 LangPatches.InvalidateCaches();

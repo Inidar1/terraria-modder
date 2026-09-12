@@ -1,6 +1,5 @@
 using System;
 using System.Reflection;
-using System.Threading;
 using HarmonyLib;
 using Terraria;
 using TerrariaModder.Core;
@@ -12,13 +11,12 @@ namespace AutoBuffs
     {
         public string Id => "auto-buffs";
         public string Name => "Auto Furniture Buffs";
-        public string Version => "1.0.0";
+        public string Version => "2.0.0";
 
         private static ILogger _log;
         private static ModContext _context;
         private static AutoBuffsConfig _config;
         private static Harmony _harmony;
-        private static Timer _patchTimer;
         private static int _initDelayFrames = 300;
 
         // Config values (cached for performance)
@@ -30,6 +28,7 @@ namespace AutoBuffs
         internal static bool EnableSharpeningStation = true;
         internal static bool EnableWarTable = true;
         internal static bool EnableSliceOfCake = true;
+        internal static bool EnableDeadCellsPotionStation = true;
         internal static bool DebugLogging = false;
 
         public void Initialize(ModContext context)
@@ -52,9 +51,7 @@ namespace AutoBuffs
             {
                 _harmony = new Harmony("com.terrariamodder.autobuffs");
 
-                // Delay patching by 5 seconds to avoid early initialization issues
-                _patchTimer = new Timer(PatchAfterDelay, null, 5000, Timeout.Infinite);
-                _log.Info("Patches will be applied after 5 seconds...");
+                _log.Info("Patches will be applied when game content is ready");
             }
             catch (Exception ex)
             {
@@ -62,7 +59,7 @@ namespace AutoBuffs
             }
         }
 
-        private static void PatchAfterDelay(object state)
+        private static void ApplyPatches()
         {
             try
             {
@@ -83,7 +80,7 @@ namespace AutoBuffs
             }
             catch (Exception ex)
             {
-                _log?.Error($"Delayed patch error: {ex.Message}");
+                _log?.Error($"Patch error: {ex.Message}");
             }
         }
 
@@ -99,6 +96,7 @@ namespace AutoBuffs
             EnableSharpeningStation = _config.SharpeningStation;
             EnableWarTable = _config.WarTable;
             EnableSliceOfCake = _config.SliceOfCake;
+            EnableDeadCellsPotionStation = _config.DeadCellsPotionStation;
             DebugLogging = _config.DebugLogging;
         }
 
@@ -108,7 +106,7 @@ namespace AutoBuffs
             _log.Info($"Config reloaded - Enabled: {Enabled}, Radius: {ScanRadius}");
         }
 
-        public void OnContentReady(ModContext context) { }
+        public void OnContentReady(ModContext context) { if (_harmony != null) ApplyPatches(); }
 
         public void OnWorldLoad()
         {
@@ -124,9 +122,7 @@ namespace AutoBuffs
 
         public void Unload()
         {
-            _patchTimer?.Dispose();
             _harmony?.UnpatchAll("com.terrariamodder.autobuffs");
-            _patchTimer = null;
             _log.Info("Auto Buffs unloaded");
         }
 

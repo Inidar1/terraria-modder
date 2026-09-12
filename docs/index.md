@@ -1,17 +1,17 @@
 ---
-title: TerrariaModder - Modding Framework for Terraria 1.4.5
-description: A lightweight modding framework for Terraria 1.4.5. Install QoL mods or create your own using Harmony runtime patches, without waiting for tModLoader.
+title: TerrariaModder - Modding Framework for Terraria 1.4.5.8
+description: A lightweight modding framework for Terraria 1.4.5.8. Install QoL mods or create your own using Harmony runtime patches, without waiting for tModLoader.
 ---
 
 # TerrariaModder
 
 [![Discord](https://img.shields.io/discord/1467363973526716572?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/VvVD5EeYsK)
 
-A lightweight modding framework for Terraria 1.4.5 that works alongside vanilla Terraria.
+A lightweight modding framework for Terraria 1.4.5.8 that works alongside vanilla Terraria.
 
 ## What is TerrariaModder?
 
-TerrariaModder lets you run mods on Terraria 1.4.5 without waiting for tModLoader. It's designed for quality-of-life mods, utilities, automation, and custom content (new items with custom textures, recipes, shops, and drops via the Custom Assets system).
+TerrariaModder lets you run mods on Terraria 1.4.5.8 without waiting for tModLoader. It's designed for quality-of-life mods, utilities, automation, and custom content (new items with custom textures, recipes, shops, and drops via the Custom Assets system).
 
 **Key Features:**
 - In-game mod menu (F6) for configuration and keybind rebinding
@@ -27,7 +27,7 @@ TerrariaModder lets you run mods on Terraria 1.4.5 without waiting for tModLoade
 
 **Want to install and use mods?**
 
-The easiest way is the **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** — the official mod manager. Install it once, then click to add or update any mod. Hit **Run Modded** to launch.
+The easiest way is the **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** — the official mod manager. Its Browse catalog uses Nexus's declared TerrariaModder Core requirement, and it supports both free and Premium Nexus account download flows. Click **Launch Modded** when you're ready to play.
 
 1. [Installation Guide](installation.md) - Get up and running (Vault or manual)
 2. [Troubleshooting](troubleshooting.md) - Fix common issues
@@ -47,12 +47,12 @@ Download Core and any mods you want from [Nexus Mods](https://www.nexusmods.com/
 | **ItemSpawner** | Spawn any item (admin or granted players in MP) | Insert | Optional | [Nexus](https://www.nexusmods.com/terraria/mods/141) |
 | **StorageHub** | Unified storage with crafting, recipes, shimmer, mysterious chest, relay network | F5 | Required | [Nexus](https://www.nexusmods.com/terraria/mods/136) |
 | **AdminPanel** | God mode, movement speed, teleports, time controls, respawn settings | Backslash, F9 | Optional | [Nexus](https://www.nexusmods.com/terraria/mods/137) |
-| **WhipStacking** | Restores pre-1.4.5 whip tag stacking | Automatic | Client-only | [Nexus](https://www.nexusmods.com/terraria/mods/139) |
+| **WhipStacking** | Enables Terraria's native maximum of five simultaneous whip tag effects | Automatic | Client-only | [Nexus](https://www.nexusmods.com/terraria/mods/139) |
 | **SeedLab** | Toggle secret seed features for world gen | F10 | Optional | [Nexus](https://www.nexusmods.com/terraria/mods/144) |
-| **FpsUnlocked** | Unlock frame rate with smooth interpolation (60hz logic + high-FPS rendering) | Automatic | Client-only | [Nexus](https://www.nexusmods.com/terraria/mods/147) |
-| **BiomeSpread** | Toggle evil biome spread on or off | Automatic | Client-only | [Nexus](https://www.nexusmods.com/terraria/mods/146) |
-| **Randomizer** | Modular randomizer with seed system — shuffle chests, drops, recipes, shops | Numpad / | Optional | [Nexus](https://www.nexusmods.com/terraria/mods/147) |
-| **DebugTools** | HTTP debug server (70+ endpoints), in-game console, virtual input, runtime introspection | Ctrl+` | Client-only | — |
+| **FpsUnlocked** | Unlock frame rate with smooth interpolation (60 Hz logic + high-FPS rendering) | Automatic | Client-only | [Nexus](https://www.nexusmods.com/terraria/mods/145) |
+| **BiomeSpread** | Prevent corruption, crimson, and Hallow spread | Automatic | Singleplayer | [Nexus](https://www.nexusmods.com/terraria/mods/146) |
+| **Randomizer** | Deterministic modular randomizer for chests, drops, recipes, shops, and more | Numpad / | Singleplayer | [Nexus](https://www.nexusmods.com/terraria/mods/147) |
+| **Public Debug Tools** | HTTP debug server, in-game console, virtual input, runtime introspection | Ctrl+` | Client-only | [Core optional files](https://www.nexusmods.com/terraria/mods/135) |
 
 Press **F6** in-game to configure mods and rebind keys. Changes are saved automatically and keybinds persist across game restarts.
 
@@ -78,13 +78,16 @@ Learn by studying real, working mods:
 - [ItemSpawner](walkthroughs/item-spawner.md) - Full UI implementation
 - [StorageHub](walkthroughs/storage-hub.md) - Multi-tab storage, crafting, shimmer, mysterious chest, relay network
 - [AdminPanel](walkthroughs/admin-panel.md) - UI sliders, Harmony patches, boss detection
-- [WhipStacking](walkthroughs/whip-stacking.md) - Harmony prefixes, restoring removed mechanics
-- [DebugTools](walkthroughs/debug-tools.md) - HTTP server, console, virtual input, window management
+- [WhipStacking](walkthroughs/whip-stacking.md) - Terraria's native five-effect whip tag capacity
 - [SeedLab](walkthroughs/seed-lab.md) - World-gen patching, runtime seed feature toggling
+- [FPS Unlocked](walkthroughs/fps-unlocked.md) - Fixed-step simulation with interpolated high-rate rendering
+- [Biome Spread Control](walkthroughs/biome-spread.md) - Scoped world-spread patches
+- [Randomizer](walkthroughs/randomizer.md) - Deterministic module seeds and reversible recipe state
+- [Public Debug Tools](walkthroughs/debug-tools.md) - HTTP server, console, virtual input, window management
 
 ## Requirements
 
-- Terraria 1.4.5 (Steam version)
+- Terraria 1.4.5.8 (Steam version)
 - Windows
 
 ## Quick Links

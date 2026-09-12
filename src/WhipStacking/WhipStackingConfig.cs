@@ -6,7 +6,7 @@ namespace WhipStacking
     {
         public override int Version => 1;
 
-        [Client, Label("Enabled"), Description("Allow multiple whip tags to stack on NPCs simultaneously (pre-1.4.5 behavior).")]
+        [Client, Label("Enabled"), Description("Enable Terraria's native maximum of five simultaneous whip tag effects.")]
         public bool Enabled { get; set; } = true;
     }
 }

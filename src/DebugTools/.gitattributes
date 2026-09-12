@@ -1,0 +1,2 @@
+# Preserve original public Git blob bytes across Windows checkouts.
+source/** -text

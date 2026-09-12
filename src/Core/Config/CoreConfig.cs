@@ -47,6 +47,9 @@ namespace TerrariaModder.Core.Config
         /// </summary>
         public LogLevel GlobalLogLevel { get; private set; } = LogLevel.Info;
 
+        /// <summary>Hide this client's exclusive Windows console after startup; restart required.</summary>
+        public bool HideConsole { get; private set; }
+
         /// <summary>
         /// Absolute path to the Terraria game folder.
         /// </summary>
@@ -183,6 +186,9 @@ namespace TerrariaModder.Core.Config
 
             var logsMatch = Regex.Match(json, @"""logsFolder""\s*:\s*""([^""]*)""", RegexOptions.IgnoreCase);
             if (logsMatch.Success) config.LogsFolder = logsMatch.Groups[1].Value;
+
+            var hideConsoleMatch = Regex.Match(json, @"""hideConsole""\s*:\s*(true|false)\b", RegexOptions.IgnoreCase);
+            if (hideConsoleMatch.Success) config.HideConsole = bool.Parse(hideConsoleMatch.Groups[1].Value);
 
             var logLevelMatch = Regex.Match(json, @"""logLevel""\s*:\s*""([^""]*)""", RegexOptions.IgnoreCase);
             if (logLevelMatch.Success)

@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Core\TerrariaModder.Core.csproj">
+    <ProjectReference Include="..\..\src\Core\TerrariaModder.Core.csproj">
       <Private>false</Private>
     </ProjectReference>
   </ItemGroup>

@@ -283,12 +283,11 @@ namespace SeedLab
                     }
                 }
 
-                // If all features match the world's original state, don't touch the flag.
-                // This prevents SeedLab from interfering with seeds it doesn't know about
-                // (e.g. "Purify This") that share the same underlying flags.
+                // Returning to the world's original state must undo an earlier override.
+                // Leaving the last written value here kept toggled seeds active forever.
                 if ((allOn && worldOriginal) || (allOff && !worldOriginal))
                 {
-                    // Feature states match world original — leave flag as-is
+                    SetFlag(seed.FlagField, worldOriginal);
                     continue;
                 }
 

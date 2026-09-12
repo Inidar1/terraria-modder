@@ -1,6 +1,6 @@
 ---
-title: Publishing a Terraria 1.4.5 Mod
-description: How to package, publish, and distribute your Terraria 1.4.5 mod. Covers manifest.json, Nexus Mods uploads, GitHub releases, and versioning.
+title: Publishing a Terraria 1.4.5.8 Mod
+description: How to package, publish, and distribute your Terraria 1.4.5.8 mod. Covers manifest.json, Nexus Mods uploads, GitHub releases, and versioning.
 nav_order: 9
 ---
 
@@ -99,11 +99,12 @@ rmdir /s /q %MOD_NAME%
 
 ### Nexus Mods (Recommended)
 
-Publish on [Nexus Mods](https://www.nexusmods.com/terraria) to reach the most players. Mods published here are automatically installable through the **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** — the official mod manager — so players can install your mod with a single click.
+Publish on [Nexus Mods](https://www.nexusmods.com/terraria) to reach the most players. The **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** discovers mods through Nexus's declared requirements rather than a name or description search.
 
 1. Create a mod page at [nexusmods.com/terraria](https://www.nexusmods.com/terraria)
-2. Upload your mod zip as the **main file** on the Files tab
-3. Your mod is now available in the Vault
+2. Add **TerrariaModder Core** ([mod 135](https://www.nexusmods.com/terraria/mods/135)) in the page's **Requirements**
+3. Upload your mod zip as an active **main file** on the Files tab
+4. The current active main release can now appear in Vault Browse
 
 See [The Vault](the-vault.md) for packaging requirements (zip structure, manifest.json fields, versioning) that ensure your mod installs cleanly through the Vault.
 
@@ -135,13 +136,13 @@ Share in Terraria modding Discord servers:
 
 ## Installation Instructions for Users
 
-If your mod is on Nexus Mods, players can install it through the [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159) with one click — no manual steps needed. For manual installs, include this in your README:
+If your mod declares TerrariaModder Core in Nexus Requirements, players can install it through the [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159). Premium accounts download directly; free accounts use Nexus's Manual Download / Slow Download controls in the embedded page. For fully manual installs, include this in your README:
 
 ```markdown
 ## Installation
 
 ### Option A: TerrariaModder Vault (Recommended)
-Install from the [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159) — one click install.
+Install from the [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159). Free Nexus accounts complete the Manual Download / Slow Download step; Premium accounts download directly.
 
 ### Option B: Manual
 1. Install TerrariaModder framework (if not already installed)
@@ -190,7 +191,7 @@ Users should check:
 
 ## Tips for Success
 
-1. **Publish on Nexus Mods** - Makes your mod available through the [TerrariaModder Vault](the-vault.md) for one-click installs
+1. **Declare the Core requirement on Nexus Mods** - Makes the current active main file discoverable through the [TerrariaModder Vault](the-vault.md)
 2. **Clear naming** - Make it obvious what your mod does
 3. **Good documentation** - README with features, installation, keybinds
 4. **Responsive** - Answer questions, fix reported bugs

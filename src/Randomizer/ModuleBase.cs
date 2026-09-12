@@ -58,7 +58,7 @@ namespace Randomizer
         /// </summary>
         protected void InitPoolRng()
         {
-            PoolRng = new Random(Seed.Seed ^ Id.GetHashCode());
+            PoolRng = new Random(Seed.DeriveSubSeed(Id));
         }
 
         /// <summary>

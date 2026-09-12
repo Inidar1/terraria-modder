@@ -1,5 +1,4 @@
 using System;
-using System.Threading;
 using HarmonyLib;
 using System.Collections.Generic;
 using Terraria;
@@ -13,12 +12,12 @@ namespace FpsUnlocked
     {
         public string Id => "fps-unlocked";
         public string Name => "FPS Unlocked";
-        public string Version => "1.0.0";
+        public string Version => "2.0.0";
 
         private static ILogger _log;
         private static ModContext _context;
         private Harmony _harmony;
-        private Timer _patchTimer;
+        private bool _patchesApplied;
         private FpsUnlockedConfig _config;
 
         private static bool _initFailed;
@@ -48,8 +47,6 @@ namespace FpsUnlocked
             context.RegisterActionProvider(this);
             _harmony = new Harmony("com.terrariamodder.fpsunlocked");
 
-            // Delay patching to ensure Terraria types are loaded
-            _patchTimer = new Timer(ApplyPatches, null, 5000, Timeout.Infinite);
             _log.Info($"FPS Unlocked v2 initializing - Mode: {Mode}, MaxFPS: {MaxFps}, " +
                 $"Interpolation: {InterpolationEnabled}");
         }
@@ -71,8 +68,10 @@ namespace FpsUnlocked
                 $"Interpolation: {InterpolationEnabled}");
         }
 
-        private void ApplyPatches(object state)
+        private void ApplyPatches()
         {
+            if (_patchesApplied || _harmony == null) return;
+
             try
             {
                 // Initialize reflection cache (finds all types and builds IL accessors)
@@ -93,6 +92,7 @@ namespace FpsUnlocked
 
                 // Apply all 8 Harmony patches
                 Patches.ApplyAll(_harmony, _log);
+                _patchesApplied = true;
 
                 _log.Info("FPS Unlocked v2 fully initialized");
             }
@@ -111,7 +111,16 @@ namespace FpsUnlocked
                 { "mode", Mode },
                 { "maxFps", MaxFps },
                 { "interpolationEnabled", InterpolationEnabled },
-                { "mouseEveryFrame", MouseEveryFrame }
+                { "mouseEveryFrame", MouseEveryFrame },
+                { "timingActive", FrameState.TimingActive },
+                { "interpolationActive", FrameState.Active },
+                { "isPartialTick", FrameState.IsPartialTick },
+                { "partialTick", FrameState.PartialTick },
+                { "frameCount", FrameState.FrameCount },
+                { "tickCount", FrameState.TickCount },
+                { "gameFocused", Main.instance != null && Main.instance.IsActive },
+                { "presentationInterval", Patches.GetPresentationInterval() },
+                { "vsyncWritesPatched", Patches.VSyncWritesPatched }
             };
         }
 
@@ -142,7 +151,10 @@ namespace FpsUnlocked
             }
         }
 
-        public void OnContentReady(ModContext context) { }
+        public void OnContentReady(ModContext context)
+        {
+            ApplyPatches();
+        }
 
         public void OnWorldLoad()
         {
@@ -157,6 +169,7 @@ namespace FpsUnlocked
             // Clear keyframe arrays to prevent stale data from previous world
             KeyframeStore.Clear();
             FrameState.Reset();
+            Patches.ResetTransitionState();
             _log.Info("World loaded - keyframes cleared");
         }
 
@@ -164,15 +177,16 @@ namespace FpsUnlocked
         {
             KeyframeStore.Clear();
             FrameState.Reset();
+            Patches.ResetTransitionState();
             _log.Info("World unloaded - keyframes cleared");
         }
 
         public void Unload()
         {
             FrameState.Reset();
-            _patchTimer?.Dispose();
+            Patches.ResetTransitionState();
             _harmony?.UnpatchAll("com.terrariamodder.fpsunlocked");
-            _patchTimer = null;
+            _patchesApplied = false;
             _log?.Info("FPS Unlocked v2 unloaded");
         }
     }

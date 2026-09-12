@@ -1,6 +1,5 @@
 using System;
 using System.Reflection;
-using System.Threading;
 using HarmonyLib;
 using Terraria;
 using TerrariaModder.Core;
@@ -12,12 +11,11 @@ namespace PetChests
     {
         public string Id => "pet-chests";
         public string Name => "Pet Chests";
-        public string Version => "1.0.0";
+        public string Version => "2.0.0";
 
         private static ILogger _log;
         private static ModContext _context;
         private static Harmony _harmony;
-        private static Timer _patchTimer;
         private static PetChestsConfig _config;
         private static bool _pendingHint;
 
@@ -45,9 +43,7 @@ namespace PetChests
             {
                 _harmony = new Harmony("com.terrariamodder.petchests");
 
-                // Delay patching to avoid early initialization issues
-                _patchTimer = new Timer(PatchAfterDelay, null, 5000, Timeout.Infinite);
-                _log.Info("Patches will be applied after 5 seconds...");
+                // Apply on the game-thread content-ready lifecycle, once Terraria is initialized.
             }
             catch (Exception ex)
             {
@@ -55,7 +51,7 @@ namespace PetChests
             }
         }
 
-        private static void PatchAfterDelay(object state)
+        private static void ApplyPatches()
         {
             try
             {
@@ -97,22 +93,6 @@ namespace PetChests
                     _log?.Info("Patched Player.Update");
                 }
 
-                // Patch Main.PlayInteractiveProjectileOpenCloseSound to mute during pet piggy bank
-                var playSoundMethod = typeof(Main).GetMethod("PlayInteractiveProjectileOpenCloseSound",
-                    BindingFlags.Public | BindingFlags.Static,
-                    null, new Type[] { typeof(int), typeof(bool) }, null);
-                if (playSoundMethod != null)
-                {
-                    var prefix = typeof(Mod).GetMethod("PlaySound_Prefix",
-                        BindingFlags.Public | BindingFlags.Static);
-                    _harmony.Patch(playSoundMethod, prefix: new HarmonyMethod(prefix));
-                    _log?.Info("Patched Main.PlayInteractiveProjectileOpenCloseSound");
-                }
-                else
-                {
-                    _log?.Info("Could not find PlayInteractiveProjectileOpenCloseSound");
-                }
-
                 // Patch Player.HandleBeingInChestRange to skip tile-based chest checks when our pet piggy is open
                 var handleChestMethod = typeof(Player).GetMethod("HandleBeingInChestRange",
                     BindingFlags.NonPublic | BindingFlags.Instance);
@@ -132,7 +112,7 @@ namespace PetChests
             }
             catch (Exception ex)
             {
-                _log?.Error($"Delayed patch error: {ex.Message}");
+                _log?.Error($"Patch error: {ex.Message}");
             }
         }
 
@@ -146,10 +126,14 @@ namespace PetChests
         public void OnConfigChanged()
         {
             LoadConfig();
+            if (!Enabled) PetInteraction.Reset(closeChest: true);
             _log.Info($"Config reloaded - Enabled: {Enabled}, Range: {InteractionRange}");
         }
 
-        public void OnContentReady(ModContext context) { }
+        public void OnContentReady(ModContext context)
+        {
+            if (_harmony != null) ApplyPatches();
+        }
 
         public void OnWorldLoad()
         {
@@ -171,10 +155,8 @@ namespace PetChests
 
         public void Unload()
         {
-            _patchTimer?.Dispose();
+            PetInteraction.Reset(closeChest: true);
             _harmony?.UnpatchAll("com.terrariamodder.petchests");
-            _patchTimer = null;
-            _updateCount = 0;
             _log.Info("Pet Chests unloaded");
         }
 
@@ -195,7 +177,7 @@ namespace PetChests
                 // If piggy bank is open via pet OR just closed, make pet NOT interactible
                 // This prevents vanilla from repeatedly trying to interact with it
                 // and prevents immediate reopen after closing
-                if (PetInteraction.ShouldBlockInteraction())
+                if (PetHelper.IsCosmeticPet(__instance) && PetInteraction.ShouldBlockInteraction())
                 {
                     __result = false;
                     return;
@@ -232,15 +214,12 @@ namespace PetChests
             return true;
         }
 
-        private static int _updateCount = 0;
-        private const int MIN_UPDATES = 300;
 
         /// <summary>
-        /// Prefix: Block input and force chest state before vanilla processes
+        /// Prefix: Consume a close click on the bound pet before vanilla processes it
         /// </summary>
         public static void PlayerUpdate_Prefix(Player __instance, int i)
         {
-            if (_updateCount < MIN_UPDATES) return;
             if (!Enabled) return;
 
             try
@@ -248,17 +227,9 @@ namespace PetChests
                 if (Main.gameMenu) return;
                 if (i != Main.myPlayer) return;
 
-                // Block input BEFORE vanilla processes it - critical for preventing clicking sounds
+                // Inventory right-clicks and item timers remain owned by vanilla.
                 PetInteraction.BlockInputInPrefix(__instance);
 
-                // If we're keeping piggy open, force chest state
-                if (PetInteraction.IsKeepingPiggyOpen())
-                {
-                    if (__instance.chest == -1)
-                    {
-                        __instance.chest = -2;
-                    }
-                }
             }
             catch { }
         }
@@ -268,8 +239,6 @@ namespace PetChests
         /// </summary>
         public static void PlayerUpdate_Postfix(Player __instance, int i)
         {
-            _updateCount++;
-            if (_updateCount < MIN_UPDATES) return;
             if (!Enabled) return;
 
             try
@@ -312,35 +281,13 @@ namespace PetChests
             }
         }
 
-        /// <summary>
-        /// Skip the open/close sound while our pet piggy bank is active
-        /// This prevents the clicking spam from vanilla's tracker validation
-        /// </summary>
-        public static bool PlaySound_Prefix()
-        {
-            if (!Enabled) return true;
-
-            // If we're keeping piggy open via pet, skip the sound
-            if (PetInteraction.IsKeepingPiggyOpen())
-            {
-                return false; // Skip original
-            }
-
-            return true;
-        }
-
-        /// <summary>
-        /// Skip HandleBeingInChestRange when our pet piggy bank is open.
-        /// This prevents vanilla from checking tile-based chests and resetting chest=-1.
-        /// Chester works because it sets the tracker to a valid type 960 projectile.
-        /// We can't do that with cosmetic pets (wrong type), so we skip the method entirely.
-        /// </summary>
+        /// <summary>Our bound local pet uses the configured range, checked in the update postfix.</summary>
         public static bool HandleChestRange_Prefix(Player __instance)
         {
             if (!Enabled) return true;
 
             // If we're keeping piggy open via pet, skip the entire method
-            if (PetInteraction.IsKeepingPiggyOpen())
+            if (__instance.whoAmI == Main.myPlayer && __instance.chest == -2 && PetInteraction.IsKeepingPiggyOpen())
             {
                 return false; // Skip original
             }

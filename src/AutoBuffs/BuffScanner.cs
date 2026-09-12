@@ -17,6 +17,7 @@ namespace AutoBuffs
         private const ushort TILE_SHARPENING_STATION = 377;
         private const ushort TILE_WAR_TABLE = 464;
         private const ushort TILE_SLICE_OF_CAKE = 621;
+        private const ushort TILE_DEAD_CELLS_POTION_STATION = 699;
 
         // Buff IDs (verified for 1.4.5)
         private const int BUFF_CLAIRVOYANCE = 29;
@@ -25,6 +26,7 @@ namespace AutoBuffs
         private const int BUFF_SHARPENED = 159;
         private const int BUFF_SUGAR_RUSH = 192;
         private const int BUFF_WAR_TABLE = 348;
+        private const int BUFF_DEAD_CELLS_POTION_STATION = 366;
 
         // Timing
         private const int SCAN_CADENCE_TICKS = 10;
@@ -44,7 +46,8 @@ namespace AutoBuffs
         private static readonly HashSet<ushort> _buffTileTypes = new HashSet<ushort>
         {
             TILE_CRYSTAL_BALL, TILE_AMMO_BOX, TILE_BEWITCHING_TABLE,
-            TILE_SHARPENING_STATION, TILE_WAR_TABLE, TILE_SLICE_OF_CAKE
+            TILE_SHARPENING_STATION, TILE_WAR_TABLE, TILE_SLICE_OF_CAKE,
+            TILE_DEAD_CELLS_POTION_STATION
         };
 
         // Mapping from tile type to buff info
@@ -106,6 +109,12 @@ namespace AutoBuffs
                     BuffId = BUFF_SUGAR_RUSH,
                     IsSugarRush = true,
                     IsEnabled = () => Mod.EnableSliceOfCake
+                };
+                _tileToBuffMap[TILE_DEAD_CELLS_POTION_STATION] = new BuffInfo
+                {
+                    BuffId = BUFF_DEAD_CELLS_POTION_STATION,
+                    IsSugarRush = false,
+                    IsEnabled = () => Mod.EnableDeadCellsPotionStation
                 };
 
                 _initialized = true;

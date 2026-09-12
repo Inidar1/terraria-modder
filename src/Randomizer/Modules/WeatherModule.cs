@@ -26,7 +26,7 @@ namespace Randomizer.Modules
         public override void BuildShuffleMap()
         {
             Instance = this;
-            _rng = new Random(Seed.Seed ^ Id.GetHashCode());
+            _rng = new Random(Seed.DeriveSubSeed(Id));
             _tickCounter = 0;
             _nextChangeAt = 60 * (120 + _rng.Next(181)); // 2-5 minutes
         }

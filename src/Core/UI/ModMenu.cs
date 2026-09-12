@@ -38,11 +38,13 @@ namespace TerrariaModder.Core.UI
         private static string _editingConfigKeyModId;
 
         // Number field editing state
-        private static bool _isEditingNumber;
-        private static string _editingNumberField;
-        private static string _editingNumberModId;
-        private static string _editingNumberText = "";
-        private static bool _editingNumberFirstKeyPressed; // True after first key replaces old value
+        private static bool _isEditingValue;
+        private static bool _valueEditDrawnThisFrame;
+        private static int _valueEditX, _valueEditY, _valueEditWidth, _valueEditHeight;
+        private static string _editingValueField;
+        private static string _editingValueModId;
+        private static string _editingValueText = "";
+        private static bool _editingValueFirstKeyPressed; // True after first key replaces old value
 
         // Hold-to-repeat state for +/- buttons
         private static string _holdingButtonField;
@@ -132,9 +134,9 @@ namespace TerrariaModder.Core.UI
             _isEditingConfigKey = false;
             _editingConfigKeyField = null;
             _editingConfigKeyModId = null;
-            _isEditingNumber = false;
-            _editingNumberField = null;
-            _editingNumberModId = null;
+            _isEditingValue = false;
+            _editingValueField = null;
+            _editingValueModId = null;
             _holdingButtonField = null;
             UIRenderer.UnregisterKeyInputBlock("mod-menu");
             UIRenderer.DisableTextInput();
@@ -198,16 +200,21 @@ namespace TerrariaModder.Core.UI
             // Ensure mod icons are loaded (lazy, safe to call every frame)
             PluginLoader.LoadModIcons();
 
-            // Clear tooltip each frame
+            // Clear tooltip and track whether the active value editor remains visible.
             Tooltip.Clear();
+            _valueEditDrawnThisFrame = false;
 
             // Check if a higher-z-order panel should block our input
             _blockInput = UIRenderer.ShouldBlockForHigherPriorityPanel("mod-menu");
 
+            if (_isEditingValue && !_blockInput && UIRenderer.MouseLeftClick &&
+                !UIRenderer.IsMouseOver(_valueEditX, _valueEditY, _valueEditWidth, _valueEditHeight))
+                CommitActiveValueEdit();
+
             // Handle Escape to close menu (unless rebinding or editing)
-            if (!_isRebinding && !_isEditingConfigKey && !_isEditingNumber)
+            if (!_isRebinding && !_isEditingConfigKey && !_isEditingValue)
             {
-                if (InputState.IsKeyJustPressed(KeyCode.Escape))
+                if (InputState.IsKeyJustPressed(KeyCode.Escape) && !UIRenderer.IsReleasingTextInput)
                 {
                     ToggleMenu();
                     return;
@@ -235,7 +242,7 @@ namespace TerrariaModder.Core.UI
             // Don't call it here in Draw - it causes timing issues with MouseCache
 
             // Register/unregister keyboard block based on editing state
-            if (_isRebinding || _isEditingConfigKey || _isEditingNumber)
+            if (_isRebinding || _isEditingConfigKey || _isEditingValue)
                 UIRenderer.RegisterKeyInputBlock("mod-menu");
             else
                 UIRenderer.UnregisterKeyInputBlock("mod-menu");
@@ -336,6 +343,8 @@ namespace TerrariaModder.Core.UI
                 case 5: DrawPlayersTab(menuX + Padding, contentY, MenuWidth - Padding * 2, contentHeight); break;
             }
 
+            if (_isEditingValue && !_valueEditDrawnThisFrame) CancelValueEdit();
+
             // Handle scrollbar drag (before wheel handling)
             if (_scrollDragging)
             {
@@ -369,7 +378,7 @@ namespace TerrariaModder.Core.UI
             }
 
             // ESC to close (or cancel rebind/edit)
-            if (InputState.IsKeyJustPressed(KeyCode.Escape))
+            if (InputState.IsKeyJustPressed(KeyCode.Escape) && !UIRenderer.IsReleasingTextInput)
             {
                 if (_isRebinding)
                 {
@@ -385,12 +394,9 @@ namespace TerrariaModder.Core.UI
                     _editingConfigKeyModId = null;
                     UIRenderer.DisableTextInput();
                 }
-                else if (_isEditingNumber)
+                else if (_isEditingValue)
                 {
-                    _isEditingNumber = false;
-                    _editingNumberField = null;
-                    _editingNumberModId = null;
-                    UIRenderer.DisableTextInput();
+                    CancelValueEdit();
                 }
                 else
                 {
@@ -769,7 +775,7 @@ namespace TerrariaModder.Core.UI
             if (t == typeof(bool))
             {
                 DrawBoolField(valueX, y, currentValue, meta, config, modId);
-                if (isHover && UIRenderer.MouseLeftClick && !_isEditingNumber && !_isEditingConfigKey && !_isRebinding)
+                if (isHover && UIRenderer.MouseLeftClick && !_isEditingValue && !_isEditingConfigKey && !_isRebinding)
                 {
                     bool bv = currentValue is bool bb && bb;
                     meta.SetValue(config, !bv);
@@ -788,9 +794,13 @@ namespace TerrariaModder.Core.UI
             // String fields with either static [Options] or a runtime option provider
             // render as left/right selectors. We query on demand so mods can surface
             // values discovered after initial config metadata construction.
-            else if (t == typeof(string) && meta.GetOptions(config).Length > 0)
+            else if (t == typeof(string) && meta.HasOptions)
             {
                 DrawEnumField(valueX, y, valueWidth, currentValue, meta, config, modId);
+            }
+            else if (t == typeof(string))
+            {
+                DrawStringField(valueX, y, valueWidth, currentValue, meta, config, modId);
             }
             else
             {
@@ -833,7 +843,8 @@ namespace TerrariaModder.Core.UI
         {
             int intVal = value is int i ? i : (value != null ? Convert.ToInt32(value) : 0);
             int btnWidth = 25;
-            bool isEditing = _isEditingNumber && _editingNumberField == meta.Key && _editingNumberModId == modId;
+            bool isEditing = _isEditingValue && _editingValueField == meta.Key && _editingValueModId == modId;
+            if (isEditing) _valueEditDrawnThisFrame = true;
             string fieldId = $"{modId}.{meta.Key}";
 
             // Minus button
@@ -862,16 +873,17 @@ namespace TerrariaModder.Core.UI
             // Value display / edit area
             int valX = x + btnWidth + 5;
             int valWidth = width - btnWidth * 2 - 10;
+            if (isEditing) TrackValueBounds(valX, y + 2, valWidth, ItemHeight - 6);
             bool valHover = UIRenderer.IsMouseOver(valX, y + 2, valWidth, ItemHeight - 6) && !_isRebinding && !_isEditingConfigKey && !_blockInput;
 
             if (isEditing)
             {
                 UIRenderer.DrawRect(valX, y + 2, valWidth, ItemHeight - 6, UIColors.Warning.WithAlpha(180));
-                string displayText = _editingNumberText + "_";
+                string displayText = _editingValueText + "_";
                 UIRenderer.DrawText(displayText, valX + 5, y + 5, UIColors.Text);
 
                 UIRenderer.EnableTextInput();
-                HandleNumberInput(meta, config, modId, false);
+                HandleNumericInput(meta, config, modId, false);
             }
             else
             {
@@ -881,11 +893,13 @@ namespace TerrariaModder.Core.UI
 
                 if (valHover && UIRenderer.MouseLeftClick)
                 {
-                    _isEditingNumber = true;
-                    _editingNumberField = meta.Key;
-                    _editingNumberModId = modId;
-                    _editingNumberText = intVal.ToString();
-                    _editingNumberFirstKeyPressed = false;
+                    TrackValueBounds(valX, y + 2, valWidth, ItemHeight - 6);
+                    _isEditingValue = true;
+                    _valueEditDrawnThisFrame = true;
+                    _editingValueField = meta.Key;
+                    _editingValueModId = modId;
+                    _editingValueText = intVal.ToString();
+                    _editingValueFirstKeyPressed = false;
                     UIRenderer.ConsumeClick();
                 }
             }
@@ -925,7 +939,8 @@ namespace TerrariaModder.Core.UI
         {
             float floatVal = value is float f ? f : (value is double d ? (float)d : 0f);
             int btnWidth = 25;
-            bool isEditing = _isEditingNumber && _editingNumberField == meta.Key && _editingNumberModId == modId;
+            bool isEditing = _isEditingValue && _editingValueField == meta.Key && _editingValueModId == modId;
+            if (isEditing) _valueEditDrawnThisFrame = true;
             string fieldId = $"{modId}.{meta.Key}";
 
             // Minus button
@@ -952,16 +967,17 @@ namespace TerrariaModder.Core.UI
             // Value display / edit area
             int valX = x + btnWidth + 5;
             int valWidth = width - btnWidth * 2 - 10;
+            if (isEditing) TrackValueBounds(valX, y + 2, valWidth, ItemHeight - 6);
             bool valHover = UIRenderer.IsMouseOver(valX, y + 2, valWidth, ItemHeight - 6) && !_isRebinding && !_isEditingConfigKey && !_blockInput;
 
             if (isEditing)
             {
                 UIRenderer.DrawRect(valX, y + 2, valWidth, ItemHeight - 6, UIColors.Warning.WithAlpha(180));
-                string displayText = _editingNumberText + "_";
+                string displayText = _editingValueText + "_";
                 UIRenderer.DrawText(displayText, valX + 5, y + 5, UIColors.Text);
 
                 UIRenderer.EnableTextInput();
-                HandleNumberInput(meta, config, modId, true);
+                HandleNumericInput(meta, config, modId, true);
             }
             else
             {
@@ -971,11 +987,13 @@ namespace TerrariaModder.Core.UI
 
                 if (valHover && UIRenderer.MouseLeftClick)
                 {
-                    _isEditingNumber = true;
-                    _editingNumberField = meta.Key;
-                    _editingNumberModId = modId;
-                    _editingNumberText = floatVal.ToString("F2");
-                    _editingNumberFirstKeyPressed = false;
+                    TrackValueBounds(valX, y + 2, valWidth, ItemHeight - 6);
+                    _isEditingValue = true;
+                    _valueEditDrawnThisFrame = true;
+                    _editingValueField = meta.Key;
+                    _editingValueModId = modId;
+                    _editingValueText = floatVal.ToString("F2");
+                    _editingValueFirstKeyPressed = false;
                     UIRenderer.ConsumeClick();
                 }
             }
@@ -1009,6 +1027,90 @@ namespace TerrariaModder.Core.UI
             if (meta.Max.HasValue && newVal > (float)meta.Max.Value) newVal = (float)meta.Max.Value;
             meta.SetValue(config, newVal);
             AutoSaveConfig(modId, meta, config);
+        }
+
+        private static void TrackValueBounds(int x, int y, int width, int height)
+        {
+            _valueEditX = x; _valueEditY = y; _valueEditWidth = width; _valueEditHeight = height;
+        }
+
+        private static void CommitActiveValueEdit()
+        {
+            var config = PluginLoader.GetMod(_editingValueModId)?.Context?.Config;
+            var meta = config?.GetPropertyMetadata().FirstOrDefault(item => item.Key == _editingValueField);
+            if (meta == null) { CancelValueEdit(); return; }
+            if (meta.PropertyType == typeof(string))
+            {
+                if ((meta.GetValue(config) as string ?? "") != _editingValueText)
+                {
+                    meta.SetValue(config, _editingValueText);
+                    AutoSaveConfig(_editingValueModId, meta, config);
+                }
+                CancelValueEdit();
+            }
+            else ApplyNumericEdit(meta, config, _editingValueModId,
+                meta.PropertyType == typeof(float) || meta.PropertyType == typeof(double));
+        }
+
+        private static void CancelValueEdit()
+        {
+            _isEditingValue = false;
+            _editingValueField = null;
+            _editingValueModId = null;
+            UIRenderer.DisableTextInput();
+            if (!_isRebinding && !_isEditingConfigKey) UIRenderer.UnregisterKeyInputBlock("mod-menu");
+        }
+
+        private static void DrawStringField(int x, int y, int width, object value,
+            Config.ConfigPropertyMeta meta, Config.ModConfig config, string modId)
+        {
+            string current = value as string ?? "";
+            bool editing = _isEditingValue && _editingValueField == meta.Key && _editingValueModId == modId;
+            bool hover = UIRenderer.IsMouseOver(x, y + 2, width, ItemHeight - 6) &&
+                !_isRebinding && !_isEditingConfigKey && !_blockInput;
+            if (editing)
+            {
+                _valueEditDrawnThisFrame = true;
+                TrackValueBounds(x, y + 2, width, ItemHeight - 6);
+                UIRenderer.EnableTextInput();
+                UIRenderer.RegisterKeyInputBlock("mod-menu");
+                if (!_blockInput && !InputState.IsKeyJustPressed(KeyCode.Escape))
+                {
+                    UIRenderer.HandleIME();
+                    string text = UIRenderer.GetInputText(_editingValueText);
+                    // Preserve pre-existing long values; bound newly entered text without splitting UTF-16 pairs.
+                    int limit = Math.Max(4096, current.Length);
+                    if (text.Length > limit)
+                    {
+                        if (limit > 0 && char.IsHighSurrogate(text[limit - 1])) limit--;
+                        text = text.Substring(0, limit);
+                    }
+                    _editingValueText = text;
+                    if (InputState.IsKeyJustPressed(KeyCode.Enter) || InputState.IsKeyJustPressed(KeyCode.NumPadEnter) ||
+                        (UIRenderer.MouseLeftClick && !hover))
+                    {
+                        CommitActiveValueEdit();
+                    }
+                }
+            }
+            else if (hover && UIRenderer.MouseLeftClick)
+            {
+                _isEditingValue = true;
+                _editingValueField = meta.Key;
+                _editingValueModId = modId;
+                _editingValueText = current;
+                TrackValueBounds(x, y + 2, width, ItemHeight - 6);
+                _valueEditDrawnThisFrame = true;
+                UIRenderer.ClearInput();
+                UIRenderer.RegisterKeyInputBlock("mod-menu");
+                UIRenderer.ConsumeClick();
+                editing = true;
+            }
+            UIRenderer.DrawRect(x, y + 2, width, ItemHeight - 6,
+                editing ? UIColors.InputFocusBg : UIColors.InputBg);
+            string shown = editing ? TextUtil.VisibleTail(_editingValueText + "|", width - 10) : TextUtil.Truncate(current, width - 10);
+            UIRenderer.DrawText(shown, x + 5, y + 5, UIColors.Text);
+            if (hover) Tooltip.Set("Click to edit. Enter or click outside to save; Escape to cancel.");
         }
 
         private static void DrawEnumField(int x, int y, int width, object value, Config.ConfigPropertyMeta meta, Config.ModConfig config, string modId)
@@ -1932,11 +2034,9 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                // Check if the mod's type has an OnConfigChanged method declared
-                var method = mod.Instance.GetType().GetMethod("OnConfigChanged",
-                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+                var method = Config.ConfigHotReload.FindCallback(mod.Instance);
 
-                // If the method exists on the mod's type itself (DeclaredOnly), it supports hot reload
+                // Inherited callbacks have the same contract as directly declared callbacks.
                 return method != null;
             }
             catch
@@ -1951,8 +2051,7 @@ namespace TerrariaModder.Core.UI
 
             try
             {
-                var method = mod.Instance.GetType().GetMethod("OnConfigChanged",
-                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+                var method = Config.ConfigHotReload.FindCallback(mod.Instance);
 
                 if (method != null)
                 {
@@ -2077,12 +2176,12 @@ namespace TerrariaModder.Core.UI
         /// <summary>
         /// Handle number input for editing number fields.
         /// </summary>
-        private static void HandleNumberInput(Config.ConfigPropertyMeta meta, Config.ModConfig config, string modId, bool isFloat)
+        private static void HandleNumericInput(Config.ConfigPropertyMeta meta, Config.ModConfig config, string modId, bool isFloat)
         {
             // Check for Enter to confirm
             if (InputState.IsKeyJustPressed(KeyCode.Enter) || InputState.IsKeyJustPressed(KeyCode.NumPadEnter))
             {
-                ApplyNumberEdit(meta, config, modId, isFloat);
+                ApplyNumericEdit(meta, config, modId, isFloat);
                 return;
             }
 
@@ -2093,28 +2192,28 @@ namespace TerrariaModder.Core.UI
                 if (InputState.IsKeyJustPressed(KeyCode.D0 + i))
                 {
                     // First key replaces the old value
-                    if (!_editingNumberFirstKeyPressed)
+                    if (!_editingValueFirstKeyPressed)
                     {
-                        _editingNumberText = i.ToString();
-                        _editingNumberFirstKeyPressed = true;
+                        _editingValueText = i.ToString();
+                        _editingValueFirstKeyPressed = true;
                     }
-                    else if (_editingNumberText.Length < 10) // Max 10 digits
+                    else if (_editingValueText.Length < 10) // Max 10 digits
                     {
-                        _editingNumberText += i.ToString();
+                        _editingValueText += i.ToString();
                     }
                     return;
                 }
                 // Numpad keys
                 if (InputState.IsKeyJustPressed(KeyCode.NumPad0 + i))
                 {
-                    if (!_editingNumberFirstKeyPressed)
+                    if (!_editingValueFirstKeyPressed)
                     {
-                        _editingNumberText = i.ToString();
-                        _editingNumberFirstKeyPressed = true;
+                        _editingValueText = i.ToString();
+                        _editingValueFirstKeyPressed = true;
                     }
-                    else if (_editingNumberText.Length < 10)
+                    else if (_editingValueText.Length < 10)
                     {
-                        _editingNumberText += i.ToString();
+                        _editingValueText += i.ToString();
                     }
                     return;
                 }
@@ -2123,14 +2222,14 @@ namespace TerrariaModder.Core.UI
             // Decimal point for floats
             if (isFloat && (InputState.IsKeyJustPressed(KeyCode.OemPeriod) || InputState.IsKeyJustPressed(KeyCode.Decimal)))
             {
-                if (!_editingNumberFirstKeyPressed)
+                if (!_editingValueFirstKeyPressed)
                 {
-                    _editingNumberText = "0.";
-                    _editingNumberFirstKeyPressed = true;
+                    _editingValueText = "0.";
+                    _editingValueFirstKeyPressed = true;
                 }
-                else if (!_editingNumberText.Contains(".") && _editingNumberText.Length < 10)
+                else if (!_editingValueText.Contains(".") && _editingValueText.Length < 10)
                 {
-                    _editingNumberText += ".";
+                    _editingValueText += ".";
                 }
                 return;
             }
@@ -2138,37 +2237,37 @@ namespace TerrariaModder.Core.UI
             // Minus sign - toggle negative (doesn't replace old value)
             if (InputState.IsKeyJustPressed(KeyCode.OemMinus) || InputState.IsKeyJustPressed(KeyCode.Subtract))
             {
-                if (_editingNumberText.StartsWith("-"))
-                    _editingNumberText = _editingNumberText.Substring(1);
+                if (_editingValueText.StartsWith("-"))
+                    _editingValueText = _editingValueText.Substring(1);
                 else
-                    _editingNumberText = "-" + _editingNumberText;
+                    _editingValueText = "-" + _editingValueText;
                 return;
             }
 
             // Backspace - now we're editing, not replacing
             if (InputState.IsKeyJustPressed(KeyCode.Back))
             {
-                _editingNumberFirstKeyPressed = true; // User is editing, not replacing
-                if (_editingNumberText.Length > 0)
-                    _editingNumberText = _editingNumberText.Substring(0, _editingNumberText.Length - 1);
+                _editingValueFirstKeyPressed = true; // User is editing, not replacing
+                if (_editingValueText.Length > 0)
+                    _editingValueText = _editingValueText.Substring(0, _editingValueText.Length - 1);
                 return;
             }
 
             // Click outside to confirm
             if (UIRenderer.MouseLeftClick)
             {
-                ApplyNumberEdit(meta, config, modId, isFloat);
+                ApplyNumericEdit(meta, config, modId, isFloat);
             }
         }
 
         /// <summary>
         /// Apply the edited number value.
         /// </summary>
-        private static void ApplyNumberEdit(Config.ConfigPropertyMeta meta, Config.ModConfig config, string modId, bool isFloat)
+        private static void ApplyNumericEdit(Config.ConfigPropertyMeta meta, Config.ModConfig config, string modId, bool isFloat)
         {
             if (isFloat)
             {
-                if (float.TryParse(_editingNumberText, out float newVal))
+                if (float.TryParse(_editingValueText, out float newVal))
                 {
                     if (meta.Min.HasValue && newVal < (float)meta.Min.Value) newVal = (float)meta.Min.Value;
                     if (meta.Max.HasValue && newVal > (float)meta.Max.Value) newVal = (float)meta.Max.Value;
@@ -2178,7 +2277,7 @@ namespace TerrariaModder.Core.UI
             }
             else
             {
-                if (int.TryParse(_editingNumberText, out int newVal))
+                if (int.TryParse(_editingValueText, out int newVal))
                 {
                     if (meta.Min.HasValue && newVal < (int)meta.Min.Value) newVal = (int)meta.Min.Value;
                     if (meta.Max.HasValue && newVal > (int)meta.Max.Value) newVal = (int)meta.Max.Value;
@@ -2187,10 +2286,7 @@ namespace TerrariaModder.Core.UI
                 }
             }
 
-            _isEditingNumber = false;
-            _editingNumberField = null;
-            _editingNumberModId = null;
-            UIRenderer.DisableTextInput();
+            CancelValueEdit();
         }
 
         private static void ResetConfigToDefaults(ModInfo mod)

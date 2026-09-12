@@ -86,7 +86,7 @@ namespace Randomizer.Modules
                 if (inventory == null) return;
 
                 // Use seed to pick random starting items
-                var rng = new Random(Seed.Seed ^ Id.GetHashCode());
+                var rng = new Random(Seed.DeriveSubSeed(Id));
                 int numItems = 3 + rng.Next(5); // 3-7 random items
 
                 for (int i = 0; i < Math.Min(numItems, 10); i++)

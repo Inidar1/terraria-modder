@@ -63,15 +63,19 @@ namespace TerrariaModder.Core.Config
         public object GetValue(ModConfig config) => Property.GetValue(config);
 
         /// <summary>
-        /// Get allowed options for this property.
-        /// Returns a fresh array when backed by a dynamic provider so callers see
-        /// the latest runtime state instead of a startup-time snapshot.
+        /// Whether the property declares a choice constraint, even when no choices are available.
         /// </summary>
+        public bool HasOptions => Options != null || HasOptionProvider;
+
+        internal bool HasOptionProvider { get; set; }
+
+        /// <summary>Resolve current choices without modifying a saved unavailable selection.</summary>
         public string[] GetOptions(ModConfig config)
         {
-            if (OptionsProvider != null)
+            if (HasOptionProvider)
             {
-                return OptionsProvider(config) ?? Array.Empty<string>();
+                // A missing/invalid/empty provider must not turn a constrained field into free text.
+                return OptionsProvider?.Invoke(config) ?? Array.Empty<string>();
             }
 
             return Options ?? Array.Empty<string>();

@@ -1,56 +1,25 @@
 # Seed Lab
 
-Mix and match individual features from Terraria's secret seeds at runtime. Toggle enemy scaling, boss AI changes, spawn rates, world generation features, and more, without needing to create a new world.
+Mix individual features from Terraria's secret seeds for custom world generation and singleplayer gameplay.
 
 ## Features
 
-- **In-Game Panel (F10)**:Toggle seed features while playing. Changes take effect immediately for runtime features (enemy stats, spawn rates, boss AI).
-- **World-Gen Panel**:Configure seed features before creating a world. Works from the title screen and character/world select menus.
-- **9 Special Seeds**:For the Worthy, Drunk World, Don't Starve, Not the Bees, Remix, Zenith, 10th Anniversary, No Traps, Skyblock
-- **6 Secret Seeds**:Vampire, Infected, Team Spawns, Dual Dungeons, Halloween Forever, Christmas Forever
-- **120+ Individual Features**:Each seed is broken down into granular features (enemy stats, boss AI, spawn rates, etc.) that can be toggled independently.
-- **Easy Groups**:Toggle entire categories at once (e.g., "FTW Enemy Scaling" enables all FTW enemy-related features)
-- **Presets**:Save and load custom seed configurations
-- **Per-World State**:Feature states persist per world
+- Press F10 in world-selection and creation menus to configure the next generated world.
+- Press F10 in a singleplayer world to configure supported runtime effects.
+- Mix For the Worthy, Drunk World, Don't Starve, Not the Bees, Remix, Zenith, Celebration, No Traps, Skyblock, and additional secret-seed groups.
+- Save and load presets.
+- Keep world-generation settings separate from in-world runtime settings.
 
-## Keybinds
+Zenith generation keeps its combined seed flags active throughout all relevant generation passes. World-generation settings and presets are saved atomically so an interrupted write does not replace a valid file with partial JSON.
 
-| Key | Action |
-|-----|--------|
-| `F10` | Toggle Seed Lab panel |
+## Runtime behavior
 
-F10 works both in-world (runtime overrides) and in menus (world-gen overrides). Rebindable via F6 Mod Menu.
-
-## Configuration
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| enabled | true | Enable the Seed Lab mod |
-
-## Debug Commands
-
-| Command | Description |
-|---------|-------------|
-| `seed-lab.status` | Show current seed feature states |
-| `seed-lab.toggle <seed>` | Toggle a seed or feature group (e.g., `seed-lab.toggle ftw`) |
-| `seed-lab.preset list\|apply\|save\|delete <name>` | Manage presets |
-| `seed-lab.reset` | Reset all features to match the current world's seed flags |
-
-## How It Works
-
-**Runtime features** (enemy stats, spawn rates, boss AI) use Harmony patches on `NPC.SetDefaults`, `NPC.AI`, `Spawner.GetSpawnRate`, etc. Each patch checks whether the corresponding feature is enabled before applying the seed's behavior.
-
-**World-gen features** use Harmony patches on `WorldGen.Reset()`, `GenPass.Apply()`, and `FinalizeSecretSeeds()` to inject seed flags during world creation.
-
-**State is separate**:runtime state (`state.json`) and world-gen state (`state-worldgen.json`) are independent, so you can have different configurations for playing vs. creating worlds.
+Supported toggles cover enemy scaling, spawn behavior, boss behavior, lighting, death sounds, holidays, hunger/darkness, recall/respawn behavior, and other seed-specific rules. Temporary vampire and seed state is cleared when its feature or world is left.
 
 ## Multiplayer
 
-Singleplayer only.
+Seed Lab runtime overrides are singleplayer-only. In multiplayer, its runtime patches remain inactive.
 
 ## Installation
 
-Requires TerrariaModder Core.
-
-Extract this zip into your Terraria folder. The mod goes into
-`TerrariaModder/mods/seed-lab/`.
+Requires TerrariaModder Core. Replace the existing <code>TerrariaModder/mods/seed-lab/</code> folder with the downloaded mod folder, then launch through <code>TerrariaInjector.exe</code>.

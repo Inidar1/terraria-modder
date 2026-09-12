@@ -1,41 +1,34 @@
 # Auto Furniture Buffs
 
-Automatically applies buffs from nearby activated furniture without needing to click on each one.
+Automatically applies buffs from nearby furniture without requiring each station to be activated manually.
 
-## Features
+## Supported furniture
 
-- Scans for buff-giving furniture near your character
-- Automatically applies buffs when in range
-- Supports all vanilla buff stations:
-  - Crystal Ball (Clairvoyance)
-  - Ammo Box (Ammo Box buff)
-  - Bewitching Table (Bewitched - extra minion)
-  - Sharpening Station (Sharpened)
-  - War Table (War Table buff)
-  - Slice of Cake (Sugar Rush)
+- Crystal Ball
+- Ammo Box
+- Bewitching Table
+- Sharpening Station
+- War Table
+- Slice of Cake
+- Dead Cells Potion Station
+
+The scanner uses the current Terraria 1.4.5.8 tile and buff definitions, runs at a reduced cadence, and skips buffs that are already active.
 
 ## Configuration
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| enabled | true | Enable auto-buff functionality |
-| scanRadius | 40 | Tile radius to scan for furniture (5-100, higher = more CPU) |
+Open the F6 Mod Menu to enable or disable the mod, change the scan radius, or toggle each furniture type independently.
 
-All settings configurable via F6 Mod Menu in-game.
-
-## Technical Details
-
-- Uses a Harmony postfix on `Player.Update` to scan nearby tiles each frame
-- Looks up tile IDs to identify buff furniture and applies the corresponding buff
-- Scan radius is configurable to balance performance vs. convenience
+| Setting | Default |
+| --- | --- |
+| Enabled | On |
+| Scan Radius | 40 tiles |
+| Each furniture type | On |
+| Debug Logging | Off |
 
 ## Multiplayer
 
-Works in multiplayer.
+The mod applies buffs to the local player and can be installed as an optional client mod.
 
 ## Installation
 
-Requires TerrariaModder Core.
-
-Extract this zip into your Terraria folder. The mod goes into
-`TerrariaModder/mods/auto-buffs/`.
+Requires TerrariaModder Core. Replace the existing <code>TerrariaModder/mods/auto-buffs/</code> folder with the downloaded mod folder, then launch through <code>TerrariaInjector.exe</code>.

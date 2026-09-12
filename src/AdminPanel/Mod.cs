@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Threading;
 using HarmonyLib;
 using Microsoft.Xna.Framework;
 using Terraria;
@@ -19,7 +18,7 @@ namespace AdminPanel
     {
         public string Id => "admin-panel";
         public string Name => "Admin Panel";
-        public string Version => "1.1.1";
+        public string Version => "2.0.0";
 
         #region Constants
 
@@ -65,7 +64,6 @@ namespace AdminPanel
         private int _prevNormalRespawnIndex = NormalDefaultIndex;
         private int _prevBossRespawnIndex = BossDefaultIndex;
         private int _prevMoveSpeed = 1;
-        private bool _prevBiomeSpread;
         private bool _prevRightClickSpawn;
         private string _prevBossFavs = "";
         private string _prevNpcFavs = "";
@@ -78,12 +76,13 @@ namespace AdminPanel
         private static int _timeSpeedMultiplier = 1;
         private static float _normalRespawnMult = 1.0f;
         private static float _bossRespawnMult = 1.0f;
+        private static double _respawnTickFraction;
+        private static int _lastRespawnTimer;
+        private static Player _respawnPlayer;
         private static bool _inBossFight;
         private static int _moveSpeedMultiplier = 1;
-        private static bool _biomeSpreadDisabled;
 
         private static Harmony _harmony;
-        private static Timer _patchTimer;
         private static readonly object _patchLock = new object();
         private static bool _patchesApplied;
 
@@ -123,7 +122,6 @@ namespace AdminPanel
             FrameEvents.OnPreUpdate += UpdateNPCSpawner;
 
             _harmony = new Harmony("com.terrariamodder.adminpanel");
-            _patchTimer = new Timer(ApplyPatches, null, 5000, Timeout.Infinite);
 
             NPCSpawner.Init(_log);
             TerrariaModder.Core.Net.NetSync.OnServerCommandResponse += OnServerCommandResponse;
@@ -142,7 +140,6 @@ namespace AdminPanel
                 ["godMode"] = _godModeActive,
                 ["timeSpeed"] = _timeSpeedMultiplier,
                 ["moveSpeed"] = _moveSpeedMultiplier,
-                ["biomeSpreadDisabled"] = _biomeSpreadDisabled,
             };
         }
 
@@ -161,7 +158,6 @@ namespace AdminPanel
                     new ModActionParam("value", "int", true, "1-60")),
                 new ModActionInfo("set_move_speed", "Set movement speed multiplier",
                     new ModActionParam("value", "int", true, "1-10")),
-                new ModActionInfo("toggle_biome_spread", "Toggle biome spread on/off"),
                 new ModActionInfo("teleport", "Teleport to a location",
                     new ModActionParam("target", "string", true, "spawn, dungeon, hell, beach, bed, or random")),
             };
@@ -213,12 +209,6 @@ namespace AdminPanel
                     _moveSpeedMultiplier = Math.Max(1, Math.Min(10, ms));
                     EventLog.Emit("admin-panel", "set_move_speed", $"{{\"value\":{_moveSpeedMultiplier}}}");
                     return ModActionResult.Ok($"Move speed set to {_moveSpeedMultiplier}x");
-                case "toggle_biome_spread":
-                    _biomeSpreadDisabled = !_biomeSpreadDisabled;
-                    if (!_biomeSpreadDisabled)
-                        try { Terraria.WorldGen.AllowedToSpreadInfections = true; } catch { }
-                    EventLog.Emit("admin-panel", "toggle_biome_spread", $"{{\"disabled\":{(_biomeSpreadDisabled ? "true" : "false")}}}");
-                    return ModActionResult.Ok(_biomeSpreadDisabled ? "Biome spread disabled" : "Biome spread enabled");
                 case "teleport":
                     string target = args != null && args.ContainsKey("target") ? args["target"] : null;
                     if (string.IsNullOrEmpty(target))
@@ -247,7 +237,7 @@ namespace AdminPanel
             }
         }
 
-        public void OnContentReady(ModContext context) { }
+        public void OnContentReady(ModContext context) { ApplyPatches(null); }
 
         private void OnServerCommandResponse(string type, string result)
         {
@@ -273,8 +263,16 @@ namespace AdminPanel
 
         private bool _pendingDungeonTeleport;
 
+        public void OnConfigChanged()
+        {
+            if (_enabled) LoadSettings();
+        }
+
         public void OnWorldLoad()
         {
+            _respawnPlayer = null;
+            _respawnTickFraction = 0;
+            _lastRespawnTimer = 0;
             _inBossFight = false;
             if (!_enabled) return;
             // Ensure patches are applied (timer may not have fired yet)
@@ -290,14 +288,10 @@ namespace AdminPanel
             _pendingDungeonTeleport = false;
             // Reset game state but keep settings
             try { Main.dayRate = 1; } catch { }
-            // Restore biome spread for save safety
-            try { WorldGen.AllowedToSpreadInfections = true; } catch { }
         }
 
         public void Unload()
         {
-            _patchTimer?.Dispose();
-            _patchTimer = null;
             FrameEvents.OnPreUpdate -= ExecutePendingAction;
             FrameEvents.OnPreUpdate -= UpdateNPCSpawner;
             _pendingAction = null;
@@ -310,9 +304,6 @@ namespace AdminPanel
             _moveSpeedMultiplier = 1;
             _normalRespawnMult = 1.0f;
             _bossRespawnMult = 1.0f;
-            _biomeSpreadDisabled = false;
-            // Restore biome spread on unload
-            try { WorldGen.AllowedToSpreadInfections = true; } catch { }
             try { Main.dayRate = 1; } catch { }
             TerrariaModder.Core.Net.NetSync.OnServerCommandResponse -= OnServerCommandResponse;
             NPCSpawner.Unload();
@@ -350,10 +341,6 @@ namespace AdminPanel
                 _prevBossRespawnIndex = _bossRespawnIndex;
                 _prevMoveSpeed = _moveSpeedMultiplier;
 
-                // Biome spread
-                _biomeSpreadDisabled = _config != null ? _config.BiomeSpreadDisabled : false;
-                _prevBiomeSpread = _biomeSpreadDisabled;
-
                 // NPC Spawner favourites
                 string bossFavs = _config != null ? _config.BossFavourites : "";
                 string npcFavs = _config != null ? _config.NpcFavourites : "";
@@ -365,7 +352,7 @@ namespace AdminPanel
                 _prevRightClickSpawn = rightClickSpawn;
                 NPCSpawner.LoadRightClickSpawn(rightClickSpawn);
 
-                _log.Info($"Settings loaded - god:{_godModeActive} time:{_timeSpeedMultiplier}x respawn:{NormalRespawnSeconds[_normalRespawnIndex]}s/{BossRespawnSeconds[_bossRespawnIndex]}s move:{_moveSpeedMultiplier}x biomeSpread:{(_biomeSpreadDisabled ? "blocked" : "normal")}");
+                _log.Info($"Settings loaded - god:{_godModeActive} time:{_timeSpeedMultiplier}x respawn:{NormalRespawnSeconds[_normalRespawnIndex]}s/{BossRespawnSeconds[_bossRespawnIndex]}s move:{_moveSpeedMultiplier}x");
             }
             catch (Exception ex)
             {
@@ -422,12 +409,12 @@ namespace AdminPanel
                     _log.Debug("Patched Player.ResetEffects for god mode");
                 }
 
-                // Player.UpdateDead postfix - custom respawn times
+                // Adjust only the native countdown; keep all death effects and respawn ownership native.
                 var updateDeadMethod = typeof(Player).GetMethod("UpdateDead", BindingFlags.Public | BindingFlags.Instance);
                 if (updateDeadMethod != null)
                 {
-                    var postfix = typeof(Mod).GetMethod(nameof(UpdateDead_Postfix), BindingFlags.NonPublic | BindingFlags.Static);
-                    _harmony.Patch(updateDeadMethod, postfix: new HarmonyMethod(postfix));
+                    var prefix = typeof(Mod).GetMethod(nameof(UpdateDead_Prefix), BindingFlags.NonPublic | BindingFlags.Static);
+                    _harmony.Patch(updateDeadMethod, prefix: new HarmonyMethod(prefix));
                     _log.Debug("Patched Player.UpdateDead for respawn time");
                 }
 
@@ -449,14 +436,6 @@ namespace AdminPanel
                     _log.Debug("Patched Player.HorizontalMovement for movement speed");
                 }
 
-                // WorldGen.hardUpdateWorld prefix - biome spread disable
-                var hardUpdateMethod = typeof(WorldGen).GetMethod("hardUpdateWorld", BindingFlags.Public | BindingFlags.Static);
-                if (hardUpdateMethod != null)
-                {
-                    var prefix = typeof(Mod).GetMethod(nameof(HardUpdateWorld_Prefix), BindingFlags.NonPublic | BindingFlags.Static);
-                    _harmony.Patch(hardUpdateMethod, prefix: new HarmonyMethod(prefix));
-                    _log.Debug("Patched WorldGen.hardUpdateWorld for biome spread control");
-                }
             }
             catch (Exception ex)
             {
@@ -481,28 +460,26 @@ namespace AdminPanel
             catch { }
         }
 
-        private static void UpdateDead_Postfix(Player __instance)
+        private static void UpdateDead_Prefix(Player __instance)
         {
-            try
+            if (__instance != Main.LocalPlayer) return;
+            int current = __instance.respawnTimer;
+            if (_respawnPlayer != __instance || current > _lastRespawnTimer || current <= 0)
             {
-                if (__instance != Main.player[Main.myPlayer]) return;
-
-                _inBossFight = DetectBossFight(__instance);
-
-                float mult = _inBossFight ? _bossRespawnMult : _normalRespawnMult;
-                if (mult >= 1.0f) return;
-
-                int currentTimer = __instance.respawnTimer;
-                if (currentTimer > 0)
-                {
-                    int extraReduction = (int)((1.0f / mult) - 1);
-                    if (extraReduction > 0)
-                    {
-                        __instance.respawnTimer = Math.Max(0, currentTimer - extraReduction);
-                    }
-                }
+                _respawnPlayer = __instance;
+                _respawnTickFraction = 0;
             }
-            catch { }
+            if (current <= 0) { _lastRespawnTimer = current; return; }
+            _inBossFight = DetectBossFight(__instance);
+            double mult = _inBossFight ? _bossRespawnMult : _normalRespawnMult;
+            if (mult <= 0 || double.IsNaN(mult) || double.IsInfinity(mult)) mult = 1;
+            _respawnTickFraction += 1.0 / mult;
+            int elapsed = (int)Math.Floor(_respawnTickFraction + 0.000001);
+            _respawnTickFraction = Math.Max(0, _respawnTickFraction - elapsed);
+            // UpdateDead subtracts one and performs the actual respawn at zero.
+            // Compensate before that subtraction, including fractional slow countdowns.
+            __instance.respawnTimer = Math.Max(1, current + 1 - elapsed);
+            _lastRespawnTimer = __instance.respawnTimer - 1;
         }
 
         /// <summary>
@@ -541,19 +518,6 @@ namespace AdminPanel
                 __instance.runAcceleration *= _moveSpeedMultiplier;
             }
             catch { }
-        }
-
-        /// <summary>
-        /// Prefix for WorldGen.hardUpdateWorld - blocks biome spread when toggle is on.
-        /// Also sets AllowedToSpreadInfections to false for grass growth methods.
-        /// </summary>
-        private static bool HardUpdateWorld_Prefix()
-        {
-            if (!_biomeSpreadDisabled) return true;
-
-            // Also suppress the AllowedToSpreadInfections flag for grass-related spread
-            try { WorldGen.AllowedToSpreadInfections = false; } catch { }
-            return false; // Skip vanilla hardUpdateWorld entirely
         }
 
         private static bool DetectBossFight(Player player)
@@ -800,17 +764,6 @@ namespace AdminPanel
 
             // ---- WORLD ----
             s.SectionHeader("WORLD");
-            if (s.Toggle("Disable Biome Spread", _biomeSpreadDisabled))
-            {
-                _biomeSpreadDisabled = !_biomeSpreadDisabled;
-                // Restore AllowedToSpreadInfections when re-enabling
-                if (!_biomeSpreadDisabled)
-                {
-                    try { WorldGen.AllowedToSpreadInfections = true; } catch { }
-                }
-                _log.Info($"Biome spread: {(_biomeSpreadDisabled ? "DISABLED" : "enabled")}");
-                SaveSettingIfChanged("biomeSpreadDisabled", _biomeSpreadDisabled, ref _prevBiomeSpread);
-            }
         }
 
         private string FormatRespawnLabel(int seconds, bool isDefault)

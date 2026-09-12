@@ -5,6 +5,7 @@ using Terraria;
 using Terraria.DataStructures;
 using Terraria.ID;
 using TerrariaModder.Core;
+using TerrariaModder.Core.Assets;
 using TerrariaModder.Core.Debug;
 using TerrariaModder.Core.Events;
 using TerrariaModder.Core.Input;
@@ -18,7 +19,7 @@ namespace ItemSpawner
     {
         public string Id => "item-spawner";
         public string Name => "Item Spawner";
-        public string Version => "1.0.0";
+        public string Version => "2.0.0";
 
         private ILogger _log;
         private ModContext _context;
@@ -27,6 +28,7 @@ namespace ItemSpawner
 
         private List<ItemEntry> _allItems = new List<ItemEntry>();
         private List<ItemEntry> _filteredItems = new List<ItemEntry>();
+        private List<string> _registeredItemsInCatalog = new List<string>();
 
         // UI - grid layout
         private const int GridSlotSize = 44;
@@ -93,7 +95,8 @@ namespace ItemSpawner
                 { "panelOpen", _panel.IsOpen },
                 { "searchText", _searchInput.Text ?? "" },
                 { "totalItems", _allItems.Count },
-                { "filteredItems", _filteredItems.Count }
+                { "filteredItems", _filteredItems.Count },
+                { "registeredItemsInCatalog", _registeredItemsInCatalog.ToArray() }
             };
         }
 
@@ -136,27 +139,19 @@ namespace ItemSpawner
                 int itemCount = ItemID.Count;
                 int errorCount = 0;
 
+                var seenTypes = new HashSet<int>();
                 for (int i = 1; i < itemCount; i++)
+                    TryAddCatalogItem(i, seenTypes, ref errorCount);
+
+                var registeredItemsInCatalog = new List<string>();
+                foreach (string fullId in ItemRegistry.AllIds)
                 {
-                    try
-                    {
-                        var item = new Item();
-                        item.SetDefaults(i);
-
-                        string name = item.Name ?? "";
-                        int maxStack = item.maxStack;
-
-                        if (!string.IsNullOrEmpty(name) && name.Trim() != "")
-                        {
-                            _allItems.Add(new ItemEntry { Id = i, Name = name, MaxStack = maxStack });
-                        }
-                    }
-                    catch
-                    {
-                        errorCount++;
-                    }
+                    int customType = ItemRegistry.ResolveItemType(fullId);
+                    if (customType > 0 && TryAddCatalogItem(customType, seenTypes, ref errorCount))
+                        registeredItemsInCatalog.Add(fullId);
                 }
 
+                _registeredItemsInCatalog = registeredItemsInCatalog;
                 _allItems = _allItems.OrderBy(i => i.Name).ToList();
                 _filteredItems = new List<ItemEntry>(_allItems);
                 _log.Info($"Item catalog built with {_allItems.Count} items");
@@ -164,6 +159,25 @@ namespace ItemSpawner
             catch (Exception ex)
             {
                 _log.Error($"Failed to build item catalog: {ex.Message}");
+            }
+        }
+
+        private bool TryAddCatalogItem(int itemType, HashSet<int> seenTypes, ref int errorCount)
+        {
+            if (!seenTypes.Add(itemType)) return false;
+            try
+            {
+                var item = new Item();
+                item.SetDefaults(itemType);
+                string name = item.Name ?? "";
+                if (!string.IsNullOrWhiteSpace(name))
+                    _allItems.Add(new ItemEntry { Id = itemType, Name = name, MaxStack = item.maxStack });
+                return !string.IsNullOrWhiteSpace(name);
+            }
+            catch
+            {
+                errorCount++;
+                return false;
             }
         }
 

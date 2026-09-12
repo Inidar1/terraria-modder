@@ -1,28 +1,26 @@
 ---
 title: The TerrariaModder Vault - Mod Manager & Launcher
-description: What the TerrariaModder Vault is, how it works, and how to make your mod compatible so players can install it with one click.
+description: What the TerrariaModder Vault is, how Nexus discovery works, and how to package a mod for reliable installs and updates.
 nav_order: 8.5
 ---
 
 # The TerrariaModder Vault
 
-The [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159) is the official mod manager and launcher for TerrariaModder. For most players it's the easiest way to get mods — one click to install, one click to launch.
+The [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159) is the official mod manager and launcher for TerrariaModder. It finds compatible Nexus releases, manages local Core and mod installations, and launches either modded or vanilla Terraria.
 
 As a modder, understanding the Vault matters because **it's the primary way players will find and install your mod.** A Vault-compatible mod installs cleanly, shows the right version, and surfaces its settings in the Mod Menu automatically.
 
 ## What the Vault Does (Player Side)
 
 Players use the Vault to:
-- Browse and install mods from Nexus Mods with one click
+- Browse Nexus mods that declare TerrariaModder Core as a requirement
+- Install directly with Nexus Premium, or complete Nexus's Manual Download / Slow Download flow with a free account
 - Keep mods up to date
-- Launch Terraria with mods active via the **Run Modded** button
+- Launch Terraria with mods active via the **Launch Modded** button
 - Enable and disable individual mods without touching files
+- Install local mod archives, including mods that are not listed on Nexus
 
-When a player installs your mod through the Vault, it:
-1. Downloads your mod zip from Nexus Mods
-2. Extracts the contents into `TerrariaModder/mods/`
-3. Your mod's folder appears as `mods/{your-mod-id}/`
-4. On next launch, Core picks it up automatically
+When a player installs your mod through the Vault, it downloads the selected release through the account-appropriate Nexus flow, validates and stages the archive, and then replaces the installed mod transactionally. Existing configuration is retained during ordinary updates. On next launch, Core loads the installed folder under `TerrariaModder/mods/`.
 
 ## Making Your Mod Vault-Compatible
 
@@ -30,14 +28,16 @@ When a player installs your mod through the Vault, it:
 
 The Vault installs mods from Nexus Mods. To be available through it:
 - Create a mod page at [nexusmods.com/terraria](https://www.nexusmods.com/terraria)
+- Add **TerrariaModder Core** ([Nexus mod 135](https://www.nexusmods.com/terraria/mods/135)) to the mod's Nexus **Requirements**
 - Upload your mod zip as the **main file** on the Files tab
-- Add the keyword TerrariaModder (no space) in either mod title or mod description
+
+The Nexus requirement is the canonical discovery signal. A title, description, or tag containing "TerrariaModder" does not by itself put a mod in the Vault catalog. The Vault selects the current active main file and excludes archived or unavailable releases.
 
 See [Publishing Your Mod](publishing-your-mod.md) for the full packaging guide.
 
 ### 2. Correct Zip Structure
 
-The zip must extract to a single top-level folder named after your mod ID:
+The recommended layout is a single top-level folder named after your mod ID:
 
 ```
 your-mod-id.zip
@@ -48,7 +48,7 @@ your-mod-id.zip
     └── README.md        ← optional but recommended
 ```
 
-**The folder name must exactly match the `id` field in your manifest.json.** If it doesn't, the Vault won't recognise it as the same mod and may install it twice or fail to update it.
+**The folder name should match the `id` field in your manifest.json.** The Vault can normalize a mismatched wrapper folder from a valid package, but matching names keep manual installs and third-party tooling predictable.
 
 ### 3. Complete manifest.json
 
@@ -94,7 +94,7 @@ If your mod uses APIs introduced in a specific Core version, declare it:
 "framework_version": ">=0.2.0"
 ```
 
-This prevents the Vault from installing your mod on an older Core that won't support it. Use the Core version you built and tested against. When in doubt, check the `<Version>` in Core's `.csproj` or the overlay on the Terraria title screen.
+The Vault uses this to warn when the installed Core may be incompatible. The player can continue after acknowledging the warning because some mods work across a wider range than their metadata states. Structurally unsafe or invalid packages are still rejected. Use the Core version you built and tested against. When in doubt, check the `<Version>` in Core's `.csproj` or the overlay on the Terraria title screen.
 
 ## Config and Settings Conventions
 
@@ -159,6 +159,7 @@ Avoid conflicts with keys already used by bundled mods:
 Before uploading to Nexus:
 
 - [ ] Zip has a **single** top-level folder matching your `id`
+- [ ] Nexus **Requirements** includes TerrariaModder Core (mod 135)
 - [ ] `manifest.json` has all required fields
 - [ ] `version` is higher than any previously uploaded version
 - [ ] `framework_version` declared if you use recent Core APIs
@@ -172,7 +173,7 @@ Before announcing your mod, verify it works end-to-end through the Vault:
 
 1. Download the Vault from [Nexus](https://www.nexusmods.com/terraria/mods/159)
 2. Install your mod through the Vault (not manually)
-3. Launch with **Run Modded**
+3. Launch with **Launch Modded**
 4. Verify your mod appears in the Mod Menu (F6) with the correct name and version
 5. Verify config defaults are applied (no leftover settings from your dev environment)
 6. Test all features from the clean default state

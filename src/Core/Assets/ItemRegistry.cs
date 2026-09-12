@@ -7,8 +7,8 @@ namespace TerrariaModder.Core.Assets
 {
     /// <summary>
     /// Central registry mapping string item IDs ("modid:itemname") to runtime type IDs (6145+).
-    /// Type assignment is deterministic: all registered items sorted alphabetically, assigned sequentially.
-    /// This means same mods installed = same type assignments every time, regardless of load order.
+    /// Runtime types are hash-derived within a range based on the native item count,
+    /// with collision probing. Persist string identities rather than these runtime numbers.
     /// </summary>
     public static class ItemRegistry
     {
@@ -228,6 +228,23 @@ namespace TerrariaModder.Core.Assets
         public static string GetFullId(int runtimeType)
         {
             return _typeToId.TryGetValue(runtimeType, out string id) ? id : null;
+        }
+
+        /// <summary>Persistence identity: existing vanilla:type convention or registered custom ID.</summary>
+        public static string GetPersistentId(int runtimeType)
+        {
+            if (runtimeType > 0 && runtimeType < VanillaItemCount) return "vanilla:" + runtimeType.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return GetFullId(runtimeType) ?? (IsKnownUnknown(runtimeType, out string id) ? id : null);
+        }
+
+        /// <summary>Resolve a saved identity without accepting invalid or runtime-only numeric types.</summary>
+        public static int ResolvePersistentId(string itemId)
+        {
+            if (string.IsNullOrEmpty(itemId)) return -1;
+            if (itemId.StartsWith("vanilla:", StringComparison.Ordinal))
+                return int.TryParse(itemId.Substring(8), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int type)
+                    && type > 0 && type < VanillaItemCount ? type : -1;
+            return GetRuntimeType(itemId);
         }
 
         /// <summary>Get definition for a runtime type. Returns null if not found.</summary>

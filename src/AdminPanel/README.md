@@ -1,56 +1,37 @@
 # Admin Panel
 
-Quick access to admin/cheat features with a toggleable panel UI.
+A quick-access panel for administrative and testing controls in singleplayer and multiplayer.
 
 ## Features
 
-- **God Mode** - Toggle invincibility (panel button or F9 hotkey)
-- **Full Health/Mana** - Instant restore buttons
-- **Movement Speed** - Speed multiplier slider (1-10x)
-- **Time Controls** - Dawn, Noon, Dusk, Night presets + speed slider (1x-60x)
-- **Teleport** - Spawn, Dungeon, Hell, Beach, Player Bed, Random
-- **Respawn Time** - Separate sliders for normal and boss deaths
+- God mode, full health, and full mana
+- Movement speed from 1x to 10x
+- Dawn, noon, dusk, and night presets with time speed from 1x to 60x
+- Teleport to spawn, dungeon, hell, beach, bed, or a random valid location
+- Separate valid respawn-time presets for normal and boss deaths
+- Boss and NPC catalogs with search, favorites, and spawn controls
 
 ## Keybinds
 
-| Key | Action |
-|-----|--------|
-| `\` (Backslash) | Toggle admin panel |
-| `F9` | Toggle god mode |
+| Default | Action |
+| --- | --- |
+| Backslash | Open or close the panel |
+| F9 | Toggle god mode |
 
-Both keybinds can be remapped via the F6 Mod Menu.
+Both keybinds can be changed in the F6 Mod Menu.
 
-## Configuration
+## Respawn presets
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| enabled | true | Enable the mod |
-| singleplayerOnly | true | Disable in multiplayer |
+Normal deaths: 1, 2, 3, 5, 10, 15, 20, 30, or 45 seconds.
 
-## Technical Details
+Boss deaths: 2, 5, 7, 10, 20, 30, 45, 60, or 90 seconds.
 
-This mod demonstrates several key patterns:
-
-- **Custom UI panel** with dragging, buttons, sliders
-- **Harmony patching** for god mode (Player.ResetEffects) and respawn (Player.UpdateDead)
-- **Reflection** for accessing game state (time, player stats, NPC data)
-- **Boss detection** matching vanilla logic (within 4000 pixels)
-
-## Respawn Time Presets
-
-**Normal deaths** (base 10s): 1s, 2s, 3s, 5s, 10s (default), 15s, 20s, 30s, 45s
-
-**Boss deaths** (base 20s): 2s, 5s, 7s, 10s, 20s (default), 30s, 45s, 60s, 90s
-
-Note: Expert mode adds 50% to base times in vanilla.
+Saved indices are validated before use so an invalid configuration cannot create a negative or out-of-range respawn value.
 
 ## Multiplayer
 
-Singleplayer only.
+Works in singleplayer, Host & Play, and on dedicated servers. Multiplayer actions that change server state require administrator permission; a Host & Play host is an administrator automatically.
 
 ## Installation
 
-Requires TerrariaModder Core.
-
-Extract this zip into your Terraria folder. The mod goes into
-`TerrariaModder/mods/admin-panel/`.
+Requires TerrariaModder Core. Replace the existing <code>TerrariaModder/mods/admin-panel/</code> folder with the downloaded mod folder, then launch through <code>TerrariaInjector.exe</code>.

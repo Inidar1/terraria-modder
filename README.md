@@ -2,89 +2,70 @@
 
 [![Discord](https://img.shields.io/discord/1467363973526716572?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/VvVD5EeYsK)
 
-A lightweight modding framework for Terraria 1.4.5. No tModLoader required.
+A lightweight modding framework for Terraria 1.4.5.8. Launch through TerrariaInjector for modded play or launch Terraria normally for vanilla.
 
 ## Download
 
-Get the latest release from [Nexus Mods](https://www.nexusmods.com/terraria/mods/135), or follow build instructions below. Extract to your Terraria folder and run `TerrariaInjector.exe`.
+Install Core and mods with [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159), or download Core and individual mods from [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods).
 
-## Create Your Own Mods
+Back up characters and worlds you care about before testing an update. For manual installation, replace the complete Core or mod folder instead of merging an old and new package.
 
-TerrariaModder is built to be modder-friendly. Everything you need to get started:
+## Released mods
 
-- **[Wiki & Guides](https://inidar1.github.io/terraria-modder/)** — Installation, first mod tutorial, Harmony basics, API reference, and walkthroughs of every included mod
-- **[Starter Template](templates/ModTemplate)** — Ready-to-build mod template so you can have a working mod in minutes
-- **Example Mods** — Every mod in this repo is open source with full source code. Use them as reference for real-world patterns
-- **Built-in UI Library** — Panels, buttons, sliders, text fields, scrollable lists, tabs, and automatic colorblind support
-- **Automatic Config UI** — Define config fields and the mod menu generates the settings UI for you
+| Mod | Description | Default input | Download |
+| --- | --- | --- | --- |
+| Mod Menu | Configure mods and rebind keys | F6 | Included in [Core](https://www.nexusmods.com/terraria/mods/135) |
+| Skip Intro | Waits for loading, then skips the ReLogic splash | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/140) |
+| Quick Keys | Torch, recall, quick stack, ruler, and optional slots 11-20 | Tilde, Home, End, K | [Nexus](https://www.nexusmods.com/terraria/mods/143) |
+| Item Spawner | Search and spawn vanilla or registered modded items | Insert | [Nexus](https://www.nexusmods.com/terraria/mods/141) |
+| Auto Furniture Buffs | Applies buffs from nearby furniture, including the Dead Cells station | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/138) |
+| Pet Chests | Use cosmetic pets as portable piggy banks | Right-click pet | [Nexus](https://www.nexusmods.com/terraria/mods/142) |
+| Storage Hub | Registered storage, crafting, shimmer, progression, relays, and Mysterious Chest | F5 | [Nexus](https://www.nexusmods.com/terraria/mods/136) |
+| Admin Panel | God mode, movement, time, teleport, respawn, and NPC controls | Backslash, F9 | [Nexus](https://www.nexusmods.com/terraria/mods/137) |
+| Whip Stacking | Enables Terraria's native five-effect whip-tag capacity | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/139) |
+| Seed Lab | Mix secret-seed world-generation and singleplayer runtime features | F10 | [Nexus](https://www.nexusmods.com/terraria/mods/144) |
+| FPS Unlocked | High-rate rendering with 60 Hz game simulation and interpolation | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/145) |
+| Biome Spread Control | Prevent corruption, crimson, and Hallow spread | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/146) |
+| Randomizer | Deterministic modules for loot, drops, recipes, shops, spawns, and more | Numpad / | [Nexus](https://www.nexusmods.com/terraria/mods/147) |
 
-A GUI mod manager app is coming soon.
+Public Debug Tools 2.0.0 is available from the Core optional files for mod development and advanced diagnostics. Its stable feature set includes an in-game console, localhost HTTP API, virtual input, state inspection, and window controls.
 
-## Included Mods
+Each mod's README states whether it is client-only, optional, singleplayer-only, or required on every peer.
 
-| Mod | Description | Default Key | Download |
-|-----|-------------|-------------|----------|
-| ModMenu | In-game mod configuration | F6 | Included in [Core](https://www.nexusmods.com/terraria/mods/135) |
-| SkipIntro | Skips the ReLogic splash screen | (auto) | [Nexus](https://www.nexusmods.com/terraria/mods/140) |
-| QuickKeys | Auto-torch, recall, quick-stack, ruler, extended hotbar (opt-in) | Tilde, Home, End, K | [Nexus](https://www.nexusmods.com/terraria/mods/143) |
-| ItemSpawner | In-game item spawner | Insert | [Nexus](https://www.nexusmods.com/terraria/mods/141) |
-| AutoBuffs | Automatically applies furniture buffs | (auto) | [Nexus](https://www.nexusmods.com/terraria/mods/138) |
-| PetChests | Use pets as portable piggy banks | (right-click) | [Nexus](https://www.nexusmods.com/terraria/mods/142) |
-| StorageHub | Unified storage with crafting, recipes, shimmer decraft, mysterious chest, relay network | F5 | [Nexus](https://www.nexusmods.com/terraria/mods/136) |
-| AdminPanel | God mode, movement speed, teleports, time controls, respawn | Backslash, F9 | [Nexus](https://www.nexusmods.com/terraria/mods/137) |
-| WhipStacking | Restores pre-1.4.5 whip tag stacking | (auto) | [Nexus](https://www.nexusmods.com/terraria/mods/139) |
-| SeedLab | Toggle secret seed features for world gen (WIP) | F10 | [Nexus](https://www.nexusmods.com/terraria/mods/144) |
-| FpsUnlocked | Unlock frame rate with smooth interpolation | (auto) | [Nexus](https://www.nexusmods.com/terraria/mods/145) |
-| BiomeSpread | Visualize and control evil biome spread | (auto) | [Nexus](https://www.nexusmods.com/terraria/mods/146) |
-| Randomizer | Modular randomizer with seed system — shuffle chests, drops, recipes, shops, and more | Numpad / | [Nexus](https://www.nexusmods.com/terraria/mods/147) |
+## Create a mod
 
-**Optional (for mod developers):**
+- [Wiki and guides](https://inidar1.github.io/terraria-modder/)
+- [Starter template](templates/ModTemplate)
+- [Core API reference](docs/core-api-reference.md)
+- [Harmony guide](docs/harmony-basics.md)
+- [Current released mod source](src/)
 
-| Mod | Description | Default Key | Download |
-|-----|-------------|-------------|----------|
-| DebugTools | Debug HTTP server, in-game console, virtual input, window management | Ctrl+` | [Nexus](https://www.nexusmods.com/terraria/mods/135) (optional file) |
+New mods can inherit <code>ModBase</code> so identity comes from <code>manifest.json</code>. Implement <code>IModLifecycle</code> for content-ready and world load/unload callbacks. Core provides typed configuration, dynamic option lists, keybinds, UI widgets, commands, events, custom items, save support, and multiplayer services.
 
-## Multiplayer
+## Build from source
 
-TerrariaModder has full multiplayer support:
+Requirements:
 
-- **Host & Play** — host from your game client, automatic admin for the host
-- **Dedicated Server** — headless server with HTTP management API and console commands
-- **Admin System** — promote/demote players, per-mod access grants, ban/kick
-- **Server Console** — `/op`, `/kick`, `/ban`, `/grant`, `/time`, `/config`, and more
-- **Config Scoping** — `[Server]` properties sync across all players, `[Client]` stays local
+- Windows 10 or 11
+- Terraria 1.4.5.8 from Steam
+- .NET SDK 6 or later
+- .NET Framework 4.8 Developer Pack (recommended for offline builds; the .NET SDK can restore reference assemblies when package restore is available)
 
-Each mod's page notes its multiplayer compatibility (required, optional, or client-only). Mods with custom items are automatically required for all connected clients.
+Run <code>setup.bat</code> once to link the local Terraria installation and test Core, then use <code>build.bat</code>. Build output is written under <code>build/core/</code> and <code>build/plugins/</code>. <code>deploy.bat</code> copies those local builds into the linked development install while preserving existing mod data files.
 
-## Building from Source
-
-Requires [.NET SDK](https://dotnet.microsoft.com/download) and the [.NET Framework 4.8 Developer Pack](https://dotnet.microsoft.com/download/dotnet-framework/net48). Both are included with Visual Studio 2022.
-
-```bash
-# Build all mods
-dotnet build src/Core/TerrariaModder.Core.csproj -c Release
-dotnet build src/SkipIntro/SkipIntro.csproj -c Release
-# ... etc for each mod in src/
-```
-
-Each mod builds to a single DLL. Place them in `Terraria/TerrariaModder/mods/<mod-id>/` alongside their `manifest.json`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 ## Documentation
 
-See the [Wiki](https://inidar1.github.io/terraria-modder/) for guides and reference, or browse the docs directly:
-
-- [Installation Guide](docs/installation.md)
-- [Making Your First Mod](docs/making-your-first-mod.md)
-- [Core API Reference](docs/core-api-reference.md)
-- [Harmony Basics](docs/harmony-basics.md)
-- [Tested Patterns](docs/tested-patterns.md)
+- [Installation](docs/installation.md)
+- [Available mods](docs/finding-mods.md)
+- [Making your first mod](docs/making-your-first-mod.md)
+- [Core API](docs/core-api-reference.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
 ## Credits
 
-Special thanks to [ConfuzzedCat](https://github.com/ConfuzzedCat) for [TerrariaInjector](https://github.com/ConfuzzedCat/TerrariaInjector), the injector that makes this entire project possible. Included in releases with their permission; check out the source at their repo.
-
-Built with [Harmony](https://github.com/pardeike/Harmony) (runtime patching) and [Mono.Cecil](https://github.com/jbevain/cecil) (assembly inspection), both MIT licensed.
+TerrariaInjector is made by [ConfuzzedCat](https://github.com/ConfuzzedCat/TerrariaInjector) and included in releases with permission. TerrariaModder uses [Harmony](https://github.com/pardeike/Harmony) and [Mono.Cecil](https://github.com/jbevain/cecil).
 
 ## License
 

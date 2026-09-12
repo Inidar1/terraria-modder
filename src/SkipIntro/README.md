@@ -1,35 +1,25 @@
 # Skip Intro
 
-Skips the ReLogic intro splash screen on startup, getting you to the main menu faster.
+Skips the ReLogic splash screen after Terraria finishes its asynchronous startup loading, getting you to the title screen as soon as the game is ready.
 
 ## Features
 
-- Automatically skips the ReLogic logo animation
-- No keybind needed - works on every launch
+- Waits for Terraria to finish loading instead of relying on a fixed delay
+- Runs automatically on startup
+- Does not run on a dedicated server
 
 ## Configuration
 
 | Setting | Default | Description |
-|---------|---------|-------------|
-| Enabled | true | Enable skipping the intro splash |
+| --- | --- | --- |
+| Enabled | On | Skip the ReLogic splash screen on the next game start |
 
-All settings configurable via F6 menu in-game.
+Changing this setting requires a restart. Open the Mod Menu with F6.
 
 ## Multiplayer
 
-Works in multiplayer.
+Skip Intro is client-only and does not change world or server state.
 
 ## Installation
 
-Requires TerrariaModder Core.
-
-Extract this zip into your Terraria folder. The mod goes into
-`TerrariaModder/mods/skip-intro/`.
-
-## Credits
-
-**Author**: Inidar
-
-**Dependencies**:
-- [TerrariaInjector](https://github.com/ConfuzzedCat/TerrariaInjector) by ConfuzzedCat
-- [Harmony](https://github.com/pardeike/Harmony) by pardeike
+Requires TerrariaModder Core. Replace the existing <code>TerrariaModder/mods/skip-intro/</code> folder with the downloaded mod folder, then launch through <code>TerrariaInjector.exe</code>.

@@ -139,7 +139,7 @@ namespace TerrariaModder.Core.Assets
                 return activeItems;
 
             // Recovery: if primary file is missing, try .tmp then .bak
-            // This handles crashes between File.Delete(path) and File.Move(tmpPath, path) in Write()
+            // Retain recovery for files left by historical delete-then-move writers.
             if (!File.Exists(path))
             {
                 string tmpRecovery = path + ".tmp";
@@ -259,6 +259,59 @@ namespace TerrariaModder.Core.Assets
         /// <paramref name="preservedItems"/> = items from unloaded mods (written verbatim, preserving data).
         /// Omitting preservedItems is safe — just means unloaded-mod items won't survive this save.
         /// </summary>
+        internal static string Serialize(List<ItemEntry> items, List<ItemEntry> preservedItems = null)
+        {
+            // Combine and group by modId
+            var allItems = new List<ItemEntry>(items ?? new List<ItemEntry>());
+            if (preservedItems != null) allItems.AddRange(preservedItems);
+
+            var byMod = new Dictionary<string, List<ItemEntry>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in allItems)
+            {
+                string modId = ExtractModId(entry.ItemId);
+                if (string.IsNullOrEmpty(modId)) modId = "__unknown__";
+                if (!byMod.TryGetValue(modId, out var list))
+                    byMod[modId] = list = new List<ItemEntry>();
+                list.Add(entry);
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine("{");
+            sb.AppendLine($"  \"version\": {FORMAT_VERSION}");
+
+            foreach (var kvp in byMod)
+            {
+                sb.Append($",\n  \"{Escape(kvp.Key)}\": {{");
+                sb.AppendLine();
+                sb.AppendLine("    \"items\": [");
+
+                var modItems = kvp.Value;
+                for (int i = 0; i < modItems.Count; i++)
+                {
+                    var item = modItems[i];
+                    sb.Append("      { ");
+                    sb.Append($"\"item_id\": \"{Escape(item.ItemId)}\", ");
+                    sb.Append($"\"location\": \"{Escape(item.Location)}\", ");
+                    sb.Append($"\"slot\": {item.Slot}, ");
+                    sb.Append($"\"stack\": {item.Stack}, ");
+                    sb.Append($"\"prefix\": {item.Prefix}, ");
+                    sb.Append($"\"favorited\": {(item.Favorited ? "true" : "false")}");
+                    sb.Append(" }");
+                    if (i < modItems.Count - 1) sb.Append(",");
+                    sb.AppendLine();
+                }
+
+                sb.Append("    ]");
+                sb.AppendLine();
+                sb.Append("  }");
+            }
+
+            sb.AppendLine();
+            sb.Append("}");
+
+            return sb.ToString();
+        }
+
         public static bool Write(string path, List<ItemEntry> items, List<ItemEntry> preservedItems = null)
         {
             if (string.IsNullOrEmpty(path)) return false;
@@ -269,68 +322,9 @@ namespace TerrariaModder.Core.Assets
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
-                // Combine and group by modId
-                var allItems = new List<ItemEntry>(items ?? new List<ItemEntry>());
-                if (preservedItems != null) allItems.AddRange(preservedItems);
+                string json = Serialize(items, preservedItems);
 
-                var byMod = new Dictionary<string, List<ItemEntry>>(StringComparer.OrdinalIgnoreCase);
-                foreach (var entry in allItems)
-                {
-                    string modId = ExtractModId(entry.ItemId);
-                    if (string.IsNullOrEmpty(modId)) modId = "__unknown__";
-                    if (!byMod.TryGetValue(modId, out var list))
-                        byMod[modId] = list = new List<ItemEntry>();
-                    list.Add(entry);
-                }
-
-                var sb = new StringBuilder();
-                sb.AppendLine("{");
-                sb.AppendLine($"  \"version\": {FORMAT_VERSION}");
-
-                foreach (var kvp in byMod)
-                {
-                    sb.Append($",\n  \"{Escape(kvp.Key)}\": {{");
-                    sb.AppendLine();
-                    sb.AppendLine("    \"items\": [");
-
-                    var modItems = kvp.Value;
-                    for (int i = 0; i < modItems.Count; i++)
-                    {
-                        var item = modItems[i];
-                        sb.Append("      { ");
-                        sb.Append($"\"item_id\": \"{Escape(item.ItemId)}\", ");
-                        sb.Append($"\"location\": \"{Escape(item.Location)}\", ");
-                        sb.Append($"\"slot\": {item.Slot}, ");
-                        sb.Append($"\"stack\": {item.Stack}, ");
-                        sb.Append($"\"prefix\": {item.Prefix}, ");
-                        sb.Append($"\"favorited\": {(item.Favorited ? "true" : "false")}");
-                        sb.Append(" }");
-                        if (i < modItems.Count - 1) sb.Append(",");
-                        sb.AppendLine();
-                    }
-
-                    sb.Append("    ]");
-                    sb.AppendLine();
-                    sb.Append("  }");
-                }
-
-                sb.AppendLine();
-                sb.Append("}");
-
-                string tmpPath = path + ".tmp";
-                File.WriteAllText(tmpPath, sb.ToString(), Encoding.UTF8);
-
-                // Backup existing
-                if (File.Exists(path))
-                {
-                    string bakPath = path + ".bak";
-                    try { File.Copy(path, bakPath, true); }
-                    catch { /* non-fatal */ }
-                }
-
-                // Atomic rename
-                if (File.Exists(path)) File.Delete(path);
-                File.Move(tmpPath, path);
+                TerrariaModder.Core.IO.AtomicFile.WriteText(path, json, Encoding.UTF8, recoverLegacyTemporary: true);
 
                 return true;
             }

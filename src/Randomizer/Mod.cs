@@ -17,7 +17,7 @@ namespace Randomizer
     {
         public string Id => "randomizer";
         public string Name => "Randomizer";
-        public string Version => "1.0.0";
+        public string Version => "2.0.0";
 
         private ILogger _log;
         private ModContext _context;
@@ -33,8 +33,6 @@ namespace Randomizer
         private static Harmony _harmony;
         private bool _patchesApplied;
 
-        // Menu hotkey edge detection (KeybindManager skips menus)
-        private bool _hotKeyWasDown;
 
         // Static reference for Harmony patches to access modules
         internal static Mod Instance { get; private set; }
@@ -97,8 +95,8 @@ namespace Randomizer
             _panel = new RandomizerPanel(_log, this);
             _worldGenPanel = new WorldGenPanel(_log, this, _worldGenState);
 
-            // Register keybind (in-world only via KeybindManager)
-            context.RegisterKeybind("toggle", "Toggle Panel", "Open/close Randomizer config", "NumDiv", OnToggle);
+            // Core owns input polling in both title-screen and world contexts.
+            context.RegisterKeybind("toggle", "Toggle Panel", "Open/close Randomizer config", "NumDiv", OnToggle).AllowInMenu = true;
 
             // Subscribe to events (fires in both menu and world)
             FrameEvents.OnPreUpdate += OnUpdate;
@@ -274,10 +272,15 @@ namespace Randomizer
         }
 
         /// <summary>
-        /// Keybind callback (in-world only, via KeybindManager).
+        /// Keybind callback for the panel appropriate to the current game context.
         /// </summary>
         private void OnToggle()
         {
+            if (Game.InMenu)
+            {
+                if (_worldGenPanel != null) _worldGenPanel.Visible = !_worldGenPanel.Visible;
+                return;
+            }
             if (_panel == null) return;
             _panel.Toggle();
         }
@@ -317,7 +320,6 @@ namespace Randomizer
         {
             if (Game.InMenu)
             {
-                PollMenuInput();
                 _worldGenPanel?.Draw();
             }
             else
@@ -326,23 +328,7 @@ namespace Randomizer
             }
         }
 
-        /// <summary>
-        /// Manual keyboard polling for menu context.
-        /// KeybindManager skips input when Main.gameMenu=true, so we poll directly.
-        /// </summary>
-        private void PollMenuInput()
-        {
-            InputState.Update();
 
-            bool keyDown = InputState.IsKeyDown(KeyCode.Divide);
-            bool justPressed = keyDown && !_hotKeyWasDown;
-            _hotKeyWasDown = keyDown;
-
-            if (justPressed)
-            {
-                _worldGenPanel.Visible = !_worldGenPanel.Visible;
-            }
-        }
 
         private void ApplyPatches()
         {

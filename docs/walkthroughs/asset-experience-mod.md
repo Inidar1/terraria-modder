@@ -1,6 +1,6 @@
 ---
-title: Asset Experience Mod - Custom Items Tutorial for Terraria 1.4.5
-description: Walkthrough of the Asset Experience Mod for Terraria 1.4.5. Learn how to create custom items with textures, hooks, recipes, shop entries, and NPC drops using the Custom Assets system.
+title: Asset Experience Mod - Custom Items Tutorial for Terraria 1.4.5.8
+description: Walkthrough of the Asset Experience Mod for Terraria 1.4.5.8. Learn how to create custom items with textures, hooks, recipes, shop entries, and NPC drops using the Custom Assets system.
 parent: Walkthroughs
 nav_order: 11
 ---

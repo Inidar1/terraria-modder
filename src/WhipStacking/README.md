@@ -1,31 +1,25 @@
 # Whip Stacking
 
-Restores pre-1.4.5 whip tag stacking behavior. Multiple whip tags can be active on NPCs simultaneously instead of only the most recent one.
+Enables Terraria 1.4.5.8's native maximum of five simultaneous whip tag effects.
 
-## What It Does
+## Behavior
 
-In Terraria 1.4.5, Re-Logic changed whip behavior so that only one whip tag can be active on an NPC at a time. Hitting with a new whip removes the previous tag. This mod restores the pre-1.4.5 behavior where all whip tags stack, letting summoner builds benefit from multiple whip buffs simultaneously.
+Terraria's native <code>TagEffectStack</code> can retain up to five active effects, but players normally begin with capacity for one. While enabled, this mod sets the player's capacity to five after equipment effects are applied.
+
+Terraria continues to own hit processing, tag duration, procs, replacement order, networking, and cleanup. Applying another distinct effect at capacity replaces the oldest effect. Accessories that normally raise tag capacity keep their other bonuses.
 
 ## Configuration
 
 | Setting | Default | Description |
-|---------|---------|-------------|
-| enabled | true | Allow multiple whip tags to stack on NPCs |
+| --- | --- | --- |
+| Enabled | On | Enables the five-effect capacity |
 
-Toggle via F6 Mod Menu in-game.
-
-## Technical Details
-
-- Uses 10 Harmony patches on whip-related projectile and NPC methods
-- Resets tag state cleanly on world load/unload and config changes
+Open the F6 Mod Menu to change the setting; it applies immediately.
 
 ## Multiplayer
 
-Singleplayer only. Modifies shared NPC state.
+Whip Stacking is an optional client mod. Each player who wants the five-effect capacity installs it on their client.
 
 ## Installation
 
-Requires TerrariaModder Core.
-
-Extract this zip into your Terraria folder. The mod goes into
-`TerrariaModder/mods/whip-stacking/`.
+Requires TerrariaModder Core. Replace the existing <code>TerrariaModder/mods/whip-stacking/</code> folder with the downloaded mod folder, then launch through <code>TerrariaInjector.exe</code>.

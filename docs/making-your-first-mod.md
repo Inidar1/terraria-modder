@@ -1,6 +1,6 @@
 ---
-title: How to Make a Terraria 1.4.5 Mod - Beginner Tutorial
-description: Learn how to create a Terraria 1.4.5 mod from scratch using TerrariaModder and Harmony. Step-by-step C# tutorial with project setup, config, keybinds, and UI.
+title: How to Make a Terraria 1.4.5.8 Mod - Beginner Tutorial
+description: Learn how to create a Terraria 1.4.5.8 mod from scratch using TerrariaModder and Harmony. Step-by-step C# tutorial with project setup, config, keybinds, and UI.
 nav_order: 5
 ---
 
@@ -10,7 +10,7 @@ This tutorial walks you through creating a simple TerrariaModder mod from scratc
 
 ## Prerequisites
 
-- **.NET Framework 4.8 SDK** - [Download](https://dotnet.microsoft.com/download/dotnet-framework/net48)
+- **.NET Framework 4.8 Developer Pack** - [Download](https://dotnet.microsoft.com/download/dotnet-framework/net48) (recommended for offline builds; the .NET SDK can restore reference assemblies when package restore is available)
 - **Visual Studio 2019+** or **VS Code** with C# extension
 - **TerrariaModder** installed in your Terraria folder
 
@@ -140,29 +140,26 @@ using TerrariaModder.Core.Logging;
 
 namespace MyFirstMod
 {
-    // Config class — properties auto-generate F6 menu UI and save to core/configs/
+    // Config class — properties supply F6 menu metadata and save automatically
     public class MyFirstModConfig : ModConfig
     {
+        public override int Version => 1;
+
         [Client] public bool ShowOnEnter { get; set; } = true;
         [Client] public string GreetingMessage { get; set; } = "Hello, Terraria!";
     }
 
     // IMod = required. IModLifecycle = optional (world load/unload hooks).
-    public class Mod : IMod, IModLifecycle
+    public class Mod : ModBase, IModLifecycle
     {
         // These must match manifest.json
-        public string Id => "my-first-mod";
-        public string Name => "My First Mod";
-        public string Version => "1.0.0";
 
         private ILogger _log;
-        private ModContext _context;
         private MyFirstModConfig _config;
 
-        public void Initialize(ModContext context)
+        public override void Initialize(ModContext context)
         {
             _log = context.Logger;
-            _context = context;
             _config = context.GetConfig<MyFirstModConfig>();
 
             // Register our keybind
@@ -189,7 +186,7 @@ namespace MyFirstMod
             _log.Debug("World unloading");
         }
 
-        public void Unload()
+        public override void Unload()
         {
             _log.Info("My First Mod unloading");
         }
@@ -203,8 +200,8 @@ namespace MyFirstMod
 
         private void ShowGreeting()
         {
-            // Get the greeting from config, or use default
-            string greeting = _context.Config?.Get<string>("greeting") ?? "Hello, Terraria!";
+            // Read the typed config instance, including live edits.
+            string greeting = _config.GreetingMessage;
 
             // Show it in the game chat
             Main.NewText(greeting, 255, 255, 100); // Yellow text
@@ -255,10 +252,7 @@ copy /Y "src\MyFirstMod\manifest.json" "%TERRARIA_PATH%\TerrariaModder\mods\my-f
 
 ## Step 8: Check Logs
 
-If something doesn't work, check:
-```
-Terraria/TerrariaModder/core/logs/terrariamodder.log
-```
+If something doesn't work, open `Terraria/TerrariaModder/core/logs/` and use the newest `terrariamodder.client.session-*.log` file for the failed run. The combined `terrariamodder.log` remains available for compatibility.
 
 Look for `[my-first-mod]` entries to see your mod's log messages.
 
@@ -267,7 +261,7 @@ Look for `[my-first-mod]` entries to see your mod's log messages.
 If you're updating a mod from an earlier Core version:
 
 - **Recompile against new Core** — mods must be recompiled against Core 0.4.0+. Old DLLs that only use basic `IMod` methods will still load, but mods using changed APIs (like the old `IModConfig` interface) will fail gracefully and need a recompile.
-- **Config migration is automatic** — if your mod used the old `config_schema` / `config.json` system, user settings migrate automatically to the new `core/configs/` location. We encourage adopting the new `ModConfig` class for free F6 UI, multiplayer scoping, and validation. The legacy migration will eventually be removed.
+- **Config migration is automatic** — if your mod used the old `config_schema` / `config.json` system, user settings migrate automatically to the new `core/configs/` location. We encourage adopting the new `ModConfig` class for free F6 UI, multiplayer scoping, and validation. Existing settings continue to migrate through the compatibility path.
 - **IModLifecycle is optional** — `OnContentReady`, `OnWorldLoad`, and `OnWorldUnload` moved from `IMod` to the optional `IModLifecycle` interface. Add `IModLifecycle` to your class declaration to use them.
 - **Multiplayer** — add `"multiplayer": "client-only"` (or `"required"` / `"optional"`) to your manifest.json. See [Publishing](publishing-your-mod.md) for details.
 
@@ -276,7 +270,7 @@ If you're updating a mod from an earlier Core version:
 Now that you have a working mod:
 
 1. **Add a UI panel** - Use `DraggablePanel` + `StackLayout` from the [Widget Library](core-api-reference.md#widget-library) for instant drag, close, z-order
-2. **Add Harmony patches** - See [Harmony Basics](harmony-basics.md) for patching game behavior. Apply patches manually with `_harmony.Patch()` in the `OnGameReady()` [lifecycle hook](core-api-reference.md#injector-lifecycle-hooks)
+2. **Add Harmony patches** - See [Harmony Basics](harmony-basics.md) for patching game behavior. Apply patches manually with `_harmony.Patch()` in `IModLifecycle.OnContentReady` after Terraria and other mod content are initialized
 3. **Add more features** - See [Tested Patterns](tested-patterns.md) for common techniques
 4. **Study real mods** - Read the [Mod Walkthroughs](walkthroughs.md)
 5. **Publish** - See [Publishing Your Mod](publishing-your-mod.md)
@@ -302,3 +296,5 @@ The `Id` property in your Mod class must exactly match the `id` in manifest.json
 1. Check the keybind is registered (look for log message)
 2. Try a different key if there's a conflict
 3. Make sure you're in-game, not on the menu
+
+New mods can inherit `ModBase` to read `Id`, `Name`, and `Version` from `manifest.json`. The loader binds these before `Initialize`; do not read them in the constructor. Existing `IMod` implementations remain supported.

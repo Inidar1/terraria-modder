@@ -16,9 +16,10 @@ namespace PetChests
         private const int INTERACTION_COOLDOWN = 15;
         private static bool _keepPiggyOpen = false;
         private static int _boundPetIndex = -1;
+        private static int _boundPetIdentity = -1;
+        private static int _boundPetType = -1;
         private static int _closeCooldown = 0;  // Prevents immediate reopen after close
         private const int CLOSE_COOLDOWN_FRAMES = 10;
-        private const float SOUND_MUTE_RANGE = 120f;  // Distance in pixels to mute projectile sounds
         private const int STACK_SPLIT_DELAY = 600;     // Delay before stack splitting is allowed
         private const int NO_THROW_VALUE = 4;          // Frames to prevent item throw after opening
 
@@ -29,67 +30,20 @@ namespace PetChests
         /// </summary>
         public static bool ShouldBlockInteraction() => _keepPiggyOpen || _closeCooldown > 0;
 
-        /// <summary>
-        /// Block input in prefix (before vanilla processes) to prevent clicking sounds.
-        /// Also handles right-click to close before blocking.
-        /// </summary>
+        /// <summary>Consume only the pet-close click; inventory and item input remain native.</summary>
         public static void BlockInputInPrefix(Player player)
         {
-            // If in close cooldown, still block input to prevent reopen
-            if (_closeCooldown > 0)
+            if (!_keepPiggyOpen) return;
+            bool mouseRight = Main.mouseRight;
+            if (mouseRight && !_lastMouseRight && !player.mouseInterface && !player.lastMouseInterface &&
+                _boundPetIndex >= 0 && CheckClickOnBoundPet(player))
             {
-                BlockAllInput(player);
+                ClosePiggyBank(player);
+                Main.mouseRightRelease = false;
+                player.releaseUseTile = false;
                 return;
             }
-
-            if (!_keepPiggyOpen) return;
-
-            try
-            {
-                // First check if user right-clicked to close (BEFORE we block mouseRight)
-                bool mouseRight = Main.mouseRight;
-                if (mouseRight && !_lastMouseRight)
-                {
-                    // Rising edge - user just clicked
-                    // Check if clicking on bound pet to close
-                    if (_boundPetIndex >= 0 && CheckClickOnBoundPet(player))
-                    {
-                        ClosePiggyBank(player);
-                        // Set to false so HandleInteraction doesn't see a false "mouse release"
-                        // (we blocked mouseRight to false, so !false && true would trigger open)
-                        _lastMouseRight = false;
-                        // STILL block input after close to prevent vanilla reopen
-                        BlockAllInput(player);
-                        return;
-                    }
-                }
-                _lastMouseRight = mouseRight;
-
-                BlockAllInput(player);
-            }
-            catch { }
-        }
-
-        private static void BlockAllInput(Player player)
-        {
-            try
-            {
-                // Block all use-related input before vanilla gets to process it
-                player.controlUseItem = false;
-                player.controlUseTile = false;
-                player.releaseUseItem = true;
-                player.releaseUseTile = true;
-                player.noItems = true;
-                Main.mouseRight = false;
-                Main.mouseRightRelease = false;
-
-                // Block vanilla projectile interactions
-                Player.BlockInteractionWithProjectiles = 3;
-
-                // Also mute projectiles in prefix to prevent sounds during Player.Update
-                MuteNearbyProjectiles(player);
-            }
-            catch { }
+            _lastMouseRight = mouseRight;
         }
 
         private static bool CheckClickOnBoundPet(Player player)
@@ -97,7 +51,7 @@ namespace PetChests
             try
             {
                 Projectile boundPet = Main.projectile[_boundPetIndex];
-                if (!boundPet.active) return false;
+                if (!boundPet.active || (int)boundPet.key != _boundPetIdentity || boundPet.type != _boundPetType) return false;
 
                 float mouseWorldX, mouseWorldY;
                 if (!GetMouseWorldPosition(out mouseWorldX, out mouseWorldY)) return false;
@@ -110,10 +64,17 @@ namespace PetChests
             }
         }
 
-        public static void Reset()
+        public static void Reset(bool closeChest = false)
         {
+            if (closeChest && _keepPiggyOpen && Main.LocalPlayer != null && Main.LocalPlayer.chest == -2)
+            {
+                Main.LocalPlayer.chest = -1;
+                Main.LocalPlayer.piggyBankProjTracker.Clear();
+            }
             _keepPiggyOpen = false;
             _boundPetIndex = -1;
+            _boundPetIdentity = -1;
+            _boundPetType = -1;
             _lastMouseRight = false;
             _framesSinceLastInteraction = 9999;
             _closeCooldown = 0;
@@ -204,11 +165,13 @@ namespace PetChests
                     }
                 }
 
-                if (clickedPet == null) return;
+                if (clickedPet == null || player.mouseInterface || player.lastMouseInterface) return;
 
                 _framesSinceLastInteraction = 0;
                 _keepPiggyOpen = true;
                 _boundPetIndex = clickedIndex;
+                _boundPetIdentity = (int)clickedPet.key;
+                _boundPetType = clickedPet.type;
 
                 OpenPiggyBank(player, clickedPet);
 
@@ -232,35 +195,20 @@ namespace PetChests
                 return;
             }
 
-            // CRITICAL: Block all input to prevent clicking sounds
-            // Match the tModLoader version exactly
-            player.controlUseItem = false;
-            player.controlUseTile = false;
-            player.releaseUseItem = true;  // Tell game button was released
-            player.releaseUseTile = true;
-            player.itemAnimation = 0;
-            player.itemTime = 0;
-            player.noItems = true;  // Prevent item use
-            Main.mouseRight = false;
-            Main.mouseRightRelease = false;
-
-            // Keep chest open (in case game logic tried to close it)
+            // A different container or native close takes precedence over our previous binding.
             if (player.chest != -2)
             {
-                player.chest = -2;
-                // Re-clear tracker - vanilla may have reset it
-                ClearPiggyBankTracker(player);
+                Reset();
+                return;
             }
-
-            // Mute all nearby projectiles to prevent sounds
-            MuteNearbyProjectiles(player);
 
             // Check if bound pet is still valid
             if (_boundPetIndex >= 0)
             {
                 Projectile boundPet = Main.projectile[_boundPetIndex];
 
-                if (!boundPet.active || boundPet.owner != whoAmI)
+                if (!boundPet.active || boundPet.owner != whoAmI || (int)boundPet.key != _boundPetIdentity ||
+                    boundPet.type != _boundPetType || !PetHelper.IsCosmeticPet(boundPet))
                 {
                     ClosePiggyBank(player);
                     return;
@@ -280,34 +228,6 @@ namespace PetChests
                     }
                 }
             }
-        }
-
-        private static void MuteNearbyProjectiles(Player player)
-        {
-            try
-            {
-                int whoAmI = player.whoAmI;
-                float playerCX = player.position.X + player.width / 2f;
-                float playerCY = player.position.Y + player.height / 2f;
-
-                for (int i = 0; i < Main.maxProjectiles; i++)
-                {
-                    Projectile proj = Main.projectile[i];
-                    if (!proj.active) continue;
-                    if (proj.owner != whoAmI) continue;
-
-                    float petCX, petCY;
-                    if (PetHelper.GetCenter(proj, out petCX, out petCY))
-                    {
-                        float dist = Distance(playerCX, playerCY, petCX, petCY);
-                        if (dist <= SOUND_MUTE_RANGE)
-                        {
-                            proj.soundDelay = 60;
-                        }
-                    }
-                }
-            }
-            catch { }
         }
 
         private static void OpenPiggyBank(Player player, Projectile pet)
@@ -333,11 +253,9 @@ namespace PetChests
                 // Set stack split delay
                 Main.stackSplit = STACK_SPLIT_DELAY;
 
-                // IMPORTANT: Do NOT set piggy bank tracker to our pet!
-                // Vanilla validates that tracked projectile is type 525 or 960.
-                // If not, it sets chest=-1 and plays close sound every frame.
-                // Instead, clear the tracker so validation is skipped.
-                ClearPiggyBankTracker(player);
+                // Current vanilla tracks the exact projectile identity, including cosmetic pets.
+                // Keep native bank/peer state intact; our range guard only supplies the configured range.
+                player.piggyBankProjTracker.Set(pet);
 
                 // Play open sound
                 SoundEngine.PlaySound(10);
@@ -355,23 +273,16 @@ namespace PetChests
         {
             _keepPiggyOpen = false;
             _boundPetIndex = -1;
+            _boundPetIdentity = -1;
+            _boundPetType = -1;
             _lastMouseRight = false;  // Reset to prevent stale state causing false reopen after cooldown
             _closeCooldown = CLOSE_COOLDOWN_FRAMES;  // Prevent immediate reopen
-            player.chest = -1;
-            SoundEngine.PlaySound(11);
-        }
-
-        /// <summary>
-        /// Clear the piggy bank tracker so vanilla doesn't try to validate our pet.
-        /// Vanilla checks if tracked projectile is type 525 or 960 - if not, it closes chest every frame.
-        /// </summary>
-        private static void ClearPiggyBankTracker(Player player)
-        {
-            try
+            if (player.chest == -2)
             {
+                player.chest = -1;
                 player.piggyBankProjTracker.Clear();
+                SoundEngine.PlaySound(11);
             }
-            catch { }
         }
 
         private static bool GetMouseWorldPosition(out float x, out float y)

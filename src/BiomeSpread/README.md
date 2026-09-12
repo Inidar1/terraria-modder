@@ -1,31 +1,31 @@
 # Biome Spread Control
 
-Prevent corruption, crimson, and hallow from spreading to new tiles. Toggle on and off at any time via the Mod Menu (F6).
+Prevents corruption, crimson, and Hallow from spreading to new tiles in singleplayer worlds.
 
-## Features
+## Behavior
 
-- **Disable Evil Spread**: Stops corruption, crimson, and hallow from converting adjacent tiles
-- Toggle on/off at any time — takes effect immediately, no restart needed
-- Crystal shards and chlorophyte growth are unaffected
-- No keybinds required
+When Disable Evil Spread is enabled:
+
+- Terraria's infection-spread update is suppressed.
+- Evil and Hallow grass cannot grow naturally onto bare dirt or mud.
+- Crystal shard and chlorophyte growth continue normally.
+- World generation and explicit recursive grass operations retain their normal behavior.
+
+The option is enabled by default. Turning it off restores Terraria's normal spread flag immediately without restarting.
 
 ## Configuration
 
-Open the Mod Menu (F6) → Biome Spread Control:
-
 | Setting | Default | Description |
-|---------|---------|-------------|
-| Enabled | On | Enable or disable this mod |
-| Disable Evil Spread | On | Block corruption, crimson, and hallow spread |
+| --- | --- | --- |
+| Enabled | On | Enables the mod |
+| Disable Evil Spread | On | Prevents corruption, crimson, and Hallow spread |
+
+Open the F6 Mod Menu to change either setting.
 
 ## Multiplayer
 
-Singleplayer only. Biome spread is handled server-side in multiplayer.
+This mod is for singleplayer worlds. Multiplayer world spread is server-owned.
 
 ## Installation
 
-Requires [TerrariaModder Core](https://www.nexusmods.com/terraria/mods/135).
-
-1. Extract the zip into your Terraria folder
-2. The mod goes into `TerrariaModder/mods/biome-spread/`
-3. Launch with `TerrariaInjector.exe`
+Requires TerrariaModder Core. Replace the existing <code>TerrariaModder/mods/biome-spread/</code> folder with the downloaded mod folder, then launch through <code>TerrariaInjector.exe</code>.

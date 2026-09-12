@@ -9,7 +9,7 @@ using StorageHub.Config;
 namespace StorageHub.PaintingChest
 {
     /// <summary>
-    /// Manages the "Mysterious Chest" — a custom chest tile (type 21, style 41) with
+    /// Manages the "Mysterious Chest" — a custom chest tile (type 21, style 69) with
     /// progression-based capacity. Uses vanilla chest tile infrastructure for full MP
     /// compatibility (placement, sync, save/load all handled by vanilla).
     ///
@@ -94,43 +94,10 @@ namespace StorageHub.PaintingChest
             _log.Info("Mysterious Chest initialized (type 21, style 69)");
         }
 
-        private static int _nameEnforceTimer;
-
-        /// <summary>
-        /// Called each frame. Handles texture extension retry and name enforcement.
-        /// </summary>
+        /// <summary>Retry texture installation when graphics resources become ready.</summary>
         public static void Update()
         {
             TileTextureExtender.TryExtend();
-
-            // In MP, server sync can overwrite chest.name back to "".
-            // Periodically enforce the name on all style-69 chests.
-            if (Main.netMode == 1 && ++_nameEnforceTimer >= 30) // Every ~0.5s
-            {
-                _nameEnforceTimer = 0;
-                EnforceChestNames();
-            }
-        }
-
-        private static void EnforceChestNames()
-        {
-            try
-            {
-                for (int i = 0; i < Main.maxChests; i++)
-                {
-                    var chest = Main.chest[i];
-                    if (chest == null) continue;
-                    if (chest.name == CHEST_NAME) continue;
-
-                    var tile = Main.tile[chest.x, chest.y];
-                    if (tile == null || !tile.active() || tile.type != TILE_TYPE) continue;
-                    int style = tile.frameX / 36;
-                    if (style != OUR_PLACE_STYLE) continue;
-
-                    chest.name = CHEST_NAME;
-                }
-            }
-            catch { }
         }
 
         public static void OnWorldLoad(StorageHubConfig config)
@@ -230,6 +197,7 @@ namespace StorageHub.PaintingChest
         public static void Unload()
         {
             PaintingChestPatches.Unpatch();
+            TileTextureExtender.Unload();
             UIRenderer.UnregisterPanelDraw("painting-chest-label");
             Enabled = false;
             _config = null;
@@ -252,7 +220,7 @@ namespace StorageHub.PaintingChest
             if (chestIdx < 0) return;
 
             var chest = Main.chest[chestIdx];
-            if (chest == null || (chest.name != CHEST_NAME && chest.name != LEGACY_CHEST_NAME)) return;
+            if (chest == null) return;
 
             // Verify it's our tile type and style
             try
@@ -292,8 +260,7 @@ namespace StorageHub.PaintingChest
 
                 try
                 {
-                    if (chest.name != CHEST_NAME && chest.name != LEGACY_CHEST_NAME) continue;
-
+                    // Native type/style identifies the chest; its name belongs to the player.
                     var tile = Main.tile[chest.x, chest.y];
                     if (tile == null || !tile.active() || tile.type != TILE_TYPE) continue;
 

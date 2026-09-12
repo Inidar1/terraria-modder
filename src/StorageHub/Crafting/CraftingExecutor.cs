@@ -18,6 +18,9 @@ namespace StorageHub.Crafting
     {
         private readonly ILogger _log;
         private readonly IStorageProvider _storage;
+        private readonly CraftingMaterialSource _materials;
+        private NativeItemTransaction _transaction;
+        private bool IsSingleplayer => Main.netMode == 0 && _storage.GetType() == typeof(SingleplayerProvider);
 
         /// <summary>
         /// When true, items in hotbar slots 0-9 of the player inventory are never
@@ -26,18 +29,21 @@ namespace StorageHub.Crafting
         public bool ProtectHotbar { get; set; }
 
         public CraftingExecutor(ILogger log, IStorageProvider storage)
+            : this(log, storage, new CraftingMaterialSource(storage)) { }
+
+        public CraftingExecutor(ILogger log, IStorageProvider storage, CraftingMaterialSource materials)
         {
             _log = log;
             _storage = storage;
+            _materials = materials ?? throw new ArgumentNullException(nameof(materials));
         }
 
         /// <summary>
         /// Execute a recipe craft, consuming materials from ALL storage and creating items.
         ///
-        /// IMPORTANT: Uses two-phase commit to prevent item loss:
-        /// 1. Build a consumption plan (which slots to take from)
-        /// 2. Execute all takes atomically - if ANY fails, abort before modifying
-        /// 3. Create output items (directly to inventory if intermediate step, or via QuickSpawnItem)
+        /// Plans distinct source quantities before consumption, then creates output.
+        /// Execution and recovery are still synchronous; this is not an atomic
+        /// transaction or proof of multiplayer authority.
         /// </summary>
         /// <param name="recipe">Recipe to craft.</param>
         /// <param name="count">Number of times to craft the recipe.</param>
@@ -46,6 +52,44 @@ namespace StorageHub.Crafting
         /// so the output is immediately available to the next step.</param>
         /// <returns>True if crafting succeeded.</returns>
         public bool ExecuteCraft(RecipeInfo recipe, int count = 1, bool directToInventory = false)
+            => ExecuteTransaction(() => ExecuteCraftCore(recipe, count, directToInventory, null));
+
+        /// <summary>Execute only the validated material choices made by a recursive plan.</summary>
+        public bool ExecuteCraft(RecipeInfo recipe, int count, IReadOnlyDictionary<int, long> selectedMaterials,
+            bool directToInventory = false)
+            => selectedMaterials != null && ExecuteTransaction(() => ExecuteCraftCore(recipe, count, directToInventory, selectedMaterials));
+
+        internal bool ExecuteTransaction(Func<bool> action)
+        {
+            if (!IsSingleplayer || _transaction != null) return action();
+            try
+            {
+                using (var transaction = new NativeItemTransaction(Main.LocalPlayer, _log))
+                {
+                    _transaction = transaction;
+                    try
+                    {
+                        bool success = action();
+                        if (success)
+                        {
+                            // Notification callbacks may start a fresh craft after commit.
+                            _transaction = null;
+                            transaction.Commit();
+                        }
+                        return success;
+                    }
+                    finally { _transaction = null; }
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"Native crafting transaction failed: {ex}");
+                return false;
+            }
+        }
+
+        private bool ExecuteCraftCore(RecipeInfo recipe, int count, bool directToInventory,
+            IReadOnlyDictionary<int, long> selectedMaterials)
         {
             if (recipe == null || count <= 0) return false;
 
@@ -58,57 +102,76 @@ namespace StorageHub.Crafting
                     return false;
                 }
 
-                // Get all items from storage
-                var allItems = _storage.GetAllItems();
-
-                // PHASE 1: Build consumption plan - identify exactly which slots we'll consume from
-                var consumptionPlan = new List<ConsumptionEntry>();
-                foreach (var ing in recipe.Ingredients)
+                // Validate output before taking any ingredients.
+                long totalOutputLong = (long)recipe.OutputStack * count;
+                if (recipe.OutputItemId <= 0 || totalOutputLong <= 0 || totalOutputLong > int.MaxValue)
                 {
-                    // Use long to prevent overflow, then validate
-                    long neededLong = (long)ing.RequiredStack * count;
-                    if (neededLong > int.MaxValue || neededLong < 0)
-                    {
-                        _log.Error($"Overflow calculating materials for {ing.Name}: {ing.RequiredStack} * {count}");
-                        return false;
-                    }
-                    int needed = (int)neededLong;
-                    int remaining = needed;
-
-                    // Find items matching this ingredient (supports recipe groups)
-                    foreach (var item in allItems)
-                    {
-                        if (remaining <= 0) break;
-                        if (item.IsEmpty) continue;
-
-                        // Skip hotbar slots (0-9) in player inventory when protection is enabled
-                        if (ProtectHotbar && item.SourceChestIndex == SourceIndex.PlayerInventory && item.SourceSlot < 10)
-                            continue;
-
-                        // Match: exact ID for normal ingredients, any valid ID for recipe groups
-                        bool matches = ing.IsRecipeGroup && ing.ValidItemIds != null
-                            ? ing.ValidItemIds.Contains(item.ItemId)
-                            : item.ItemId == ing.ItemId;
-                        if (!matches) continue;
-
-                        int toTake = Math.Min(item.Stack, remaining);
-                        consumptionPlan.Add(new ConsumptionEntry
-                        {
-                            SourceChestIndex = item.SourceChestIndex,
-                            SourceSlot = item.SourceSlot,
-                            ItemId = item.ItemId,
-                            Amount = toTake,
-                            ItemName = item.Name
-                        });
-                        remaining -= toTake;
-                    }
-
-                    if (remaining > 0)
-                    {
-                        _log.Warn($"Not enough {ing.Name}: need {needed}, can only get {needed - remaining}");
-                        return false;
-                    }
+                    _log.Warn($"Invalid output quantity for {recipe.OutputName}");
+                    return false;
                 }
+                int totalOutput = (int)totalOutputLong;
+                var outputTemplate = new Item();
+                outputTemplate.SetDefaults(recipe.OutputItemId);
+                if (outputTemplate.type != recipe.OutputItemId || outputTemplate.maxStack <= 0)
+                {
+                    _log.Warn("Crafting output item could not be initialized");
+                    return false;
+                }
+
+                var sources = _materials.Read();
+                List<ConsumptionPlanner.Allocation> allocation;
+                string reason;
+                bool planned = selectedMaterials == null
+                    ? ConsumptionPlanner.TryPlan(recipe, count, sources, ProtectHotbar, out allocation, out reason)
+                    : ConsumptionPlanner.TryPlanExact(recipe, count, sources, ProtectHotbar, selectedMaterials, out allocation, out reason);
+                if (!planned)
+                {
+                    _log.Warn(reason);
+                    return false;
+                }
+                // Intermediate SP crafts must not consume materials or leave partial output
+                // when the inventory cannot hold the complete result.
+                if (IsSingleplayer)
+                {
+                    var output = outputTemplate;
+                    var batch = new ItemMutationBatch();
+                    foreach (var entry in allocation)
+                        _transaction.Capture(SingleplayerProvider.ResolveItems(player, entry.Source.SourceChestIndex));
+                    foreach (var entry in allocation)
+                        if (!batch.Consume(SingleplayerProvider.ResolveItems(player, entry.Source.SourceChestIndex),
+                            entry.Source.SourceSlot, entry.Source, entry.Count))
+                        {
+                            _log.Warn("Crafting materials changed before commit");
+                            return false;
+                        }
+                    // Intermediate output must remain available to the next craft without
+                    // making pre-existing protected hotbar items eligible as ingredients.
+                    int firstOutputSlot = ProtectHotbar || _materials.ProtectHotbar ? 10 : 0;
+                    if (directToInventory && !batch.Place(player.inventory, 50, output, totalOutput, firstOutputSlot))
+                    {
+                        _log.Warn("Inventory cannot hold the complete crafting output");
+                        return false;
+                    }
+                    if (!batch.Commit())
+                    {
+                        _log.Warn("Crafting storage changed before commit");
+                        return false;
+                    }
+                    if (!directToInventory && !GiveItemToPlayer(player, outputTemplate, totalOutput)) return false;
+                    _log.Info($"Crafted {totalOutput}x {recipe.OutputName}");
+                    return true;
+                }
+
+                var consumptionPlan = new List<ConsumptionEntry>();
+                foreach (var entry in allocation)
+                    consumptionPlan.Add(new ConsumptionEntry
+                    {
+                        SourceChestIndex = entry.Source.SourceChestIndex,
+                        SourceSlot = entry.Source.SourceSlot,
+                        ItemId = entry.Source.ItemId,
+                        Amount = entry.Count,
+                        ItemName = entry.Source.Name
+                    });
 
                 // PHASE 2: Execute all consumptions - all or nothing
                 var consumed = new List<ConsumptionEntry>();
@@ -164,22 +227,12 @@ namespace StorageHub.Crafting
                     return false;
                 }
 
-                // PHASE 3: Create the output item and give to player
-                // Use long to prevent overflow, then validate
-                long totalOutputLong = (long)recipe.OutputStack * count;
-                if (totalOutputLong > int.MaxValue || totalOutputLong < 0)
-                {
-                    _log.Error($"Overflow calculating output for {recipe.OutputName}: {recipe.OutputStack} * {count}");
-                    return false;
-                }
-                int totalOutput = (int)totalOutputLong;
-
-                // For intermediate recursive craft steps, place directly in inventory
-                // so the next step can immediately find the items. QuickSpawnItem drops
-                // items on the ground with auto-pickup, which has a timing delay.
+                // PHASE 3: Create the validated output quantity.
+                // Intermediate steps require inventory output. Ordinary output uses
+                // native pickup priorities and drops only inventory/void-vault overflow.
                 bool created = directToInventory
                     ? PlaceInInventoryDirect(player, recipe.OutputItemId, totalOutput)
-                    : GiveItemToPlayer(player, recipe.OutputItemId, totalOutput);
+                    : GiveItemToPlayer(player, outputTemplate, totalOutput);
                 if (!created)
                 {
                     // CRITICAL: Output failed - restore ALL consumed items
@@ -285,74 +338,43 @@ namespace StorageHub.Crafting
             }
         }
 
-        private bool GiveItemToPlayer(Player player, int itemId, int stack)
+        private bool GiveItemToPlayer(Player player, Item template, int stack)
         {
             try
             {
-                // PRIMARY METHOD: Use QuickSpawnItem(IEntitySource, Item) overload
-                // The (IEntitySource, int, int) overload calls Prefix(-1) which randomizes prefix.
-                // Crafted items should have no prefix (vanilla behavior).
-                var source = CreateEntitySource(player);
-                if (source != null)
+                var source = new Terraria.DataStructures.EntitySource_Parent(player);
+                int remaining = stack;
+                while (remaining > 0)
                 {
-                    var item = new Item();
-                    item.SetDefaults(itemId);
-                    item.stack = stack;
-                    item.prefix = 0;
-                    player.QuickSpawnItem(source, item);
-                    return true;
+                    // GetItem's empty-slot path takes the supplied Item as-is, so
+                    // bulk output must be divided before invoking native pickup.
+                    int amount = Math.Min(remaining, template.maxStack);
+                    var item = template.Clone();
+                    item.stack = amount;
+                    if (IsSingleplayer)
+                    {
+                        // Same pickup settings/priorities as QuickSpawnItem, but retain
+                        // the overflow result and require a playable native spawn slot.
+                        item.newAndShiny = true;
+                        var overflow = player.GetItem(item, GetItemSettings.PickupItemFromWorld);
+                        if (!overflow.IsAir)
+                        {
+                            int slot = Item.NewItem(player.GetItemSource_InventoryOverflow(), player.Center,
+                                overflow.type, overflow.stack, overflow.prefix, NewItemOwnership.ReserveForLocalPlayer);
+                            if (slot < 0 || slot >= Main.maxItems || !Main.item[slot].active)
+                            { _log.Warn("Native crafting output has no playable world slot"); return false; }
+                        }
+                    }
+                    else player.QuickSpawnItem(source, item);
+                    remaining -= amount;
                 }
-
-                // FALLBACK: Put directly in inventory slots.
-                // Sends packet 5 per modified slot so clients see the item appear.
-                // This path should never trigger in normal Host & Play (QuickSpawnItem
-                // always succeeds when CreateEntitySource returns non-null), but must
-                // be correct in case it does.
-                int fallbackRemaining = stack;
-                for (int i = 0; i < Math.Min(player.inventory.Length, 50) && fallbackRemaining > 0; i++)
-                {
-                    var slot = player.inventory[i];
-                    if (slot == null || slot.type != 0) continue;
-
-                    slot.SetDefaults(itemId);
-                    int maxStack = slot.maxStack > 0 ? slot.maxStack : 9999;
-                    int toPlace = Math.Min(fallbackRemaining, maxStack);
-                    slot.stack = toPlace;
-                    fallbackRemaining -= toPlace;
-                    if (Main.netMode != 0)
-                        try { NetMessage.TrySendData(5, -1, -1, null, Main.myPlayer, i); } catch { }
-                }
-
-                if (fallbackRemaining <= 0) return true;
-                _log.Warn($"Inventory full, {fallbackRemaining}x {itemId} could not be placed");
-
-                // LAST RESORT: Try mouse slot
-                if (fallbackRemaining > 0 && Main.mouseItem != null && Main.mouseItem.type == 0)
-                {
-                    Main.mouseItem.SetDefaults(itemId);
-                    int maxStack = Main.mouseItem.maxStack > 0 ? Main.mouseItem.maxStack : 9999;
-                    Main.mouseItem.stack = Math.Min(fallbackRemaining, maxStack);
-                    return true;
-                }
-
-                _log.Error("All item placement methods failed");
-                return false;
+                return true;
             }
             catch (Exception ex)
             {
                 _log.Error($"GiveItemToPlayer failed: {ex.Message}");
                 return false;
             }
-        }
-
-        private Terraria.DataStructures.IEntitySource CreateEntitySource(Player player)
-        {
-            try
-            {
-                return new Terraria.DataStructures.EntitySource_Parent(player);
-            }
-            catch { }
-            return null;
         }
     }
 }

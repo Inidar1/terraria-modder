@@ -5,6 +5,8 @@ using System.Reflection;
 using System.Text;
 using HarmonyLib;
 using Terraria;
+using Terraria.DataStructures;
+using Terraria.GameContent.Drawing;
 using TerrariaModder.Core.Assets;
 using TerrariaModder.Core.Logging;
 using TerrariaModder.Core.Net;
@@ -115,7 +117,21 @@ namespace StorageHub.PaintingChest
                 _log?.Info("Patched Player.TileInteractionsUse (CoinSlot resize)");
             }
 
+            var drawMethod = typeof(TileDrawing).GetMethod("CacheSpecialDraws_Part2",
+                BindingFlags.NonPublic | BindingFlags.Instance, null,
+                new[] { typeof(int), typeof(int), typeof(TileDrawInfo) }, null);
+            if (drawMethod == null) throw new MissingMethodException("TileDrawing.CacheSpecialDraws_Part2");
+            _harmony.Patch(drawMethod, postfix: new HarmonyMethod(patchType,
+                nameof(ChestDraw_Postfix)));
             _patchesApplied = true;
+        }
+
+        private static void ChestDraw_Postfix(TileDrawInfo drawData)
+        {
+            if (!TileTextureExtender.IsTileExtended || drawData.typeCache != PaintingChestManager.TILE_TYPE ||
+                drawData.tileCache.frameX / 36 != PaintingChestManager.OUR_PLACE_STYLE) return;
+            drawData.tileFrameX = (short)(drawData.tileFrameX % 36);
+            drawData.addFrY += TileTextureExtender.AtlasYOffset;
         }
 
         public static void Unpatch()
@@ -340,11 +356,11 @@ namespace StorageHub.PaintingChest
         /// TerrariaServer.exe assemblies. Does not check PaintingChestManager.Enabled
         /// because the ded server doesn't initialize the manager (UI-only).
         /// </summary>
-        public static bool GetItemDrop_Chests_Prefix(int style, ref int __result)
+        public static bool GetItemDrop_Chests_Prefix(int style, bool secondType, ref int __result)
         {
             try
             {
-                if (style != PaintingChestManager.OUR_PLACE_STYLE) return true;
+                if (secondType || style != PaintingChestManager.OUR_PLACE_STYLE) return true;
 
                 int itemType = GetOurItemType();
                 if (itemType <= 0) return true;
@@ -371,37 +387,14 @@ namespace StorageHub.PaintingChest
 
             try
             {
-                // Find a surviving tile with our style (the triggered tile may already be dead)
-                int num = -1, num2 = -1;
-                bool foundOurStyle = false;
-
+                // Vanilla retains frame coordinates on the tile being destroyed. Resolve
+                // that chest only: searching neighbors can intercept a different chest's
+                // framing and leave its remaining three tiles behind.
                 var tile = Main.tile[i, j];
-                if (tile != null && tile.active() && tile.type == PaintingChestManager.TILE_TYPE)
-                {
-                    num = i - (tile.frameX % 36) / 18;
-                    num2 = j - tile.frameY / 18;
-                    var topLeft = Main.tile[num, num2];
-                    if (topLeft != null && topLeft.active() && topLeft.frameX / 36 == PaintingChestManager.OUR_PLACE_STYLE)
-                        foundOurStyle = true;
-                }
-
-                if (!foundOurStyle)
-                {
-                    for (int dx = -1; dx <= 1 && !foundOurStyle; dx++)
-                    {
-                        for (int dy = -1; dy <= 1 && !foundOurStyle; dy++)
-                        {
-                            var neighbor = Main.tile[i + dx, j + dy];
-                            if (neighbor == null || !neighbor.active() || neighbor.type != PaintingChestManager.TILE_TYPE) continue;
-                            if (neighbor.frameX / 36 != PaintingChestManager.OUR_PLACE_STYLE) continue;
-                            num = (i + dx) - (neighbor.frameX % 36) / 18;
-                            num2 = (j + dy) - neighbor.frameY / 18;
-                            foundOurStyle = true;
-                        }
-                    }
-                }
-
-                if (!foundOurStyle) return true;
+                if (tile == null || tile.type != PaintingChestManager.TILE_TYPE ||
+                    tile.frameX / 36 != PaintingChestManager.OUR_PLACE_STYLE) return true;
+                int num = i - (tile.frameX % 36) / 18;
+                int num2 = j - tile.frameY / 18;
 
                 // Check structural integrity (same as vanilla CheckChest)
                 bool flag = false;
@@ -426,27 +419,31 @@ namespace StorageHub.PaintingChest
 
                 int ourItemType = GetOurItemType();
 
-                WorldGen.destroyObject = true;
-                for (int m = num; m < num + 2; m++)
+                bool previousDestroyObject = WorldGen.destroyObject;
+                try
                 {
-                    for (int n = num2; n < num2 + 3; n++)
+                    WorldGen.destroyObject = true;
+                    for (int m = num; m < num + 2; m++)
                     {
-                        var t = Main.tile[m, n];
-                        if (t != null && t.type == type && t.active())
+                        for (int n = num2; n < num2 + 3; n++)
                         {
-                            Chest.DestroyChest(m, n);
-                            WorldGen.KillTile(m, n);
+                            var t = Main.tile[m, n];
+                            if (t != null && t.type == type && t.active())
+                            {
+                                Chest.DestroyChest(m, n);
+                                WorldGen.KillTile(m, n);
+                            }
                         }
                     }
-                }
 
-                if (ourItemType > 0)
-                {
-                    Item.NewItem(WorldGen.GetItemSource_FromTileBreak(i, j),
-                        i * 16, j * 16, 32, 32, ourItemType);
-                }
+                    if (ourItemType > 0)
+                    {
+                        Item.NewItem(WorldGen.GetItemSource_FromTileBreak(i, j),
+                            i * 16, j * 16, 32, 32, ourItemType);
+                    }
 
-                WorldGen.destroyObject = false;
+                }
+                finally { WorldGen.destroyObject = previousDestroyObject; }
                 return false;
             }
             catch (Exception ex)

@@ -38,6 +38,9 @@ namespace SeedLab
         public const string Target_Projectile_SetDefaults = "Projectile.SetDefaults";
         public const string Target_Projectile_AI = "Projectile.AI";
         public const string Target_Projectile_FishingCheck = "Projectile.FishingCheck";
+        public const string Target_Player_Darkness = "Player.Update.Darkness";
+        public const string Target_NightLighting = "Main.SetBackColor.DontStarve";
+        public const string Target_Player_DeathSound = "Player.PlayDeathSound";
         public const string Target_Global = "Global"; // No per-method patch; global toggle only
 
         /// <summary>
@@ -97,15 +100,15 @@ namespace SeedLab
                 }),
                 new FeatureGroupDefinition("ds_darkness", "Darkness Damage", "250 damage per hit after 120 frames in complete darkness (core DS mechanic)", new[]
                 {
-                    new FeatureDefinition("ds_darkness_damage", "Darkness Damage", "DontStarveDarknessDamageDealer.Update: 250 damage per hit in prolonged darkness", Target_Global, DontStarveWorld, true),
+                    new FeatureDefinition("ds_darkness_damage", "Darkness Damage", "DontStarveDarknessDamageDealer.Update: 250 damage per hit in prolonged darkness", Target_Player_Darkness, DontStarveWorld, true),
                 }),
                 new FeatureGroupDefinition("ds_night_lighting", "Night Lighting", "Pitch black nights except during full moon; blood moon adds some brightness", new[]
                 {
-                    new FeatureDefinition("ds_night_darkness", "Dark Nights", "DontStarveSeed: ModifyNightColor + ModifyMinimumLightColorAtNight + FixBiomeDarkness", Target_Global, DontStarveWorld, true),
+                    new FeatureDefinition("ds_night_darkness", "Dark Nights", "DontStarveSeed: ModifyNightColor + ModifyMinimumLightColorAtNight + FixBiomeDarkness", Target_NightLighting, DontStarveWorld, true),
                 }),
                 new FeatureGroupDefinition("ds_death_sounds", "Death Sounds", "Don't Starve Together style death sounds", new[]
                 {
-                    new FeatureDefinition("ds_death_sound", "DST Death Sounds", "Player.PlayDeathSound: plays DST male/female hurt sounds on death", Target_Global, DontStarveWorld, true),
+                    new FeatureDefinition("ds_death_sound", "DST Death Sounds", "Player.PlayDeathSound: plays DST male/female hurt sounds on death", Target_Player_DeathSound, DontStarveWorld, true),
                 }),
             }),
 

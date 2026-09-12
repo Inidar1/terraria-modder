@@ -25,6 +25,9 @@ namespace TerrariaModder.Core.Logging
     {
         private static readonly Dictionary<string, ILogger> _loggers = new Dictionary<string, ILogger>();
         private static volatile string _logFilePath;
+        private static SessionLogWriter _sessionLog;
+        /// <summary>Canonical log for this process only; the combined log remains for compatibility.</summary>
+        public static string SessionLogPath => _sessionLog?.FilePath;
         private static volatile ILogger _coreLogger;
         private static volatile bool _initialized;
         private static readonly object _initLock = new object();
@@ -84,13 +87,28 @@ namespace TerrariaModder.Core.Logging
                     // Rotate if log is too large
                     RotateLogIfNeeded();
 
+                    try
+                    {
+                        _sessionLog = new SessionLogWriter(logDirectory, IsDedicatedServer);
+                        AppDomain.CurrentDomain.ProcessExit += (_, __) =>
+                        {
+                            lock (_fileLock) _sessionLog?.Dispose();
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        // A user may be able to append the existing log but not create a new one.
+                        // Optional session history must not prevent Core initialization.
+                        Console.Error.WriteLine($"[TerrariaModder] Per-session log unavailable; using combined log: {ex.Message}");
+                    }
+
                     // Create core logger
                     _coreLogger = new ModLogger("core");
                     _coreLogger.MinLevel = CoreConfig.Instance.GlobalLogLevel;
                     _initialized = true;
 
                     // Write session header
-                    WriteToSharedFile($"=== TerrariaModder session started at {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
+                    WriteToSharedFile($"=== TerrariaModder session started at {DateTime.Now:yyyy-MM-dd HH:mm:ss}; PID {System.Diagnostics.Process.GetCurrentProcess().Id}; log {SessionLogPath} ===");
                 }
                 catch (Exception ex)
                 {
@@ -153,6 +171,8 @@ namespace TerrariaModder.Core.Logging
             {
                 lock (_fileLock)
                 {
+                    // A compatibility-file sharing failure must not lose the per-session record.
+                    _sessionLog?.Write(message);
                     File.AppendAllText(_logFilePath, message + Environment.NewLine);
                 }
             }
@@ -211,7 +231,7 @@ namespace TerrariaModder.Core.Logging
 
                 // Rotate: rename current log with timestamp
                 string logDirectory = Path.GetDirectoryName(_logFilePath);
-                string backupName = $"terrariamodder_{DateTime.Now:yyyyMMdd_HHmmss}.log";
+                string backupName = $"{Path.GetFileNameWithoutExtension(_logFilePath)}_{DateTime.UtcNow:yyyyMMdd_HHmmss_fffffff}_{Guid.NewGuid():N}.log";
                 string backupPath = Path.Combine(logDirectory, backupName);
 
                 try
@@ -222,8 +242,7 @@ namespace TerrariaModder.Core.Logging
                 {
                     try { Console.Error.WriteLine($"[TerrariaModder] Log rotation move failed: {ex.Message}"); }
                     catch { }
-                    // If move fails, just delete old log
-                    try { File.Delete(_logFilePath); } catch { }
+                    // Preserve the old log if rotation fails; never delete the only copy.
                 }
 
                 // Clean up old backup logs (keep only most recent)
@@ -243,7 +262,7 @@ namespace TerrariaModder.Core.Logging
         {
             try
             {
-                var backupLogs = Directory.GetFiles(logDirectory, "terrariamodder_*.log")
+                var backupLogs = Directory.GetFiles(logDirectory, Path.GetFileNameWithoutExtension(_logFilePath) + "_*.log")
                     .Select(f => new FileInfo(f))
                     .OrderByDescending(f => f.LastWriteTime)
                     .Skip(MAX_OLD_LOGS)
@@ -254,15 +273,6 @@ namespace TerrariaModder.Core.Logging
                     try { oldLog.Delete(); } catch { }
                 }
 
-                // Also clean up any old per-mod log files from previous versions
-                var oldModLogs = Directory.GetFiles(logDirectory, "*.log")
-                    .Where(f => !Path.GetFileName(f).StartsWith("terrariamodder"))
-                    .ToList();
-
-                foreach (var oldLog in oldModLogs)
-                {
-                    try { File.Delete(oldLog); } catch { }
-                }
             }
             catch
             {

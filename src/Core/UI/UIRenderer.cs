@@ -8,6 +8,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.GameInput;
 using TerrariaModder.Core.Logging;
+using TerrariaModder.Core.Input;
 using Game = TerrariaModder.Core.Reflection.Game;
 
 namespace TerrariaModder.Core.UI
@@ -476,18 +477,9 @@ namespace TerrariaModder.Core.UI
                 _savedRasterizerState = _graphicsDevice.RasterizerState;
 
                 // Set new scissor rect
-                // The scissor rectangle is in physical pixels, but x/y/width/height are in
-                // UI-space (pre-UIScale). Multiply by UIScale to get the correct pixel bounds.
-                // Without this, at >100% scale the clip region is too small and sits in the
-                // wrong place, cutting off content and icons near the right/bottom edges.
-                float clipScale = GetUIScale();
-                if (clipScale <= 0f) clipScale = 1f;
-                _graphicsDevice.ScissorRectangle = new Rectangle(
-                    (int)(x * clipScale),
-                    (int)(y * clipScale),
-                    (int)(width * clipScale),
-                    (int)(height * clipScale)
-                );
+                var viewport = _graphicsDevice.Viewport;
+                _graphicsDevice.ScissorRectangle = ClipGeometry.Calculate(x, y, width, height, _savedClipMatrix,
+                    new Rectangle(viewport.X, viewport.Y, viewport.Width, viewport.Height));
 
                 // Set rasterizer state with scissor test enabled
                 _graphicsDevice.RasterizerState = _rasterizerStateScissor;
@@ -1551,13 +1543,20 @@ namespace TerrariaModder.Core.UI
         /// </summary>
         public static bool IsBlocking => _blockingPanels.Count > 0;
 
+        private static bool _textInputActive;
+        private static bool _textInputReleasePending;
+        internal static bool IsReleasingTextInput => _textInputReleasePending;
+
+        private static bool TextExitKeyHeld() => InputState.IsKeyDown(KeyCode.Enter) ||
+            InputState.IsKeyDown(KeyCode.NumPadEnter) || InputState.IsKeyDown(KeyCode.Escape);
+
         /// <summary>
         /// True if any panel is waiting for keyboard input (text fields, keybind capture).
         /// When true, player controls are cleared and hotbar keys blocked.
         /// </summary>
         public static bool IsWaitingForKeyInput
         {
-            get => _keyInputBlockers.Count > 0;
+            get => _keyInputBlockers.Count > 0 || _textInputReleasePending;
             set
             {
                 // Legacy setter for backwards compatibility - uses a generic key
@@ -1609,6 +1608,29 @@ namespace TerrariaModder.Core.UI
             EnsurePatchesApplied();
         }
 
+        private static bool _textInputPatchApplied;
+
+        private static void ApplyTextInputPatch()
+        {
+            if (_textInputPatchApplied) return;
+            var method = typeof(Main).GetMethod("DoUpdate_HandleChat", BindingFlags.NonPublic | BindingFlags.Static);
+            if (method == null)
+                throw new MissingMethodException(typeof(Main).FullName, "DoUpdate_HandleChat");
+            var prefix = typeof(UIRenderer).GetMethod(nameof(RestoreTextInputOwnership), BindingFlags.NonPublic | BindingFlags.Static);
+            new Harmony("TerrariaModder.Core.UI.TextInput").Patch(method, prefix: new HarmonyMethod(prefix));
+            _textInputPatchApplied = true;
+        }
+
+        private static void RestoreTextInputOwnership()
+        {
+            // Terraria clears this per-frame override inside DoUpdate, after OnPreUpdate.
+            // Restore it before native chat processing, including the terminal key's release.
+            if (!_textInputActive && !_textInputReleasePending) return;
+            if (_inputTextTaker == null) _inputTextTaker = new object();
+            Main.CurrentInputTextTakerOverride = _inputTextTaker;
+            PlayerInput.WritingText = true;
+        }
+
         /// <summary>
         /// Apply Harmony patches and subscribe to frame events lazily.
         /// Called once when the first panel registers.
@@ -1627,6 +1649,8 @@ namespace TerrariaModder.Core.UI
                     ApplyInventoryScrollPatch();
                 if (!_copyIntoPatchApplied)
                     ApplyCopyIntoPatch();
+                if (!_textInputPatchApplied)
+                    ApplyTextInputPatch();
                 if (!_preUpdateSubscribed)
                 {
                     TerrariaModder.Core.Events.FrameEvents.OnPreUpdate += OnPreUpdateConsumeScroll;
@@ -1663,6 +1687,7 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
+                block = block || _textInputReleasePending;
                 Main.blockInput = block;
                 PlayerInput.WritingText = block;
 
@@ -1703,6 +1728,11 @@ namespace TerrariaModder.Core.UI
         /// </summary>
         private static void OnPreUpdateConsumeScroll()
         {
+            if (_textInputReleasePending && !TextExitKeyHeld())
+            {
+                _textInputReleasePending = false;
+                if (_keyInputBlockers.Count == 0) DisableTextInput();
+            }
             // Reset captured scroll and consume stale scroll from previous frame.
             _capturedScrollValue = 0;
             if (IsBlocking)
@@ -2158,6 +2188,8 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
+                EnsurePatchesApplied();
+                _textInputActive = true;
                 // Set PlayerInput.WritingText = true
                 PlayerInput.WritingText = true;
 
@@ -2176,6 +2208,15 @@ namespace TerrariaModder.Core.UI
         {
             try
             {
+                _textInputActive = false;
+                // Keep our terminal Enter/Escape press out of vanilla chat/menu handling.
+                // Ownership is released by the update loop after the physical/virtual key is up.
+                if (_inputTextTaker != null && TextExitKeyHeld())
+                {
+                    _textInputReleasePending = true;
+                    PlayerInput.WritingText = true;
+                    return;
+                }
                 PlayerInput.WritingText = false;
                 Main.CurrentInputTextTakerOverride = null;
             }

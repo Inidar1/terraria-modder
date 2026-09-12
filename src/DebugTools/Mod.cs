@@ -11,7 +11,7 @@ namespace DebugTools
     {
         public string Id => "debug-tools";
         public string Name => "Debug Tools";
-        public string Version => "1.0.0";
+        public string Version => "2.0.0";
 
         private static Mod _instance;
         private ILogger _log;

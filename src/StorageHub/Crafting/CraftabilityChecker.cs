@@ -19,16 +19,16 @@ namespace StorageHub.Crafting
     {
         private readonly ILogger _log;
         private readonly RecipeIndex _recipeIndex;
-        private readonly IStorageProvider _storage;
         private readonly StorageHubConfig _config;
         private readonly StationDetector _stationDetector;
-        private readonly RangeCalculator _rangeCalc;
+        public CraftingMaterialSource Materials { get; }
 
         // Cached material counts for performance
         private Dictionary<int, int> _materialCounts = new Dictionary<int, int>();
+        private IReadOnlyList<ItemSnapshot> _materialItems = new List<ItemSnapshot>();
         private bool _materialsDirty = true;
 
-        // Available stations (tile IDs) — includes both remembered AND nearby
+        // Available stations (tile IDs) â€” includes both remembered AND nearby
         private HashSet<int> _availableStations = new HashSet<int>();
         private bool _stationsDirty = true;
 
@@ -59,12 +59,16 @@ namespace StorageHub.Crafting
         }
 
         public CraftabilityChecker(ILogger log, RecipeIndex recipeIndex, IStorageProvider storage, StorageHubConfig config, RangeCalculator rangeCalc)
+            : this(log, recipeIndex, storage, config, rangeCalc,
+                new CraftingMaterialSource(storage, rangeCalc, () => config.HotbarProtection)) { }
+
+        public CraftabilityChecker(ILogger log, RecipeIndex recipeIndex, IStorageProvider storage, StorageHubConfig config,
+            RangeCalculator rangeCalc, CraftingMaterialSource materials)
         {
             _log = log;
             _recipeIndex = recipeIndex;
-            _storage = storage;
             _config = config;
-            _rangeCalc = rangeCalc;
+            Materials = materials ?? throw new ArgumentNullException(nameof(materials));
             _stationDetector = new StationDetector(log, config);
         }
 
@@ -86,9 +90,8 @@ namespace StorageHub.Crafting
         {
             _materialCounts.Clear();
 
-            var items = _rangeCalc != null
-                ? _rangeCalc.FilterItemsByRange(_storage.GetAllItems())
-                : _storage.GetAllItems();
+            var items = Materials.Read();
+            _materialItems = items;
             foreach (var item in items)
             {
                 if (item.IsEmpty) continue;
@@ -106,7 +109,7 @@ namespace StorageHub.Crafting
                 }
             }
 
-            // Add fake group counts — mirrors vanilla AddFakeCountsForItemGroups()
+            // Add fake group counts â€” mirrors vanilla AddFakeCountsForItemGroups()
             AddFakeCountsForRecipeGroups();
 
             _materialsDirty = false;
@@ -168,7 +171,7 @@ namespace StorageHub.Crafting
                 }
             }
 
-            // Demon/Crimson Altar special unlock — tile 26 is both Demon and Crimson Altar
+            // Demon/Crimson Altar special unlock â€” tile 26 is both Demon and Crimson Altar
             // (same tile type, different style). These can't always be "visited" (destroyed in hardmode).
             if (_config.HasSpecialUnlock("demonAltar") || _config.HasSpecialUnlock("crimsonAltar"))
             {
@@ -199,6 +202,62 @@ namespace StorageHub.Crafting
             _stationsDirty = false;
         }
 
+        /// <summary>
+        /// Capture the currently available stations and recipe environment without
+        /// mutating station memory. Used to avoid full catalog reevaluation when the
+        /// player's crafting context has not actually changed.
+        /// </summary>
+        public ulong CaptureContextSignature()
+        {
+            var available = _stationDetector.ScanNearbyStations(rememberStations: false);
+
+            if (ProgressionTier.HasStationMemory(_config.Tier) && _config.StationMemoryEnabled)
+            {
+                foreach (int tile in _config.RememberedStations)
+                    available.Add(tile);
+            }
+
+            if (_config.HasSpecialUnlock("demonAltar") || _config.HasSpecialUnlock("crimsonAltar"))
+                available.Add(26);
+
+            var orderedStations = new List<int>(available);
+            orderedStations.Sort();
+
+            ulong hash = 14695981039346656037UL;
+            AddSignatureValue(ref hash, _config.Tier);
+            AddSignatureValue(ref hash, _config.StationMemoryEnabled ? 1 : 0);
+            AddSignatureValue(ref hash, orderedStations.Count);
+            foreach (int tile in orderedStations)
+                AddSignatureValue(ref hash, tile);
+
+            var environment = _stationDetector.ScanEnvironmentConditions();
+            AddSignatureValue(ref hash, environment.HasWater ? 1 : 0);
+            AddSignatureValue(ref hash, environment.HasHoney ? 1 : 0);
+            AddSignatureValue(ref hash, environment.HasLava ? 1 : 0);
+            AddSignatureValue(ref hash, environment.InSnow ? 1 : 0);
+            AddSignatureValue(ref hash, environment.InGraveyard ? 1 : 0);
+
+            string[] unlocks =
+            {
+                "water", "honey", "lava", "snow", "graveyard", "shimmer",
+                "demonAltar", "crimsonAltar"
+            };
+            foreach (string unlock in unlocks)
+                AddSignatureValue(ref hash, _config.HasSpecialUnlock(unlock) ? 1 : 0);
+
+            return hash;
+        }
+
+        private static void AddSignatureValue(ref ulong hash, int value)
+        {
+            unchecked
+            {
+                hash ^= (uint)value;
+                hash *= 1099511628211UL;
+                hash ^= (uint)(value >> 16);
+                hash *= 1099511628211UL;
+            }
+        }
         /// <summary>
         /// Get total count of a specific material.
         /// </summary>
@@ -233,32 +292,54 @@ namespace StorageHub.Crafting
                 MaxCraftable = int.MaxValue
             };
 
-            // Check materials
+            // Independent per-ingredient totals are only an upper bound: groups and
+            // repeated requirements may share the same stock. Use the execution allocator
+            // both for shortage details and the exact feasible batch count.
             result.MissingMaterials = new List<MissingMaterial>();
+            bool validMaterials = true;
+            int upper = int.MaxValue;
             foreach (var ing in recipe.Ingredients)
             {
-                int have = GetMaterialCount(ing.ItemId);
-                if (have < ing.RequiredStack)
+                if (ing == null || ing.RequiredStack <= 0 ||
+                    (ing.IsRecipeGroup && (ing.ValidItemIds == null || ing.ValidItemIds.Count == 0)))
+                { validMaterials = false; break; }
+                long have = 0;
+                if (ing.IsRecipeGroup)
                 {
-                    result.MissingMaterials.Add(new MissingMaterial
-                    {
-                        ItemId = ing.ItemId,
-                        Name = ing.Name,
-                        Required = ing.RequiredStack,
-                        Have = have
-                    });
+                    foreach (int id in ing.ValidItemIds) have += GetMaterialCount(id);
                 }
-
-                // Calculate max craftable based on this ingredient
-                if (ing.RequiredStack > 0)
+                else have = GetMaterialCount(ing.ItemId);
+                upper = (int)Math.Min(upper, have / ing.RequiredStack);
+            }
+            bool enoughMaterials = ConsumptionPlanner.TryPlan(recipe, 1, _materialItems,
+                false, out _, out _, out var missing);
+            if (!enoughMaterials)
+            {
+                if (missing == null) validMaterials = false;
+                else for (int i = 0; i < missing.Length; i++)
                 {
-                    int craftable = have / ing.RequiredStack;
-                    result.MaxCraftable = Math.Min(result.MaxCraftable, craftable);
+                    if (missing[i] == 0) continue;
+                    var ing = recipe.Ingredients[i];
+                    result.MissingMaterials.Add(new MissingMaterial { ItemId = ing.ItemId,
+                        Name = ing.Name, Required = ing.RequiredStack, Have = ing.RequiredStack - missing[i] });
                 }
             }
-
-            if (result.MaxCraftable == int.MaxValue)
-                result.MaxCraftable = 0;
+            result.MaxCraftable = 0;
+            if (enoughMaterials)
+            {
+                // Keep the existing zero-material display convention.
+                if (recipe.Ingredients.Count > 0)
+                {
+                    int low = 1, high = upper;
+                    while (low < high)
+                    {
+                        int middle = low + (int)(((long)high - low + 1) / 2);
+                        if (ConsumptionPlanner.TryPlan(recipe, middle, _materialItems, false, out _, out _)) low = middle;
+                        else high = middle - 1;
+                    }
+                    result.MaxCraftable = low;
+                }
+            }
 
             // Check stations
             result.MissingStations = new List<int>();
@@ -287,7 +368,11 @@ namespace StorageHub.Crafting
                 result.MissingEnvironment.Add("Shimmer");
 
             // Determine overall status
-            if (result.MissingMaterials.Count > 0)
+            if (!validMaterials)
+            {
+                result.Status = CraftStatus.InvalidRecipe;
+            }
+            else if (!enoughMaterials)
             {
                 result.Status = CraftStatus.MissingMaterials;
             }
@@ -308,15 +393,29 @@ namespace StorageHub.Crafting
         }
 
         /// <summary>
+        /// Evaluate every indexed recipe against the current material/station snapshot.
+        /// Callers that need multiple filtered views should reuse this result instead of
+        /// rescanning storage and rebuilding per-recipe allocation state for each view.
+        /// </summary>
+        public List<CraftabilityResult> GetRecipeResults()
+        {
+            var results = new List<CraftabilityResult>();
+
+            foreach (var recipe in _recipeIndex.GetAllRecipes())
+                results.Add(CanCraft(recipe));
+
+            return results;
+        }
+
+        /// <summary>
         /// Get all craftable recipes.
         /// </summary>
         public List<CraftabilityResult> GetCraftableRecipes()
         {
             var results = new List<CraftabilityResult>();
 
-            foreach (var recipe in _recipeIndex.GetAllRecipes())
+            foreach (var result in GetRecipeResults())
             {
-                var result = CanCraft(recipe);
                 if (result.Status == CraftStatus.Craftable)
                 {
                     results.Add(result);
@@ -336,10 +435,9 @@ namespace StorageHub.Crafting
         {
             var results = new List<CraftabilityResult>();
 
-            foreach (var recipe in _recipeIndex.GetAllRecipes())
+            foreach (var result in GetRecipeResults())
             {
-                var result = CanCraft(recipe);
-                if (result.Status == CraftStatus.MissingMaterials && result.MissingMaterials.Count < recipe.Ingredients.Count)
+                if (result.Status == CraftStatus.MissingMaterials && result.MissingMaterials.Count < result.Recipe.Ingredients.Count)
                 {
                     // Has some but not all materials
                     results.Add(result);

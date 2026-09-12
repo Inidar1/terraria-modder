@@ -7,17 +7,18 @@ namespace TerrariaModder.Core
     public interface IMod
     {
         /// <summary>
-        /// Unique identifier for the mod. Must match the "id" in mod.json.
+        /// Legacy identity property retained for binary compatibility. Core uses manifest.json.
+        /// New mods can inherit ModBase to avoid duplicating metadata.
         /// </summary>
         string Id { get; }
 
         /// <summary>
-        /// Display name of the mod.
+        /// Legacy display name. Core uses the manifest name.
         /// </summary>
         string Name { get; }
 
         /// <summary>
-        /// Version string (e.g., "1.0.0").
+        /// Legacy version string. Core uses the manifest version.
         /// </summary>
         string Version { get; }
 

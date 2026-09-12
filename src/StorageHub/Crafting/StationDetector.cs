@@ -56,7 +56,7 @@ namespace StorageHub.Crafting
         /// 1. Read Player.adjTile[] for vanilla-range stations (free, includes equivalences)
         /// 2. Extended tile scan for tier ranges beyond vanilla
         /// </summary>
-        public HashSet<int> ScanNearbyStations()
+        public HashSet<int> ScanNearbyStations(bool rememberStations = true)
         {
             var stations = new HashSet<int>();
 
@@ -77,7 +77,7 @@ namespace StorageHub.Crafting
                 }
 
                 // Remember stations for Tier 3+
-                if (stations.Count > 0 && ProgressionTier.HasStationMemory(_config.Tier) && _config.StationMemoryEnabled)
+                if (rememberStations && stations.Count > 0 && ProgressionTier.HasStationMemory(_config.Tier) && _config.StationMemoryEnabled)
                 {
                     foreach (var tileId in stations)
                     {

@@ -24,7 +24,7 @@ namespace SeedLab
     {
         public string Id => "seed-lab";
         public string Name => "Seed Lab";
-        public string Version => "1.0.0";
+        public string Version => "2.0.1";
 
         private ILogger _log;
         private ModContext _context;
@@ -40,8 +40,6 @@ namespace SeedLab
         private static Harmony _harmony;
 
 
-        // Track F10 previous state for menu-context edge detection
-        private bool _f10WasDown;
 
         public void Initialize(ModContext context)
         {
@@ -76,8 +74,8 @@ namespace SeedLab
             UnderwaterSurfaceGen.Initialize(_log);
             GogGen.Initialize(_log);
 
-            // Register keybind (works in-world only via KeybindManager)
-            context.RegisterKeybind("toggle", "Toggle Panel", "Open/close the Seed Lab panel", "F10", OnToggle);
+            // Core owns input polling in both title-screen and world contexts.
+            context.RegisterKeybind("toggle", "Toggle Panel", "Open/close the Seed Lab panel", "F10", OnToggle).AllowInMenu = true;
             SeedLabCommands.Register(context, _featureManager, _presetManager, _log);
 
             // Subscribe to draw event (fires in both menu and world)
@@ -175,6 +173,13 @@ namespace SeedLab
 
             // Close world-gen panel when entering a world
             if (_worldGenPanel != null) _worldGenPanel.Visible = false;
+            if (Main.netMode != 0)
+            {
+                _featureManager.Reset();
+                GogGen.SpreadActive = false;
+                _log.Info("[SeedLab] Multiplayer world loaded - runtime overrides remain inactive");
+                return;
+            }
 
             // Initialize feature states from the world's actual seed flags
             _featureManager.InitFromWorldFlags();
@@ -207,10 +212,20 @@ namespace SeedLab
         }
 
         /// <summary>
-        /// Keybind callback (in-world only, via KeybindManager).
+        /// Keybind callback for the panel appropriate to the current game context.
         /// </summary>
         private void OnToggle()
         {
+            if (Main.gameMenu)
+            {
+                if (_worldGenPanel != null) _worldGenPanel.Visible = !_worldGenPanel.Visible;
+                return;
+            }
+            if (Main.netMode != 0)
+            {
+                _log.Warn("[SeedLab] Runtime features are available in singleplayer only");
+                return;
+            }
             if (_featureManager == null || !_featureManager.Initialized)
             {
                 _log.Warn("[SeedLab] Must be in a world to use Seed Lab");
@@ -224,16 +239,13 @@ namespace SeedLab
         {
             _panel?.Update();
             _worldGenPanel?.Update();
-            if (!Main.gameMenu) GogGen.UpdateSpread();
+            if (!Main.gameMenu && Main.netMode == 0) GogGen.UpdateSpread();
         }
 
         private void OnDraw()
         {
-            // In menu: poll keyboard manually (KeybindManager doesn't update in menus)
-            // and handle F10 for world-gen panel
             if (Main.gameMenu)
             {
-                PollMenuInput();
                 _worldGenPanel?.Draw();
             }
             else
@@ -242,31 +254,14 @@ namespace SeedLab
             }
         }
 
-        /// <summary>
-        /// Manual keyboard polling for menu context.
-        /// KeybindManager skips input when Main.gameMenu=true, so we poll directly
-        /// using InputState's reflection-based keyboard access.
-        /// </summary>
-        private void PollMenuInput()
-        {
-            // Update input state manually since KeybindManager won't do it in menus
-            InputState.Update();
 
-            bool f10Down = InputState.IsKeyDown(KeyCode.F10);
-            bool f10JustPressed = f10Down && !_f10WasDown;
-            _f10WasDown = f10Down;
-
-            if (f10JustPressed)
-            {
-                _worldGenPanel.Visible = !_worldGenPanel.Visible;
-            }
-        }
 
         private void ApplyPatches(object state)
         {
             try
             {
                 SeedFeaturePatches.Apply(_harmony, _featureManager, _log);
+                DontStarveFeaturePatches.Apply(_harmony, _featureManager, _log);
                 WorldGenResetPatch.Apply(_harmony, _worldGenOverrideManager, _log);
                 WorldGenPassPatch.Apply(_harmony, _worldGenOverrideManager, _log);
                 FinalizeSecretSeedsPatch.Apply(_harmony, _worldGenOverrideManager, _log);

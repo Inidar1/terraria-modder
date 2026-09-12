@@ -120,6 +120,7 @@ namespace Randomizer.Modules
                     createItem.stack = kvp.Value.stack;
                 }
                 Recipe.UpdateRecipeList();
+                _originalOutputs.Clear();
             }
             catch (Exception ex)
             {

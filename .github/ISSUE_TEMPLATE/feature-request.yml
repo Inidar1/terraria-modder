@@ -1,24 +1,26 @@
 name: Feature Request
-description: Suggest a new feature or improvement
+description: Suggest a TerrariaModder improvement
 labels: ["enhancement"]
 body:
   - type: dropdown
     id: mod
     attributes:
-      label: Which mod?
+      label: Which mod or component?
       options:
         - Core / Framework
-        - AdminPanel
-        - AutoBuffs
-        - DebugTools
-        - FpsUnlocked
-        - ItemSpawner
-        - PetChests
-        - QuickKeys
-        - SeedLab
-        - SkipIntro
-        - StorageHub
-        - WhipStacking
+        - Admin Panel
+        - Auto Furniture Buffs
+        - Biome Spread Control
+        - Public Debug Tools
+        - FPS Unlocked
+        - Item Spawner
+        - Pet Chests
+        - Quick Keys
+        - Randomizer
+        - Seed Lab
+        - Skip Intro
+        - Storage Hub
+        - Whip Stacking
         - New mod idea
     validations:
       required: true
@@ -27,7 +29,7 @@ body:
     id: description
     attributes:
       label: What would you like?
-      description: Describe the feature or improvement
+      description: Describe the behavior or workflow you want.
     validations:
       required: true
 
@@ -35,7 +37,7 @@ body:
     id: why
     attributes:
       label: Why is this useful?
-      description: What problem does this solve or what does it enable?
+      description: Explain the problem this would solve.
     validations:
       required: true
 
@@ -43,4 +45,4 @@ body:
     id: alternatives
     attributes:
       label: Alternatives considered
-      description: Have you thought of other ways to achieve this?
+      description: Describe any existing Terraria or mod behavior that is close.

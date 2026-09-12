@@ -29,6 +29,10 @@ namespace FpsUnlocked
         private static float[] _projDeltaX, _projDeltaY;
         private static float[] _itemDeltaX, _itemDeltaY;
 
+        // Restore only entities that were saved and changed during the current draw.
+        private static bool[] _npcApplied;
+        private static bool[] _projApplied;
+
         // Saved oldPosition for Entity-based types (2 floats per entity: X, Y)
         private static float[] _savedPlayerOldPos;
         private static float[] _savedNpcOldPos;
@@ -91,6 +95,8 @@ namespace FpsUnlocked
             _npcDeltaY = new float[maxN];
             _projDeltaX = new float[maxPr];
             _projDeltaY = new float[maxPr];
+            _npcApplied = new bool[maxN];
+            _projApplied = new bool[maxPr];
             _itemDeltaX = new float[maxI];
             _itemDeltaY = new float[maxI];
 
@@ -119,6 +125,8 @@ namespace FpsUnlocked
         public static void ApplyAll()
         {
             _applied = false;
+            Array.Clear(_npcApplied, 0, _npcApplied.Length);
+            Array.Clear(_projApplied, 0, _projApplied.Length);
             float t = FrameState.PartialTick;
 
             ApplyPlayers(t);
@@ -187,9 +195,12 @@ namespace FpsUnlocked
                 _savedPlayer[offset + 7] = ReflectionCache.PlayerItemLocY(p);
                 _savedPlayer[offset + 8] = ReflectionCache.PlayerItemRot(p);
 
-                // Compute interpolated position
-                float interpX = Lerp(KeyframeStore.PlayerBegin[offset + 0], KeyframeStore.PlayerEnd[offset + 0], t);
-                float interpY = Lerp(KeyframeStore.PlayerBegin[offset + 1], KeyframeStore.PlayerEnd[offset + 1], t);
+                // Anchor interpolation at the player's feet. Mount changes alter player
+                // dimensions, so interpolating top-left coordinates shifts the camera.
+                float interpBottomX = Lerp(KeyframeStore.PlayerBegin[offset + 0], KeyframeStore.PlayerEnd[offset + 0], t);
+                float interpBottomY = Lerp(KeyframeStore.PlayerBegin[offset + 1], KeyframeStore.PlayerEnd[offset + 1], t);
+                float interpX = interpBottomX - p.width * 0.5f;
+                float interpY = interpBottomY - p.height;
 
                 // Apply interpolated values
                 ReflectionCache.SetPlayerPosX(p, interpX);
@@ -200,8 +211,10 @@ namespace FpsUnlocked
                 ReflectionCache.SetPlayerHeadRot(p, AngleLerp(KeyframeStore.PlayerBegin[offset + 3], KeyframeStore.PlayerEnd[offset + 3], t));
                 ReflectionCache.SetPlayerBodyRot(p, AngleLerp(KeyframeStore.PlayerBegin[offset + 4], KeyframeStore.PlayerEnd[offset + 4], t));
                 ReflectionCache.SetPlayerLegRot(p, AngleLerp(KeyframeStore.PlayerBegin[offset + 5], KeyframeStore.PlayerEnd[offset + 5], t));
-                ReflectionCache.SetPlayerItemLocX(p, Lerp(KeyframeStore.PlayerBegin[offset + 6], KeyframeStore.PlayerEnd[offset + 6], t));
-                ReflectionCache.SetPlayerItemLocY(p, Lerp(KeyframeStore.PlayerBegin[offset + 7], KeyframeStore.PlayerEnd[offset + 7], t));
+                ReflectionCache.SetPlayerItemLocX(p, interpBottomX +
+                    Lerp(KeyframeStore.PlayerBegin[offset + 6], KeyframeStore.PlayerEnd[offset + 6], t));
+                ReflectionCache.SetPlayerItemLocY(p, interpBottomY +
+                    Lerp(KeyframeStore.PlayerBegin[offset + 7], KeyframeStore.PlayerEnd[offset + 7], t));
                 ReflectionCache.SetPlayerItemRot(p, AngleLerp(KeyframeStore.PlayerBegin[offset + 8], KeyframeStore.PlayerEnd[offset + 8], t));
 
                 // Compute interpolation delta
@@ -332,6 +345,9 @@ namespace FpsUnlocked
                 _savedNpc[offset + 1] = realY;
                 _savedNpc[offset + 2] = ReflectionCache.NpcRotation(npc);
                 _savedNpc[offset + 3] = ReflectionCache.NpcGfxOffY(npc);
+                _savedNpcOldPos[i * 2 + 0] = ReflectionCache.NpcOldPosX(npc);
+                _savedNpcOldPos[i * 2 + 1] = ReflectionCache.NpcOldPosY(npc);
+                _npcApplied[i] = true;
 
                 // Compute interpolated position
                 float interpX = Lerp(KeyframeStore.NpcBegin[offset + 0], KeyframeStore.NpcEnd[offset + 0], t);
@@ -350,8 +366,6 @@ namespace FpsUnlocked
                 _npcDeltaY[i] = dy;
 
                 // Offset oldPosition
-                _savedNpcOldPos[i * 2 + 0] = ReflectionCache.NpcOldPosX(npc);
-                _savedNpcOldPos[i * 2 + 1] = ReflectionCache.NpcOldPosY(npc);
                 ReflectionCache.SetNpcOldPosX(npc, _savedNpcOldPos[i * 2 + 0] + dx);
                 ReflectionCache.SetNpcOldPosY(npc, _savedNpcOldPos[i * 2 + 1] + dy);
             }
@@ -365,9 +379,7 @@ namespace FpsUnlocked
 
             for (int i = 0; i < count; i++)
             {
-                if (!KeyframeStore.NpcActiveEnd[i]) continue;
-                if (KeyframeStore.NpcSkip[i]) continue;
-                if (!KeyframeStore.NpcActiveBegin[i]) continue;
+                if (!_npcApplied[i]) continue;
 
                 var npc = npcs[i];
                 if (npc == null) continue;
@@ -381,6 +393,7 @@ namespace FpsUnlocked
                 // Restore oldPosition
                 ReflectionCache.SetNpcOldPosX(npc, _savedNpcOldPos[i * 2 + 0]);
                 ReflectionCache.SetNpcOldPosY(npc, _savedNpcOldPos[i * 2 + 1]);
+                _npcApplied[i] = false;
             }
         }
 
@@ -423,6 +436,9 @@ namespace FpsUnlocked
                 _savedProj[offset + 0] = realX;
                 _savedProj[offset + 1] = realY;
                 _savedProj[offset + 2] = ReflectionCache.ProjRotation(proj);
+                _savedProjOldPos[i * 2 + 0] = ReflectionCache.ProjOldPosX(proj);
+                _savedProjOldPos[i * 2 + 1] = ReflectionCache.ProjOldPosY(proj);
+                _projApplied[i] = true;
 
                 // Compute interpolated position
                 float interpX = Lerp(KeyframeStore.ProjBegin[offset + 0], KeyframeStore.ProjEnd[offset + 0], t);
@@ -443,8 +459,6 @@ namespace FpsUnlocked
                 _projDeltaY[i] = dy;
 
                 // Offset oldPosition
-                _savedProjOldPos[i * 2 + 0] = ReflectionCache.ProjOldPosX(proj);
-                _savedProjOldPos[i * 2 + 1] = ReflectionCache.ProjOldPosY(proj);
                 ReflectionCache.SetProjOldPosX(proj, _savedProjOldPos[i * 2 + 0] + dx);
                 ReflectionCache.SetProjOldPosY(proj, _savedProjOldPos[i * 2 + 1] + dy);
             }
@@ -489,9 +503,7 @@ namespace FpsUnlocked
 
             for (int i = 0; i < count; i++)
             {
-                if (!KeyframeStore.ProjActiveEnd[i]) continue;
-                if (KeyframeStore.ProjSkip[i]) continue;
-                if (!KeyframeStore.ProjActiveBegin[i]) continue;
+                if (!_projApplied[i]) continue;
 
                 var proj = projs[i];
                 if (proj == null) continue;
@@ -507,6 +519,7 @@ namespace FpsUnlocked
                 // Restore oldPosition
                 ReflectionCache.SetProjOldPosX(proj, _savedProjOldPos[i * 2 + 0]);
                 ReflectionCache.SetProjOldPosY(proj, _savedProjOldPos[i * 2 + 1]);
+                _projApplied[i] = false;
             }
         }
 

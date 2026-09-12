@@ -1,24 +1,26 @@
 name: Bug Report
-description: Something isn't working right
+description: Report a TerrariaModder Core, public Debug Tools, or released-mod problem
 labels: ["bug"]
 body:
   - type: dropdown
     id: mod
     attributes:
-      label: Which mod?
+      label: Which mod or component?
       options:
         - Core / Framework
-        - AdminPanel
-        - AutoBuffs
-        - DebugTools
-        - FpsUnlocked
-        - ItemSpawner
-        - PetChests
-        - QuickKeys
-        - SeedLab
-        - SkipIntro
-        - StorageHub
-        - WhipStacking
+        - Admin Panel
+        - Auto Furniture Buffs
+        - Biome Spread Control
+        - Public Debug Tools
+        - FPS Unlocked
+        - Item Spawner
+        - Pet Chests
+        - Quick Keys
+        - Randomizer
+        - Seed Lab
+        - Skip Intro
+        - Storage Hub
+        - Whip Stacking
         - Other / Not sure
     validations:
       required: true
@@ -26,9 +28,39 @@ body:
   - type: input
     id: version
     attributes:
-      label: TerrariaModder version
-      description: Check the mod menu (F6) or core logs for the version number
-      placeholder: "e.g. 0.1.0"
+      label: Core and mod version
+      description: Check the Mod Menu (F6) or the session log.
+      placeholder: "Example: Core 0.4.0, Storage Hub 2.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: terraria-version
+    attributes:
+      label: Terraria version
+      placeholder: "1.4.5.8"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: game-mode
+    attributes:
+      label: Game mode
+      options:
+        - Singleplayer
+        - Host & Play host
+        - Host & Play client
+        - Dedicated server
+        - Dedicated-server client
+        - Title screen / startup
+    validations:
+      required: true
+
+  - type: textarea
+    id: enabled-mods
+    attributes:
+      label: Enabled mods
+      description: List every enabled TerrariaModder mod, including versions when known.
     validations:
       required: true
 
@@ -36,7 +68,7 @@ body:
     id: description
     attributes:
       label: What happened?
-      description: Describe the bug clearly
+      description: Describe the problem and what you expected.
     validations:
       required: true
 
@@ -44,25 +76,23 @@ body:
     id: steps
     attributes:
       label: Steps to reproduce
-      description: How can someone else trigger this bug?
+      description: Give the shortest repeatable sequence.
       placeholder: |
-        1. Open the game
-        2. Press F5 to open StorageHub
-        3. Click on the crafting tab
-        4. ...
-    validations:
-      required: true
-
-  - type: textarea
-    id: expected
-    attributes:
-      label: What should have happened?
+        1. Launch through TerrariaInjector.exe
+        2. Open a character and world
+        3. ...
     validations:
       required: true
 
   - type: textarea
     id: logs
     attributes:
-      label: Log output
-      description: Paste relevant lines from `Terraria/TerrariaModder/core/logs/terrariamodder.log`
+      label: Session log
+      description: Attach or paste relevant lines from the newest terrariamodder.client.session-*.log or terrariamodder.server.session-*.log under Terraria/TerrariaModder/core/logs/.
       render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or video
+      description: Add focused game-window evidence when the problem is visible.

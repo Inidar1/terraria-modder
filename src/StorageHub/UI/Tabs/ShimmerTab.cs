@@ -32,7 +32,10 @@ namespace StorageHub.UI.Tabs
         private readonly RangeCalculator _rangeCalc;
 
         // UI components
-        private readonly TextInput _searchBar = new TextInput("Search...", 200);
+        private readonly TextInput _searchBar = new TextInput("Search...", 200)
+        { KeyBlockId = "storage-hub-shimmer-search" };
+
+        public void UnfocusSearch() => _searchBar.Unfocus();
         private readonly ScrollView _itemTypeScroll = new ScrollView();
         private readonly ScrollView _instanceScroll = new ScrollView();
 

@@ -431,16 +431,7 @@ namespace Randomizer.UI
         /// </summary>
         public static int DeterministicHash(string s)
         {
-            unchecked
-            {
-                uint hash = 2166136261;
-                foreach (char c in s)
-                {
-                    hash ^= c;
-                    hash *= 16777619;
-                }
-                return (int)hash;
-            }
+            return RandomSeed.DeterministicHash(s);
         }
 
         /// <summary>

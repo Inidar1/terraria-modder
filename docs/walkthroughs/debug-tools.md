@@ -1,16 +1,16 @@
 ---
-title: DebugTools Mod - HTTP Debug Server for Terraria 1.4.5
-description: Walkthrough of the DebugTools mod for Terraria 1.4.5. 70+ endpoint REST API, runtime introspection, in-game console, virtual input, inventory/world control, and headless operation.
+title: Public Debug Tools - HTTP Debug Server for Terraria 1.4.5.8
+description: Walkthrough of public Debug Tools 2.0.0 for Terraria 1.4.5.8, including its HTTP API, console, virtual input, state inspection, and window controls.
 parent: Walkthroughs
 nav_order: 8
 ---
 
-# DebugTools Walkthrough
+# Public Debug Tools Walkthrough
 
 **Difficulty:** Advanced
 **Concepts:** HTTP server, background threads, in-game console, virtual input, P/Invoke window management
 
-DebugTools is the most infrastructure-heavy mod in the framework. It provides a 70+ endpoint HTTP debug server, runtime introspection tools, an in-game console, virtual input injection, inventory/equipment/world control, and window management — enabling full headless/remote game control and automated testing.
+Public Debug Tools 2.0.0 provides an HTTP debug server, runtime introspection, an in-game console, virtual input, inventory/equipment/world control, and window management. Its feature set is stable and continues to receive Terraria/Core compatibility updates and minor fixes.
 
 ## What It Does
 
@@ -27,7 +27,7 @@ DebugTools is the most infrastructure-heavy mod in the framework. It provides a 
 
 ## Architecture
 
-DebugTools is a single mod that combines functionality from several subsystems. Each subsystem initializes independently and can fail without crashing the others:
+Public Debug Tools is a single mod that combines functionality from several subsystems. Each subsystem initializes independently and can fail without crashing the others:
 
 ```
 Mod.Initialize()

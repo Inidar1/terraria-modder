@@ -1,6 +1,6 @@
 site_name: TerrariaModder
 site_description: >-
-  TerrariaModder is a lightweight modding framework for Terraria 1.4.5.
+  TerrariaModder is a lightweight modding framework for Terraria 1.4.5.8.
   Install quality-of-life mods or create your own using Harmony patches,
   without waiting for tModLoader.
 site_author: Inidar
@@ -65,8 +65,11 @@ nav:
     - StorageHub: walkthroughs/storage-hub.md
     - AdminPanel: walkthroughs/admin-panel.md
     - WhipStacking: walkthroughs/whip-stacking.md
-    - DebugTools: walkthroughs/debug-tools.md
     - SeedLab: walkthroughs/seed-lab.md
+    - FPS Unlocked: walkthroughs/fps-unlocked.md
+    - Biome Spread Control: walkthroughs/biome-spread.md
+    - Randomizer: walkthroughs/randomizer.md
+    - Public Debug Tools: walkthroughs/debug-tools.md
     - Asset Experience Mod: walkthroughs/asset-experience-mod.md
 
 markdown_extensions:

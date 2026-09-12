@@ -27,18 +27,13 @@ namespace ModTemplate
     /// <summary>
     /// Main mod class. Rename this namespace and class to match your mod.
     /// </summary>
-    public class Mod : IMod
+    public class Mod : ModBase, IModLifecycle
     {
-        // These must match the values in manifest.json
-        public string Id => "my-mod";
-        public string Name => "My Mod";
-        public string Version => "1.0.0";
-
         private ILogger _log;
         private ModContext _context;
         private MyModConfig _config;
 
-        public void Initialize(ModContext context)
+        public override void Initialize(ModContext context)
         {
             _log = context.Logger;
             _context = context;
@@ -104,7 +99,7 @@ namespace ModTemplate
             _log.Info("World unloaded!");
         }
 
-        public void Unload()
+        public override void Unload()
         {
             // Unsubscribe from events to prevent memory leaks
             // GameEvents.OnWorldLoad -= OnWorldLoad;

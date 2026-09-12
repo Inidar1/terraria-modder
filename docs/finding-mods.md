@@ -1,12 +1,12 @@
 ---
-title: Available Mods for Terraria 1.4.5
-description: Browse all available TerrariaModder mods for Terraria 1.4.5 including auto-buffs, storage hub, admin panel, quick keys, and more QoL improvements.
+title: Available Mods for Terraria 1.4.5.8
+description: Browse all available TerrariaModder mods for Terraria 1.4.5.8 including auto-buffs, storage hub, admin panel, quick keys, and more QoL improvements.
 nav_order: 4
 ---
 
 # Available Mods
 
-All official TerrariaModder mods are available on [Nexus Mods](https://www.nexusmods.com/profile/Inidar/mods). The easiest way to install them is the **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** — the official mod manager. Install it once and click to add, update, or disable any mod. Or download zips manually if you prefer.
+Official and community TerrariaModder mods are available on Nexus Mods. The **[TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)** builds its Browse catalog from Nexus releases that declare [TerrariaModder Core](https://www.nexusmods.com/terraria/mods/135) as a requirement, so the list does not depend on a title keyword or a search ranking. You can also install a local archive for mods distributed elsewhere.
 
 ## Official Mods
 
@@ -21,12 +21,12 @@ All mods require TerrariaModder Core to be installed first.
 | **ItemSpawner** | In-game item spawner UI (singleplayer) | Insert | [Nexus](https://www.nexusmods.com/terraria/mods/141) |
 | **StorageHub** | Unified storage with crafting, recipes, shimmer decraft, mysterious chest, relay network | F5 | [Nexus](https://www.nexusmods.com/terraria/mods/136) |
 | **AdminPanel** | God mode, movement speed, teleports, time controls, respawn settings | Backslash, F9 | [Nexus](https://www.nexusmods.com/terraria/mods/137) |
-| **WhipStacking** | Restores pre-1.4.5 whip tag stacking | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/139) |
-| **SeedLab** | Toggle secret seed features for world gen (WIP) | F10 | [Nexus](https://www.nexusmods.com/terraria/mods/144) |
+| **WhipStacking** | Enables Terraria's native maximum of five simultaneous whip tag effects | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/139) |
+| **SeedLab** | Mix secret-seed world generation and singleplayer runtime features | F10 | [Nexus](https://www.nexusmods.com/terraria/mods/144) |
 | **FpsUnlocked** | Unlock frame rate with smooth interpolation (60hz logic + high-FPS rendering) | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/145) |
-| **BiomeSpread** | Visualize and control evil biome spread | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/146) |
+| **BiomeSpread** | Prevent corruption, crimson, and Hallow spread in singleplayer worlds | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/146) |
 | **Randomizer** | Modular randomizer with seed system — shuffle chests, drops, recipes, shops, and more | Numpad / | [Nexus](https://www.nexusmods.com/terraria/mods/147) |
-| **DebugTools** | Debug HTTP server, in-game console, virtual input, window management | Ctrl+` | — |
+| **Public Debug Tools** | Debug HTTP server, in-game console, virtual input, window management | Ctrl+` | [Core optional files](https://www.nexusmods.com/terraria/mods/135) |
 
 **ModMenu** (F6) is built into Core, no separate download needed.
 
@@ -35,8 +35,10 @@ All mods require TerrariaModder Core to be installed first.
 **Recommended — use the Vault:**
 
 1. Download the [TerrariaModder Vault](https://www.nexusmods.com/terraria/mods/159)
-2. Click to install any mod from the list
-3. Hit **Run Modded** to launch
+2. Select your Terraria folder and sign in to your own Nexus account
+3. Choose a mod in Browse and click **Install**
+4. Nexus Premium downloads start directly. With a free account, click **Manual Download** and then **Slow Download** in the embedded Nexus page; the Vault receives and installs the selected file.
+5. Click **Launch Modded** to launch
 
 **Manual:**
 
@@ -112,10 +114,7 @@ Look for:
 
 ### With TerrariaModder Core
 
-Some mods specify a `framework_version` in manifest.json. If present:
-- Must match or be lower than your installed Core version
-- Higher version means you need to update Core
-- Most mods omit this field and work with any Core version
+Some mods specify a `framework_version` in manifest.json. If present, the Vault compares it with the installed Core version and warns when they may not be compatible. Update Core when a mod requires a newer version, or continue at your discretion if you understand that the mod may still work. Invalid packages and unsafe archive layouts are rejected rather than offered as compatibility overrides.
 
 ### With Other Mods
 
@@ -127,7 +126,7 @@ Most mods are compatible with each other. Issues can arise if:
 ### With Terraria Versions
 
 Mods are built for specific Terraria versions:
-- TerrariaModder targets Terraria 1.4.5
+- TerrariaModder targets Terraria 1.4.5.8
 - Older/newer Terraria versions may have issues
 - Check mod documentation for supported versions
 
@@ -137,7 +136,7 @@ Mods are built for specific Terraria versions:
 
 1. Check folder structure is correct
 2. Verify manifest.json is valid
-3. Check logs in `TerrariaModder/core/logs/terrariamodder.log`
+3. Check logs in `TerrariaModder/core/logs/`
 
 ### Mod Crashes Game
 

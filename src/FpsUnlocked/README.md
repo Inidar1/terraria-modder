@@ -1,60 +1,37 @@
 # FPS Unlocked
 
-Unlock Terraria's frame rate beyond the default 60 FPS cap with smooth frame interpolation. Game logic stays at 60hz while rendering runs at your display's refresh rate.
+Unlocks Terraria rendering beyond 60 FPS while its game simulation continues at 60 updates per second.
 
-## How It Works
+## Modes
 
-Terraria runs at a fixed 60 updates per second. This mod decouples rendering from game logic by interpolating entity positions between game ticks, drawing additional frames at your monitor's refresh rate.
+| Mode | Behavior |
+| --- | --- |
+| VSync (Vanilla) | Restores Terraria's normal fixed 60 FPS behavior |
+| Capped | Renders up to the configured limit from 30 to 1000 FPS |
+| Uncapped | Renders without a mod-imposed frame limit |
 
-Interpolated entities:
-- **Players**: Position, body/head/leg rotation, held item, afterimage trails
-- **NPCs & Enemies**: Position, rotation, graphical offsets
-- **Projectiles**: Position and rotation
-- **World Items, Gore, Combat Text, Popup Text**
-- **Camera**: Sub-pixel positioning (removes vanilla integer snap)
-- **Mouse**: Polled every render frame for lower input lag
+Capped and Uncapped modes can interpolate players, NPCs, projectiles, world items, camera movement, rotations, held items, and related visual state between completed game updates. Turning interpolation off keeps simulation timing at 60 Hz and displays discrete positions at the selected render rate.
 
-Teleport detection prevents interpolation artifacts when entities jump large distances. Spawn/death transitions are handled gracefully.
+## Stability
 
-## Frame Rate Modes
-
-| Mode | Description |
-|------|-------------|
-| VSync (Vanilla) | Default 60 FPS, no changes |
-| Capped | Custom FPS limit (30-1000), uses stopwatch-based frame limiter |
-| Uncapped | No limit, renders as fast as hardware allows |
+The mod resets interpolation across teleports, large camera transitions, display-mode changes, world entry/exit, and shutdown. Draw cleanup restores temporary entity positions and respects Terraria's SpriteBatch and render-target lifecycle.
 
 ## Configuration
 
 | Setting | Default | Description |
-|---------|---------|-------------|
-| enabled | true | Enable the mod |
-| mode | VSync (Vanilla) | Frame rate mode: VSync (Vanilla), Capped, or Uncapped |
-| maxFps | 144 | Max FPS for Capped mode (30-1000) |
-| interpolation | true | Smooth entity motion between ticks. Disable for raw FPS unlock where game speed scales with frame rate |
-| mouseEveryFrame | true | Poll mouse every render frame for lower input lag (only when interpolation is on) |
+| --- | --- | --- |
+| Enabled | On | Enables FPS Unlocked |
+| Frame Rate Mode | VSync (Vanilla) | Selects vanilla, capped, or uncapped rendering |
+| Max FPS | 144 | Limit used by Capped mode |
+| Frame Interpolation | On | Smooths visual state between 60 Hz updates |
+| Responsive Mouse | On | Updates the mouse on render frames while the game is focused |
 
-All settings configurable via F6 Mod Menu in-game. Changes take effect immediately.
-
-## Technical Details
-
-- 8 Harmony patches on Main.Update, Main.DoUpdate, Main.DoDraw, Game.SuppressDraw, DoDraw_UpdateCameraPosition, and Lighting.LightTiles
-- IL-emitted delegates for all entity field access (no reflection overhead per frame)
-- Flat float arrays for keyframe storage (cache-friendly, zero allocation per frame)
-- Stopwatch-based frame limiter for Capped mode (more accurate than XNA's IsFixedTimeStep)
-- Camera transpiler removes integer snap (`conv.i4`/`conv.r4` NOPs) for sub-pixel scrolling
-- Dust particles linked to entities via `customData` are offset by the parent entity's interpolation delta
-- Lighting engine capped at 240 calls/sec (4 per game tick) to prevent held-torch flicker at high frame rates
-- Teleport detection skips interpolation when entities jump large distances (>16 tiles)
-- DoDraw finalizer ensures entity positions are always restored, even if rendering throws an exception
+Changes apply from the F6 Mod Menu without restarting.
 
 ## Multiplayer
 
-Works in multiplayer. Only affects local rendering.
+FPS Unlocked is client-only and changes local rendering only.
 
 ## Installation
 
-Requires TerrariaModder Core.
-
-Extract this zip into your Terraria folder. The mod goes into
-`TerrariaModder/mods/fps-unlocked/`.
+Requires TerrariaModder Core. Replace the existing <code>TerrariaModder/mods/fps-unlocked/</code> folder with the downloaded mod folder, then launch through <code>TerrariaInjector.exe</code>.

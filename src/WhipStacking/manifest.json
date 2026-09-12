@@ -4,7 +4,7 @@
   "version": "2.0.0",
   "framework_version": ">=0.2.0",
   "author": "Inidar",
-  "description": "Restores pre-1.4.5 whip tag stacking. Multiple whip tags can be active on NPCs simultaneously instead of only one at a time.",
+  "description": "Enables Terraria 1.4.5.8's native maximum of five simultaneous whip tag effects.",
   "entry_dll": "WhipStacking.dll",
   "multiplayer": "optional"
 }
