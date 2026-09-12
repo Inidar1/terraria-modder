@@ -27,7 +27,10 @@ namespace StorageHub.UI.Tabs
         private readonly StorageHubConfig _config;
 
         // UI components
-        private readonly TextInput _searchBar = new TextInput("Search...", 200);
+        private readonly TextInput _searchBar = new TextInput("Search...", 200)
+        { KeyBlockId = "storage-hub-recipes-search" };
+
+        public void UnfocusSearch() => _searchBar.Unfocus();
         private readonly ScrollView _itemScroll = new ScrollView();
         private readonly ScrollView _createdByScroll = new ScrollView();
         private readonly ScrollView _usedInScroll = new ScrollView();

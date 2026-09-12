@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using TerrariaModder.Core.UI;
 using TerrariaModder.Core.Logging;
 using StorageHub.Crafting;
@@ -31,7 +32,10 @@ namespace StorageHub.UI.Tabs
         private CraftingExecutor _executor;
 
         // UI components
-        private readonly TextInput _searchBar = new TextInput("Search...", 200);
+        private readonly TextInput _searchBar = new TextInput("Search...", 200)
+        { KeyBlockId = "storage-hub-craft-search" };
+
+        public void UnfocusSearch() => _searchBar.Unfocus();
         private readonly ScrollView _scrollPanel = new ScrollView();
 
         // Cached data
@@ -65,6 +69,8 @@ namespace StorageHub.UI.Tabs
 
         // Recursive crafting plan cache (computed per selection)
         private int _recursiveMaxCraftable;
+        private bool _recursiveLimitExact;
+        private bool _recursiveSearchIncomplete;
         private int _recursivePlanRecipeIdx = -1;
         private bool _recursivePlanComputed;
 
@@ -77,6 +83,9 @@ namespace StorageHub.UI.Tabs
         /// Number of fully craftable recipes (all materials available).
         /// </summary>
         public int CraftableCount { get; private set; }
+        public int RecursiveCandidateCount { get; private set; }
+        public double LastRefreshMilliseconds { get; private set; }
+        public double LastRecursiveScanMilliseconds { get; private set; }
 
         /// <summary>
         /// Callback when storage is modified (crafting consumed/created items).
@@ -92,7 +101,7 @@ namespace StorageHub.UI.Tabs
             _crafter = crafter;
             _config = config;
             _modConfig = modConfig;
-            _executor = new CraftingExecutor(log, storage);
+            _executor = new CraftingExecutor(log, storage, checker.Materials);
         }
 
         /// <summary>
@@ -118,9 +127,11 @@ namespace StorageHub.UI.Tabs
             _recursivePlanRecipeIdx = recipeIdx;
             _recursivePlanComputed = true;
             _recursiveMaxCraftable = 0;
+            _recursiveLimitExact = false;
+            _recursiveSearchIncomplete = false;
 
             int depth = (_modConfig?.RecursiveCraftingDepth ?? 0);
-            var plan = _crafter.CalculatePlan(recipeIdx, 1, depth);
+            var plan = _crafter.CalculateCraftPlan(recipeIdx, 1, depth);
             if (plan == null)
             {
                 _log.Debug($"[CraftTab] Recursive plan null for {result.Recipe.OutputName} (OrigIdx={recipeIdx})");
@@ -128,28 +139,13 @@ namespace StorageHub.UI.Tabs
             }
             if (!plan.CanCraft)
             {
+                _recursiveSearchIncomplete = plan.SearchIncomplete;
                 _log.Debug($"[CraftTab] Recursive plan failed for {result.Recipe.OutputName}: {plan.ErrorMessage}");
                 return;
             }
 
-            // Estimate max from raw material ratios (approximate; exact check on craft click)
-            int max = int.MaxValue;
-            foreach (var kvp in plan.RawMaterialsNeeded)
-            {
-                if (kvp.Value <= 0) continue;
-                int have = _checker.GetMaterialCount(kvp.Key);
-                int ratio = have / kvp.Value;
-                _log.Debug($"[CraftTab]   raw mat {kvp.Key}: need={kvp.Value}, have={have}, ratio={ratio}");
-                max = Math.Min(max, ratio);
-            }
+            _recursiveMaxCraftable = Math.Max(1, _crafter.CalculateCraftableLimit(recipeIdx, depth, out _recursiveLimitExact));
 
-            // If no raw materials needed (all intermediates available), plan is directly craftable
-            // with at least 1 output — use the plan's step counts to estimate
-            if (max == int.MaxValue)
-                max = plan.RawMaterialsNeeded.Count == 0 ? 1 : 0;
-
-            _recursiveMaxCraftable = max;
-            _log.Debug($"[CraftTab] Recursive plan OK for {result.Recipe.OutputName}: max={_recursiveMaxCraftable}, steps={plan.Steps.Count}, rawMats={plan.RawMaterialsNeeded.Count}");
         }
 
         /// <summary>
@@ -554,12 +550,12 @@ namespace StorageHub.UI.Tabs
                 case CraftStatus.MissingMaterials:
                     if (_recursiveMaxCraftable > 0)
                     {
-                        statusText = $"Max: {_recursiveMaxCraftable}";
+                        statusText = _recursiveLimitExact ? $"Max: {_recursiveMaxCraftable}" : $"At least: {_recursiveMaxCraftable}";
                         statusColor = UIColors.Success;
                     }
                     else
                     {
-                        statusText = $"-{result.MissingMaterials?.Count ?? 0} mat";
+                        statusText = _recursiveSearchIncomplete ? "Search incomplete" : $"-{result.MissingMaterials?.Count ?? 0} mat";
                         statusColor = UIColors.Warning;
                     }
                     break;
@@ -918,11 +914,6 @@ namespace StorageHub.UI.Tabs
             int actualCount = Math.Min(_craftAmount, maxCraftable);
             if (actualCount <= 0) return;
 
-            // Apply hotbar protection setting to both executors (F6 toggle OR per-world config)
-            bool protectHotbar = (_modConfig?.BlockHotbarFromCrafting ?? false) || (_config?.HotbarProtection ?? false);
-            _executor.ProtectHotbar = protectHotbar;
-            _crafter.ProtectHotbar = protectHotbar;
-
             bool success;
             int totalOutput;
 
@@ -930,7 +921,7 @@ namespace StorageHub.UI.Tabs
             {
                 // Use RecursiveCrafter to build and execute crafting plan
                 int depth = (_modConfig?.RecursiveCraftingDepth ?? 0);
-                var plan = _crafter.CalculatePlan(result.Recipe.OriginalIndex, actualCount, depth);
+                var plan = _crafter.CalculateCraftPlan(result.Recipe.OriginalIndex, actualCount, depth);
                 if (plan == null)
                 {
                     _toastMessage = $"Failed to plan craft for {result.Recipe.OutputName}";
@@ -948,9 +939,7 @@ namespace StorageHub.UI.Tabs
                 }
 
                 success = _crafter.ExecutePlan(plan);
-                // Use long to prevent overflow
-                long totalOutputLong = (long)plan.TargetCount * result.Recipe.OutputStack;
-                totalOutput = totalOutputLong > int.MaxValue ? int.MaxValue : (int)totalOutputLong;
+                totalOutput = plan.TargetCount;
             }
             else
             {
@@ -983,6 +972,7 @@ namespace StorageHub.UI.Tabs
 
         private void RefreshRecipes()
         {
+            var refreshClock = Stopwatch.StartNew();
             _log.Debug("[CraftTab] RefreshRecipes called");
             _checker.RefreshMaterials();
             _checker.RefreshStations();
@@ -993,20 +983,48 @@ namespace StorageHub.UI.Tabs
                 _itemCategories = ItemClassifier.GetClassificationCache(_log);
             }
 
-            // Always get directly craftable recipes first
-            _craftableRecipes = _checker.GetCraftableRecipes();
+            // Evaluate the recipe catalog once. Recursive searches share these results
+            // and one immutable material pool instead of rescanning storage per candidate.
+            var allResults = _checker.GetRecipeResults();
+            _craftableRecipes = new List<CraftabilityResult>();
+            foreach (var result in allResults)
+            {
+                if (result.Status == CraftStatus.Craftable)
+                    _craftableRecipes.Add(result);
+            }
+            _craftableRecipes.Sort((a, b) => string.Compare(a.Recipe.OutputName,
+                b.Recipe.OutputName, StringComparison.OrdinalIgnoreCase));
             CraftableCount = _craftableRecipes.Count;
+
+            var recursiveCandidates = new List<CraftabilityResult>();
+            LastRecursiveScanMilliseconds = 0;
+            if ((_modConfig?.RecursiveCrafting ?? true))
+            {
+                var recursiveClock = Stopwatch.StartNew();
+                recursiveCandidates = GetRecursiveCandidates(allResults,
+                    _crafter.CreatePlanningContext(allResults));
+                recursiveClock.Stop();
+                LastRecursiveScanMilliseconds = recursiveClock.Elapsed.TotalMilliseconds;
+            }
+            RecursiveCandidateCount = recursiveCandidates.Count;
 
             if (_showPartial)
             {
                 // "Missing Ingredients" view: show partial recipes (have some but not all materials)
                 // Exclude recipes that are recursively craftable (those belong in the Craftable view)
-                var partial = _checker.GetPartialRecipes();
+                var partial = new List<CraftabilityResult>();
+                foreach (var result in allResults)
+                {
+                    if (result.Status == CraftStatus.MissingMaterials
+                        && result.MissingMaterials.Count < result.Recipe.Ingredients.Count)
+                        partial.Add(result);
+                }
+                partial.Sort((a, b) => a.MissingMaterials.Count.CompareTo(b.MissingMaterials.Count));
 
                 if ((_modConfig?.RecursiveCrafting ?? true))
                 {
                     var recursiveSet = new HashSet<int>();
-                    foreach (var r in GetRecursiveCandidates())
+                    foreach (var r in recursiveCandidates)
                         recursiveSet.Add(r.Recipe.OriginalIndex);
                     partial.RemoveAll(p => recursiveSet.Contains(p.Recipe.OriginalIndex));
                 }
@@ -1019,7 +1037,6 @@ namespace StorageHub.UI.Tabs
                 // "Craftable" view: directly craftable + recursively craftable
                 if ((_modConfig?.RecursiveCrafting ?? true))
                 {
-                    var recursiveCandidates = GetRecursiveCandidates();
                     if (recursiveCandidates.Count > 0)
                     {
                         _log.Debug($"[CraftTab] Found {recursiveCandidates.Count} recursive candidate recipes");
@@ -1030,6 +1047,10 @@ namespace StorageHub.UI.Tabs
             }
 
             FilterRecipes();
+            refreshClock.Stop();
+            LastRefreshMilliseconds = refreshClock.Elapsed.TotalMilliseconds;
+            _log.Info($"[CraftTab] Refresh completed in {LastRefreshMilliseconds:F1} ms " +
+                $"(recursive {LastRecursiveScanMilliseconds:F1} ms, {RecursiveCandidateCount} candidates)");
         }
 
         /// <summary>
@@ -1037,7 +1058,8 @@ namespace StorageHub.UI.Tabs
         /// Validates each candidate with CalculatePlan to ensure the full chain is feasible
         /// (has raw materials, stations available, etc.) rather than just checking recipe existence.
         /// </summary>
-        private List<CraftabilityResult> GetRecursiveCandidates()
+        private List<CraftabilityResult> GetRecursiveCandidates(IReadOnlyList<CraftabilityResult> allResults,
+            RecursiveCrafter.PlanningContext context)
         {
             var results = new List<CraftabilityResult>();
 
@@ -1048,11 +1070,11 @@ namespace StorageHub.UI.Tabs
 
             int depth = (_modConfig?.RecursiveCraftingDepth ?? 0);
 
-            foreach (var recipe in _recipeIndex.GetAllRecipes())
+            foreach (var result in allResults)
             {
+                var recipe = result.Recipe;
                 if (existing.Contains(recipe.OriginalIndex)) continue;
 
-                var result = _checker.CanCraft(recipe);
                 if (result.Status != CraftStatus.MissingMaterials) continue;
                 if (result.MissingMaterials.Count == 0) continue;
 
@@ -1076,7 +1098,7 @@ namespace StorageHub.UI.Tabs
 
                 // Full validation: run CalculatePlan to verify the recursive chain is feasible
                 // (checks raw material availability, station access for sub-recipes, virtual pool)
-                var plan = _crafter.CalculatePlan(recipe.OriginalIndex, 1, depth);
+                var plan = _crafter.CalculateCraftPlan(recipe.OriginalIndex, 1, depth, context);
                 if (plan != null && plan.CanCraft)
                     results.Add(result);
             }

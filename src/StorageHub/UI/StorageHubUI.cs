@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using TerrariaModder.Core.UI;
 using TerrariaModder.Core.Logging;
 using TerrariaModder.Core.Input;
@@ -51,15 +52,33 @@ namespace StorageHub.UI
 
         public int ActiveTab => _activeTab;
         public string ActiveTabName => _activeTab >= 0 && _activeTab < TabNames.Length ? TabNames[_activeTab] : "?";
+        public int CraftableCount => _craftTab?.CraftableCount ?? 0;
+        public int RecursiveCandidateCount => _craftTab?.RecursiveCandidateCount ?? 0;
+        public double LastCraftRefreshMilliseconds => _craftTab?.LastRefreshMilliseconds ?? 0;
+        public double LastRecursiveScanMilliseconds => _craftTab?.LastRecursiveScanMilliseconds ?? 0;
+        public double LastChangeProbeMilliseconds { get; private set; }
+        public int SkippedPeriodicRefreshes { get; private set; }
+        public int DetectedExternalChanges { get; private set; }
         public void SetActiveTab(int tab)
         {
-            if (tab >= 0 && tab < TabNames.Length) _activeTab = tab;
+            if (tab < 0 || tab >= TabNames.Length || tab == _activeTab) return;
+            UnfocusSearchInputs();
+            _activeTab = tab;
+            _needsRefresh = true;
         }
         public void SetActiveTab(string name)
         {
             for (int i = 0; i < TabNames.Length; i++)
                 if (string.Equals(TabNames[i], name, System.StringComparison.OrdinalIgnoreCase))
-                { _activeTab = i; return; }
+                { SetActiveTab(i); return; }
+        }
+
+        private void UnfocusSearchInputs()
+        {
+            _searchInput.Unfocus();
+            _craftTab?.UnfocusSearch();
+            _recipesTab?.UnfocusSearch();
+            _shimmerTab?.UnfocusSearch();
         }
 
         // UI Components
@@ -88,9 +107,14 @@ namespace StorageHub.UI
         private bool _needsRefresh = true;
         private int _hoveredItemIndex = -1;
 
-        // Periodic refresh to catch external inventory/chest changes
+        // Cheap periodic observation catches vanilla/external changes without rebuilding
+        // snapshots and reevaluating every recipe when storage is unchanged.
+        private readonly StorageStateProbe _storageStateProbe;
         private int _framesSinceRefresh = 0;
         private const int RefreshIntervalFrames = 30; // ~0.5 sec at 60fps
+        private bool _hasObservedState;
+        private ulong _observedStorageState;
+        private ulong _observedCraftingContext;
 
         // Draggable panel state
         private int _panelX = -1;  // -1 means center on screen
@@ -115,6 +139,7 @@ namespace StorageHub.UI
             _crafter = crafter;
             _rangeCalc = rangeCalc;
             _modConfig = modConfig;
+            _storageStateProbe = new StorageStateProbe(ChestRegistry.Instance, _rangeCalc, _config, _modConfig);
 
             // Initialize tab components
             _craftTab = new CraftTab(_log, _recipeIndex, _craftChecker, _crafter, _config, _storage, _modConfig);
@@ -131,7 +156,7 @@ namespace StorageHub.UI
             // Set up callbacks
             _recipesTab.OnJumpToCraft = (itemId) =>
             {
-                _activeTab = TabCraft;
+                SetActiveTab(TabCraft);
                 _craftTab.NavigateToItem(itemId);
             };
 
@@ -153,6 +178,7 @@ namespace StorageHub.UI
             {
                 _needsRefresh = true;
                 _framesSinceRefresh = 0;  // Fresh start on open
+                _hasObservedState = false;
                 MarkDirty();  // Propagate to all tabs immediately (stations, materials, etc.)
                 _searchInput.Clear();
                 _scrollView.ResetScroll();
@@ -167,7 +193,7 @@ namespace StorageHub.UI
             }
             else
             {
-                _searchInput.Unfocus();
+                UnfocusSearchInputs();
                 // Unregister panel bounds - this automatically disables mouse blocking if no other panels
                 UIRenderer.UnregisterPanelBounds("storage-hub");
             }
@@ -181,7 +207,7 @@ namespace StorageHub.UI
             if (_isOpen)
             {
                 _isOpen = false;
-                _searchInput.Unfocus();
+                UnfocusSearchInputs();
                 UIRenderer.UnregisterPanelBounds("storage-hub");
                 UIRenderer.CloseInventory();
             }
@@ -195,7 +221,7 @@ namespace StorageHub.UI
             if (_isOpen)
             {
                 _isOpen = false;
-                _searchInput.Unfocus();
+                UnfocusSearchInputs();
                 UIRenderer.UnregisterPanelBounds("storage-hub");
             }
         }
@@ -210,16 +236,15 @@ namespace StorageHub.UI
 
             if (!_isOpen) return;
 
-            // Periodic refresh to catch external inventory/chest changes
+            // Update player position before observing range membership.
+            _rangeCalc.UpdatePlayerPosition();
+
             _framesSinceRefresh++;
             if (_framesSinceRefresh >= RefreshIntervalFrames)
             {
-                MarkDirty();  // Propagates to all tabs
+                ProbeForExternalChanges();
                 _framesSinceRefresh = 0;
             }
-
-            // Update player position for range calculations
-            _rangeCalc.UpdatePlayerPosition();
 
             // Handle search input during Update
             _searchInput.Update();
@@ -233,6 +258,47 @@ namespace StorageHub.UI
                 _shimmerTab.Update();
         }
 
+        private void ProbeForExternalChanges()
+        {
+            long started = Stopwatch.GetTimestamp();
+            try
+            {
+                ulong storageState = _storageStateProbe.Capture();
+                ulong craftingContext = _craftChecker.CaptureContextSignature();
+
+                if (!_hasObservedState)
+                {
+                    _observedStorageState = storageState;
+                    _observedCraftingContext = craftingContext;
+                    _hasObservedState = true;
+                    SkippedPeriodicRefreshes++;
+                    return;
+                }
+
+                if (storageState == _observedStorageState &&
+                    craftingContext == _observedCraftingContext)
+                {
+                    SkippedPeriodicRefreshes++;
+                    return;
+                }
+
+                _observedStorageState = storageState;
+                _observedCraftingContext = craftingContext;
+                DetectedExternalChanges++;
+                MarkDirty();
+            }
+            catch (Exception ex)
+            {
+                // Preserve correctness if the lightweight observer cannot inspect state.
+                _log.Error($"[StorageHubUI] Change probe failed: {ex.Message}");
+                MarkDirty();
+            }
+            finally
+            {
+                LastChangeProbeMilliseconds =
+                    (Stopwatch.GetTimestamp() - started) * 1000.0 / Stopwatch.Frequency;
+            }
+        }
         /// <summary>
         /// Draw the UI.
         /// </summary>
@@ -314,7 +380,7 @@ namespace StorageHub.UI
             }
             catch (Exception ex)
             {
-                _log.Error($"StorageHubUI Draw error: {ex.Message}");
+                _log.Error($"StorageHubUI Draw error: {ex}");
             }
             finally
             {
@@ -368,7 +434,7 @@ namespace StorageHub.UI
             var newTab = TabBar.Draw(x, tabY, PanelWidth, TabNames, _activeTab);
             if (newTab != _activeTab)
             {
-                _activeTab = newTab;
+                SetActiveTab(newTab);
                 _needsRefresh = true;
                 // Don't reset scroll - preserve scroll position per tab
                 // Each tab maintains its own scroll state internally
