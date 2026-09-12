@@ -102,6 +102,10 @@ namespace TerrariaModder.Core.Events
                         prefix: new HarmonyMethod(prefix),
                         postfix: new HarmonyMethod(postfix));
                 }
+                else
+                {
+                    _log?.Error("[Events] Main.DoUpdate patch target was not found");
+                }
             }
             catch (Exception ex)
             {
@@ -126,6 +130,10 @@ namespace TerrariaModder.Core.Events
                     _harmony.Patch(draw,
                         prefix: new HarmonyMethod(prefix),
                         postfix: new HarmonyMethod(postfix));
+                }
+                else
+                {
+                    _log?.Error("[Events] Main.DoDraw patch target was not found");
                 }
             }
             catch (Exception ex)
@@ -423,20 +431,7 @@ namespace TerrariaModder.Core.Events
         {
             try
             {
-                var hostAndPlay = typeof(Main).GetMethod("HostAndPlay",
-                    BindingFlags.NonPublic | BindingFlags.Static);
-
-                if (hostAndPlay != null)
-                {
-                    var prefix = typeof(EventPatches).GetMethod(nameof(HostAndPlay_Prefix),
-                        BindingFlags.NonPublic | BindingFlags.Static);
-                    _harmony.Patch(hostAndPlay, prefix: new HarmonyMethod(prefix));
-                    _log?.Info("[Events] Patched Main.HostAndPlay — H&P server will load mods via injector");
-                }
-                else
-                {
-                    _log?.Warn("[Events] Could not find Main.HostAndPlay to patch");
-                }
+                Net.HostAndPlayLauncher.Apply(_harmony, _log);
             }
             catch (Exception ex)
             {
@@ -928,140 +923,6 @@ namespace TerrariaModder.Core.Events
             catch (Exception ex)
             {
                 _log?.Error($"[Events] NPCCheckDead_Postfix error: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Prefix on Main.HostAndPlay — replaces the server process spawn to use TerrariaInjector.exe
-        /// instead of TerrariaServer.exe directly. This makes the H&P server load mods, which is required
-        /// for custom container tiles (painting chest), custom items, and any mod that modifies server state.
-        /// Without this, the server runs vanilla and destroys custom chest data on save.
-        /// </summary>
-        private static bool HostAndPlay_Prefix()
-        {
-            try
-            {
-                var mainType = typeof(Main);
-                var config = Config.CoreConfig.Instance;
-                string gameFolder = config.GameFolder;
-                string rootPath = config.RootPath;
-
-                // Write target file so the injector knows to load TerrariaServer.exe
-                string targetFile = System.IO.Path.Combine(rootPath, "target");
-                System.IO.File.WriteAllText(targetFile, "TerrariaServer.exe");
-                _log?.Info($"[H&P] Wrote target file: {targetFile}");
-
-                // Schedule cleanup of target file after 5 seconds (so client doesn't use it on next launch)
-                System.Threading.Tasks.Task.Delay(5000).ContinueWith(_ =>
-                {
-                    try
-                    {
-                        if (System.IO.File.Exists(targetFile))
-                        {
-                            System.IO.File.Delete(targetFile);
-                            _log?.Info("[H&P] Cleaned up target file");
-                        }
-                    }
-                    catch { }
-                });
-
-                // Resolve private/internal members via reflection
-                var allFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-                var sanitizeMethod = mainType.GetMethod("SanitizePathArgument", allFlags);
-                var convertMethod = mainType.GetMethod("ConvertToSafeArgument", allFlags);
-                var newTokenMethod = mainType.GetMethod("NewToken", allFlags);
-                var tServerField = mainType.GetField("tServer", allFlags);
-                var menuServerModeField = mainType.GetField("MenuServerMode", allFlags);
-
-                _log?.Info($"[H&P] Reflection: sanitize={sanitizeMethod != null}, convert={convertMethod != null}, newToken={newTokenMethod != null}, tServer={tServerField != null}, menuServerMode={menuServerModeField != null}");
-
-                // Build H&P args (same as vanilla Main.HostAndPlay)
-                string password = convertMethod != null
-                    ? (string)convertMethod.Invoke(null, new object[] { Terraria.Netplay.ServerPassword })
-                    : Terraria.Netplay.ServerPassword?.Replace("\"", "") ?? "";
-                string args = $"-autoshutdown -password \"{password}\" -lang {Terraria.Localization.Language.ActiveCulture.LegacyId}";
-
-                if (sanitizeMethod != null)
-                {
-                    if (!Main.ActiveWorldFileData.IsCloudSave)
-                        args += (string)sanitizeMethod.Invoke(null, new object[] { "world", Main.worldPathName });
-                    else
-                        args += (string)sanitizeMethod.Invoke(null, new object[] { "cloudworld", Main.worldPathName });
-                }
-                else
-                {
-                    // Fallback: build the arg manually
-                    string key = Main.ActiveWorldFileData.IsCloudSave ? "cloudworld" : "world";
-                    args += $" -{key} \"{Main.worldPathName}\"";
-                }
-
-                args += " -worldrollbackstokeep " + Main.WorldRollingBackupsCountToKeep;
-                Terraria.Netplay.HostToken = newTokenMethod != null
-                    ? (string)newTokenMethod.Invoke(null, null)
-                    : System.Guid.NewGuid().ToString("N").Substring(0, 16);
-                args += " -hosttoken " + Terraria.Netplay.HostToken;
-
-                // Spawn TerrariaInjector.exe instead of TerrariaServer.exe
-                string injectorPath = System.IO.Path.Combine(gameFolder, "TerrariaInjector.exe");
-                if (!System.IO.File.Exists(injectorPath))
-                {
-                    _log?.Error($"[H&P] TerrariaInjector.exe not found at {injectorPath} — falling back to vanilla");
-                    return true; // Let vanilla handle it
-                }
-
-                var process = new System.Diagnostics.Process();
-                process.StartInfo.FileName = injectorPath;
-                process.StartInfo.Arguments = args;
-                process.StartInfo.UseShellExecute = false;
-                process.StartInfo.CreateNoWindow = true;
-
-                if (tServerField == null)
-                {
-                    _log?.Error("[H&P] Main.tServer field not found — falling back to vanilla");
-                    return true;
-                }
-                tServerField.SetValue(null, process);
-
-                _log?.Info($"[H&P] Launching: {injectorPath} {args}");
-
-                // Launch the server process
-                var socialNetwork = typeof(Terraria.Social.SocialAPI).GetProperty("Network",
-                    BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-                if (socialNetwork != null)
-                {
-                    object menuServerMode = menuServerModeField?.GetValue(null);
-                    var launchMethod = socialNetwork.GetType().GetMethod("LaunchLocalServer");
-                    launchMethod?.Invoke(socialNetwork, new object[] { process, menuServerMode });
-                }
-                else
-                {
-                    process.Start();
-                }
-
-                // Connect client to the local server (same as vanilla)
-                Terraria.Netplay.SetRemoteIP("127.0.0.1");
-                Terraria.Netplay.ListenPort = 7777;
-                Terraria.Netplay.IsHostAndPlay = true;
-                Main.autoPass = true;
-                // Main.statusText = Lang.menu[8].Value — use reflection for Lang
-                var langType = mainType.Assembly.GetType("Terraria.Localization.Lang");
-                var menuField = langType?.GetField("menu", BindingFlags.Public | BindingFlags.Static);
-                if (menuField != null)
-                {
-                    var menuArray = menuField.GetValue(null) as Terraria.Localization.LocalizedText[];
-                    if (menuArray != null && menuArray.Length > 8)
-                        Main.statusText = menuArray[8].Value;
-                }
-                Terraria.Netplay.StartTcpClient();
-                Main.menuMode = 10;
-
-                _log?.Info("[H&P] Server started via injector, client connecting...");
-                return false; // Skip vanilla HostAndPlay
-            }
-            catch (Exception ex)
-            {
-                _log?.Error($"[H&P] Failed to launch via injector: {ex.Message}\n{ex.StackTrace}");
-                return true; // Fall back to vanilla on error
             }
         }
 

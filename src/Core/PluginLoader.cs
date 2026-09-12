@@ -175,7 +175,7 @@ namespace TerrariaModder.Core
     /// </summary>
     public static class PluginLoader
     {
-        public const string FrameworkVersion = "0.4.0";
+        public const string FrameworkVersion = "0.4.1";
 
         // Static constructor — runs once, before any other PluginLoader code.
         // Installs global unhandled exception handler so Windows error dialogs
@@ -772,11 +772,9 @@ namespace TerrariaModder.Core
                     throw new InvalidOperationException($"Failed to create instance of {modType.FullName}");
                 }
 
-                // Verify ID matches
-                if (mod.Id != manifest.Id)
-                {
-                    _log.Warn($"[{manifest.Id}] Mod ID mismatch: manifest says '{manifest.Id}', class says '{mod.Id}'");
-                }
+                // Manifest metadata owns loader identity for both legacy and new mods.
+                // Do not invoke legacy metadata getters: they can disagree or throw.
+                if (mod is ModBase manifestMod) manifestMod.BindManifest(manifest);
 
                 // Create config from ModConfig subclass in assembly (if any)
                 var logger = LogManager.GetLogger(manifest.Id);
@@ -896,16 +894,22 @@ namespace TerrariaModder.Core
         private static Server.ServerManagementApi _managementApi;
 
         /// <summary>
+        /// True from the start of the process-exit callback. Rendering mods use this
+        /// to avoid entering Terraria's draw pipeline while graphics resources are
+        /// being disposed on another thread.
+        /// </summary>
+        public static bool IsShuttingDown { get; private set; }
+
+        /// <summary>
         /// Called by injector when Main.Initialize() completes.
         /// Main.instance, GraphicsDevice, and Window.Handle are ready.
         /// </summary>
         public static void OnGameReady()
         {
+            IsShuttingDown = false;
             _log?.Info("Lifecycle: OnGameReady — applying deferred patches");
 
-            // On Mono, CaptureManagerGuard defers its Harmony patches until the
-            // GraphicsDevice exists (see CaptureManagerGuard for details). No-op elsewhere.
-            Patches.CaptureManagerGuard.ApplyDeferred();
+            _log?.Info("Console visibility: " + ConsoleVisibility.Apply(CoreConfig.Instance.HideConsole, IsDedicatedServer));
 
             // Start HTTP management API for dedicated server (if key configured)
             // Skip if already started during LoadPlugins()
@@ -936,6 +940,8 @@ namespace TerrariaModder.Core
                 }
                 return;
             }
+
+            CaptureManagerGuard.Apply(_log, gameReady: true);
 
             try
             {
@@ -1011,8 +1017,10 @@ namespace TerrariaModder.Core
         /// </summary>
         public static void OnShutdown()
         {
+            IsShuttingDown = true;
             _log?.Info("Lifecycle: OnShutdown — unloading mods");
-            Unload();
+            try { Unload(); }
+            finally { ConsoleVisibility.Restore(); }
         }
 
         /// <summary>
