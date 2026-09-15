@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a TerrariaModder Core, public Debug Tools, or released-mod problem
+description: Report a TerrariaModder Core, Debug Tools, or released-mod problem
 labels: ["bug"]
 body:
   - type: dropdown
@@ -11,7 +11,7 @@ body:
         - Admin Panel
         - Auto Furniture Buffs
         - Biome Spread Control
-        - Public Debug Tools
+        - Debug Tools
         - FPS Unlocked
         - Item Spawner
         - Pet Chests

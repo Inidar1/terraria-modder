@@ -62,6 +62,14 @@ namespace SeedLab.Patches
 
             int patched = 0;
 
+            var difficultyGetter = AccessTools.PropertyGetter(typeof(Main), nameof(Main.Difficulty));
+            if (difficultyGetter != null)
+            {
+                harmony.Patch(difficultyGetter,
+                    postfix: new HarmonyMethod(typeof(SeedFeaturePatches), nameof(Difficulty_Postfix)));
+                patched++;
+            }
+
             // 1. NPC.SetDefaults(int, NPCSpawnParams)
             {
                 var setDefaults = FindMethod(npcType, "SetDefaults", BindingFlags.Public | BindingFlags.Instance, "Int32");
@@ -214,6 +222,15 @@ namespace SeedLab.Patches
             {
                 _log.Error($"[SeedLab] Failed to patch {target.DeclaringType.Name}.{target.Name}: {ex.Message}");
             }
+        }
+
+        private static void Difficulty_Postfix(ref float __result)
+        {
+            if (_manager == null || !_manager.Initialized || Main.ActiveWorldFileData == null) return;
+            // Method-scoped FTW flags control other features independently of difficulty.
+            // Replace only the native getter's FTW contribution with this feature's value.
+            __result += (_manager.IsFeatureEnabled("ftw_difficulty_plus1") ? 1f : 0f) -
+                (Main.getGoodWorld ? 1f : 0f);
         }
 
         #region NPC.SetDefaults — getGoodWorld, zenithWorld, tenthAnniversaryWorld

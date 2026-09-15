@@ -6,7 +6,7 @@ Unlocks Terraria rendering beyond 60 FPS while its game simulation continues at 
 
 | Mode | Behavior |
 | --- | --- |
-| VSync (Vanilla) | Restores Terraria's normal fixed 60 FPS behavior |
+| VSync (Vanilla) | Restores Terraria's native frame pacing and VSync |
 | Capped | Renders up to the configured limit from 30 to 1000 FPS |
 | Uncapped | Renders without a mod-imposed frame limit |
 
@@ -27,6 +27,8 @@ The mod resets interpolation across teleports, large camera transitions, display
 | Responsive Mouse | On | Updates the mouse on render frames while the game is focused |
 
 Changes apply from the F6 Mod Menu without restarting.
+
+Disabled and VSync (Vanilla) modes remove the mod's rendering and timing patches after restoring native graphics state. Terraria's own Frame Skip setting still controls vanilla pacing; with Frame Skip Off, VSync can draw at the display refresh rate rather than 60 FPS.
 
 ## Multiplayer
 

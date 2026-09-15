@@ -12,7 +12,7 @@ namespace WhipStacking
     {
         public string Id => "whip-stacking";
         public string Name => "Whip Stacking";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         private static ILogger _log;
         private static ModContext _context;

@@ -9,7 +9,7 @@ Biome Spread Control prevents corruption, crimson, and Hallow from converting ne
 
 ## Behavior
 
-When Disable Evil Spread is on:
+When Disable Biome Spread is on:
 
 - Terraria's infection-spread pass is suppressed.
 - Evil and Hallow grass cannot grow naturally onto bare dirt or mud.
@@ -30,8 +30,7 @@ Open F6 and select Biome Spread Control.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| Enabled | On | Enables the mod |
-| Disable Evil Spread | On | Prevents corruption, crimson, and Hallow spread |
+| Disable Biome Spread | On | Prevents corruption, crimson, and Hallow spread |
 
 ## Multiplayer
 

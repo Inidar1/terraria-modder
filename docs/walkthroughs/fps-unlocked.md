@@ -11,9 +11,9 @@ FPS Unlocked separates rendering from Terraria's 60 Hz update loop. It draws int
 
 | Mode | Behavior |
 | --- | --- |
-| VSync (Vanilla) | Restores Terraria's normal fixed 60 FPS behavior |
+| VSync (Vanilla) | Restores Terraria's native frame pacing and VSync |
 | Capped | Uses the configured frame-rate limit |
-| Unlimited | Draws as quickly as the system permits |
+| Uncapped | Draws as quickly as the system permits |
 
 Interpolation can be disabled independently while keeping rendering unlocked. Mouse polling on render frames is also configurable and applies only while the game is focused.
 
@@ -30,6 +30,8 @@ Terraria can replace render targets or enter and leave SpriteBatch drawing acros
 ## Configuration
 
 Open F6 and select FPS Unlocked. Mode, cap, interpolation, mouse polling, and VSync changes apply without restarting the game.
+
+Disabled and VSync (Vanilla) modes remove the mod's rendering and timing patches after restoring native graphics state. Terraria's own Frame Skip setting still controls vanilla pacing; with Frame Skip Off, VSync can draw at the display refresh rate rather than 60 FPS.
 
 ## Multiplayer
 

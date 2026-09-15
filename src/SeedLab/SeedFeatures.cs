@@ -29,6 +29,7 @@ namespace SeedLab
         // Patch target identifiers (method we patch)
         public const string Target_NPC_SetDefaults = "NPC.SetDefaults";
         public const string Target_NPC_AI = "NPC.AI";
+        public const string Target_Main_Difficulty = "Main.Difficulty";
         public const string Target_NPC_ScaleStatsTweaks = "NPC.ScaleStats_ByDifficulty_Tweaks";
         public const string Target_Spawner_GetSpawnRate = "Spawner.GetSpawnRate";
         public const string Target_Spawner_SpawnNPC = "Spawner.SpawnNPC";
@@ -70,7 +71,7 @@ namespace SeedLab
                 }),
                 new FeatureGroupDefinition("ftw_difficulty", "Difficulty Scaling", "Main.Difficulty adds +1 to world difficulty (Classic->Expert, Expert->Master, Master->Legendary)", new[]
                 {
-                    new FeatureDefinition("ftw_difficulty_plus1", "Difficulty +1", "All stat scaling game-wide shifts up one tier via Main.Difficulty getter", Target_Global, GetGoodWorld, true),
+                    new FeatureDefinition("ftw_difficulty_plus1", "Difficulty +1", "All stat scaling game-wide shifts up one tier via Main.Difficulty getter", Target_Main_Difficulty, GetGoodWorld, true),
                 }),
                 new FeatureGroupDefinition("ftw_mining", "Mining Changes", "Double pickaxe damage against all tiles", new[]
                 {

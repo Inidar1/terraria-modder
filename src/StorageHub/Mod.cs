@@ -47,7 +47,7 @@ namespace StorageHub
     {
         public string Id => "storage-hub";
         public string Name => "Storage Hub";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         private ILogger _log;
         private static ILogger _sLog;

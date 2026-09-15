@@ -429,6 +429,7 @@ namespace DebugTools
         /// </summary>
         private static void DoDraw_Postfix()
         {
+            WindowManager.ApplyStartupVisibilityAfterDraw();
             ScreenCapture.OnPostDraw();
         }
 

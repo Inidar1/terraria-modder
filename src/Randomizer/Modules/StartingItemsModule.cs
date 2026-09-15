@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using Terraria;
+using Terraria.ID;
 
 namespace Randomizer.Modules
 {
@@ -9,20 +10,19 @@ namespace Randomizer.Modules
     /// Gives the player random starting items when entering a world.
     /// Replaces copper tools with random items from a seed-deterministic pool.
     /// </summary>
-    public class StartingItemsModule : ModuleBase
+    public class StartingItemsModule : ModuleBase, IUpdatable
     {
         public override string Id => "starting_items";
         public override string Name => "Starting Inventory";
         public override string Description => "Start with random items instead of copper tools";
-        public override string Tooltip => "Replaces your starting copper tools with 3-7 random items from a curated pool of weapons, tools, accessories, and potions. Applied once on world entry.";
+        public override string Tooltip => "Replaces starter copper tools with random weapons, tools, accessories, and potions. Adds up to 3-7 items using empty hotbar slots; existing items are preserved.";
         public override bool IsWorldGen => true;
 
         internal static StartingItemsModule Instance;
 
-        // Track which worlds have received starting items this session (by worldID).
-        // Persists across world re-entries so we don't overwrite inventory on re-entry,
-        // but resets on new world creation (different worldID).
-        private static readonly HashSet<int> _worldsGivenItems = new HashSet<int>();
+        // Track each character/world pair across re-entry during this session.
+        private readonly HashSet<string> _playersGivenItems = new HashSet<string>();
+        private bool _pending;
 
         // All IDs verified against _REFERENCE_SOURCE_READ_ONLY/.../ID/ItemID.cs
         private static readonly int[] StartingPool = {
@@ -58,47 +58,58 @@ namespace Randomizer.Modules
         {
             Instance = this;
 
-            // Only apply starting items once per world (tracked by worldID).
-            // Re-entering the same world will NOT overwrite the player's inventory.
-            int worldId = Main.worldID;
-            if (worldId != 0 && !_worldsGivenItems.Contains(worldId))
-                ApplyStartingItems(worldId);
+            // World loading finishes before the first playable game-thread update.
+            _pending = true;
         }
 
-        /// <summary>Called on world unload. No longer resets the per-world tracking —
-        /// items should not be re-given when re-entering the same world.</summary>
+        /// <summary>Cancel pending work without forgetting completed character/world pairs.</summary>
         internal void ResetForNewWorld()
         {
-            // Intentionally does not clear _worldsGivenItems — we want to remember
-            // which worlds already received items this session.
+            _pending = false;
         }
 
-        private void ApplyStartingItems(int worldId)
+        public void OnUpdate()
         {
-            _worldsGivenItems.Add(worldId);
+            if (!_pending || Main.gameMenu || Main.netMode != 0) return;
+            var player = Main.LocalPlayer;
+            if (player == null || !player.active || player.inventory == null) return;
+            _pending = false;
+            string key = Main.ActiveWorldFileData.UniqueId + ":" + Main.ActivePlayerFileData.Path;
+            if (!_playersGivenItems.Add(key)) return;
+            ApplyStartingItems(player);
+        }
 
+        private void ApplyStartingItems(Player player)
+        {
             try
             {
-                var player = Main.player[Main.myPlayer];
-                if (player == null) return;
-
                 var inventory = player.inventory;
-                if (inventory == null) return;
+                var slots = new List<int>();
+                for (int i = 0; i < 10; i++)
+                {
+                    var item = inventory[i];
+                    if (item != null && (item.type == ItemID.CopperShortsword ||
+                        item.type == ItemID.CopperPickaxe || item.type == ItemID.CopperAxe)) slots.Add(i);
+                }
+                // An established character has no starter tools to replace.
+                if (slots.Count == 0) return;
 
                 // Use seed to pick random starting items
                 var rng = new Random(Seed.DeriveSubSeed(Id));
                 int numItems = 3 + rng.Next(5); // 3-7 random items
+                for (int i = 0; i < 10 && slots.Count < numItems; i++)
+                    if (inventory[i] != null && inventory[i].IsAir && !slots.Contains(i)) slots.Add(i);
 
-                for (int i = 0; i < Math.Min(numItems, 10); i++)
+                for (int i = 0; i < Math.Min(numItems, slots.Count); i++)
                 {
-                    var item = inventory[i];
+                    var item = inventory[slots[i]];
                     if (item == null) continue;
 
                     int randomItemId = StartingPool[rng.Next(StartingPool.Length)];
                     item.SetDefaults(randomItemId);
                 }
 
-                Log.Info($"[Randomizer] Starting Items: gave {numItems} random items");
+                Log.Info($"[Randomizer] Starting Items: gave {Math.Min(numItems, slots.Count)} random items");
             }
             catch (Exception ex)
             {
@@ -113,7 +124,7 @@ namespace Randomizer.Modules
 
         public override void RemovePatches(Harmony harmony)
         {
-            // Nothing to revert
+            _pending = false;
         }
     }
 }

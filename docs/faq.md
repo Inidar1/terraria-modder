@@ -120,7 +120,7 @@ No source license is required. Public Terraria types can be referenced from your
 
 ### How do I debug my mod?
 
-TerrariaModder logs to `TerrariaModder/core/logs/`. Use `_log.Info()` calls in your mod code. Public Debug Tools 2.0.0 also provides an in-game console (Ctrl+`) and localhost HTTP API for advanced debugging.
+TerrariaModder logs to `TerrariaModder/core/logs/`. Use `_log.Info()` calls in your mod code. Debug Tools 2.0.1 also provides an in-game console (Ctrl+`) and localhost HTTP API for advanced debugging.
 
 ### Can I distribute mods I create?
 

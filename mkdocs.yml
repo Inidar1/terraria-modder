@@ -69,7 +69,7 @@ nav:
     - FPS Unlocked: walkthroughs/fps-unlocked.md
     - Biome Spread Control: walkthroughs/biome-spread.md
     - Randomizer: walkthroughs/randomizer.md
-    - Public Debug Tools: walkthroughs/debug-tools.md
+    - Debug Tools: walkthroughs/debug-tools.md
     - Asset Experience Mod: walkthroughs/asset-experience-mod.md
 
 markdown_extensions:

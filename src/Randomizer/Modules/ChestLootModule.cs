@@ -18,25 +18,27 @@ namespace Randomizer.Modules
 
         private static ChestLootModule _instance;
 
-        // Stores original item types so we can revert before re-shuffling
-        // Key: (chestIndex, slotIndex), Value: original item type
-        private Dictionary<(int, int), int> _originalTypes = new Dictionary<(int, int), int>();
+        // Revert only untouched items belonging to the same loaded world.
+        private sealed class ShuffledItem
+        {
+            public Item Item;
+            public Item Original;
+            public int ShuffledType, ShuffledStack, ShuffledPrefix;
+        }
+        private readonly Dictionary<(int, int), ShuffledItem> _originalTypes = new Dictionary<(int, int), ShuffledItem>();
+        private Guid _worldId;
 
         public override void BuildShuffleMap()
         {
             _instance = this;
 
-            // Build pool of valid item IDs for chest loot (last valid = ItemID.Count - 1)
-            int maxItemId = Terraria.ID.ItemID.Count - 1;
-            var pool = new List<int>();
-            for (int i = 1; i <= maxItemId; i++)
-            {
-                pool.Add(i);
-            }
+            var pool = BuildVanillaItemPool();
             ShuffleMap = Seed.BuildShuffleMap(pool, Id);
 
             // Revert any previous shuffle before applying the new one
-            RevertChests();
+            if (_worldId == Main.ActiveWorldFileData.UniqueId) RevertChests();
+            else _originalTypes.Clear();
+            _worldId = Main.ActiveWorldFileData.UniqueId;
 
             // Apply the shuffle to existing chests in the world
             ApplyToWorldChests();
@@ -55,18 +57,17 @@ namespace Randomizer.Modules
                 {
                     int c = kv.Key.Item1;
                     int i = kv.Key.Item2;
-                    int origType = kv.Value;
+                    var saved = kv.Value;
 
                     if (c < 0 || c >= chests.Length) continue;
                     var chest = chests[c];
                     if (chest?.item == null || i < 0 || i >= chest.item.Length) continue;
 
                     var item = chest.item[i];
-                    if (item == null) continue;
-
-                    int stack = item.stack;
-                    item.SetDefaults(origType);
-                    item.stack = stack;
+                    // Never replace items moved, consumed, deposited, or changed since the shuffle.
+                    if (!ReferenceEquals(item, saved.Item) || item.type != saved.ShuffledType ||
+                        item.stack != saved.ShuffledStack || item.prefix != saved.ShuffledPrefix) continue;
+                    chest.item[i] = saved.Original.Clone();
                 }
 
                 Log.Info($"[Randomizer] Chest Loot: reverted {_originalTypes.Count} items to originals");
@@ -113,11 +114,17 @@ namespace Randomizer.Modules
                         {
                             // Record original type before first shuffle
                             var key = (c, i);
-                            if (!_originalTypes.ContainsKey(key))
-                                _originalTypes[key] = type;
+                            var original = item.Clone();
 
                             item.SetDefaults(newType);
+                            if (item.IsAir)
+                            {
+                                chest.item[i] = original;
+                                continue;
+                            }
                             item.stack = stack; // Preserve stack
+                            _originalTypes[key] = new ShuffledItem { Item = item, Original = original,
+                                ShuffledType = item.type, ShuffledStack = item.stack, ShuffledPrefix = item.prefix };
                             modified = true;
                             itemCount++;
                         }
@@ -144,6 +151,13 @@ namespace Randomizer.Modules
             RevertChests();
             // Clear stale mappings to prevent cross-world contamination
             _originalTypes.Clear();
+        }
+
+        internal void OnWorldUnload()
+        {
+            // The world owns its saved loot. Snapshots cannot be applied to another world's slots.
+            _originalTypes.Clear();
+            _worldId = Guid.Empty;
         }
     }
 }

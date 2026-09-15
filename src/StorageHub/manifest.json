@@ -1,8 +1,8 @@
 ﻿{
   "id": "storage-hub",
   "name": "Storage Hub",
-  "version": "2.0.0",
-  "framework_version": ">=0.2.0",
+  "version": "2.0.1",
+  "framework_version": ">=0.4.1",
   "author": "TerrariaModder",
   "description": "Unified storage access, crafting, and item management. Access all your chests from one place.",
   "entry_dll": "StorageHub.dll",

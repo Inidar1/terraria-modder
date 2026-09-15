@@ -4,7 +4,7 @@
 
 ## Which area?
 
-<!-- List Core, public Debug Tools, or each mod this pull request affects. -->
+<!-- List Core, Debug Tools, or each mod this pull request affects. -->
 
 ## How was it tested?
 

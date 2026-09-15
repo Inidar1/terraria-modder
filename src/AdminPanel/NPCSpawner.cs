@@ -497,7 +497,7 @@ namespace AdminPanel
                 int worldX = (int)center.X;
                 int worldY = (int)center.Y - SpawnOffsetY;
                 DoSpawn(worldX, worldY);
-                _lastResult = $"Spawned {_selectedName} near player";
+                _lastResult = Main.netMode == 1 ? $"Requesting {_selectedName}..." : $"Spawned {_selectedName} near player";
             }
             catch (Exception ex)
             {
@@ -513,7 +513,7 @@ namespace AdminPanel
                 int worldX = Main.mouseX + (int)Main.screenPosition.X;
                 int worldY = Main.mouseY + (int)Main.screenPosition.Y;
                 DoSpawn(worldX, worldY);
-                _lastResult = $"Spawned {_selectedName} at cursor";
+                _lastResult = Main.netMode == 1 ? $"Requesting {_selectedName}..." : $"Spawned {_selectedName} at cursor";
             }
             catch (Exception ex)
             {
@@ -538,6 +538,12 @@ namespace AdminPanel
             {
                 Main.npc[npcIndex].timeLeft *= 20;
             }
+            else throw new InvalidOperationException("No NPC spawn slot is available");
+        }
+
+        internal static void OnSpawnResponse(string result)
+        {
+            _lastResult = result == "ok" ? "Spawned successfully" : result;
         }
 
         #endregion

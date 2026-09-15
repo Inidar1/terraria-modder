@@ -13,7 +13,7 @@ namespace Randomizer
         public int Seed { get; set; } = 0;
 
         // Module toggles
-        [Client, Label("Chest Loot Shuffle"), Description("Shuffle items found in chests.")]
+        [Client, Label("Chest Loot Shuffle"), Description("Shuffle chest contents when entering an unconfigured world. Existing world settings stay locked.")]
         public bool ModuleChestLoot { get; set; } = false;
 
         [Client, Label("Enemy Drop Shuffle"), Description("Shuffle items dropped by enemies.")]
@@ -37,7 +37,7 @@ namespace Randomizer
         [Client, Label("Item Stat Scramble"), Description("Scramble item stats.")]
         public bool ModuleItemStats { get; set; } = false;
 
-        [Client, Label("Starting Inventory"), Description("Randomize starting inventory items.")]
+        [Client, Label("Starting Inventory"), Description("Replace starter copper tools in an unconfigured world. Existing items are preserved; existing world settings stay locked.")]
         public bool ModuleStartingItems { get; set; } = false;
 
         [Client, Label("Gravity Chaos"), Description("Randomly change gravity strength (0.25x to 2.5x).")]

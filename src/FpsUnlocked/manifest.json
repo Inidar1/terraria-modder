@@ -1,7 +1,7 @@
 {
   "id": "fps-unlocked",
   "name": "FPS Unlocked",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "framework_version": ">=0.2.0",
   "author": "Inidar",
   "description": "Unlock the frame rate beyond Terraria's default 60 FPS with smooth frame interpolation. Game logic stays at 60hz while rendering runs at your display rate. Choose VSync (vanilla), a custom cap, or fully uncapped.",

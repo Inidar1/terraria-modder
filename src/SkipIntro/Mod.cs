@@ -11,7 +11,7 @@ namespace SkipIntro
     {
         public string Id => "skip-intro";
         public string Name => "Skip Intro";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         private ILogger _log;
         private Harmony _harmony;

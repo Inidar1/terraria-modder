@@ -11,7 +11,7 @@ namespace DebugTools
     {
         public string Id => "debug-tools";
         public string Name => "Debug Tools";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         private static Mod _instance;
         private ILogger _log;
@@ -19,6 +19,8 @@ namespace DebugTools
         private ConsoleUI _console;
         private bool _httpEnabled;
         private bool _serverMode;
+        private bool _clientInitialized;
+        private bool _gameReady;
 
         public void Initialize(ModContext context)
         {
@@ -82,6 +84,7 @@ namespace DebugTools
                 _log.Info("[DebugHttpServer] Disabled via config");
             }
 
+            _clientInitialized = true;
             _log.Info("Debug Tools initialized");
         }
 
@@ -91,7 +94,8 @@ namespace DebugTools
         public static void OnGameReady()
         {
             var inst = _instance;
-            if (inst == null || inst._serverMode) return;
+            if (inst == null || !inst._clientInitialized || inst._serverMode || inst._gameReady) return;
+            inst._gameReady = true;
 
             try
             {
@@ -112,7 +116,7 @@ namespace DebugTools
             }
         }
 
-        public void OnContentReady(ModContext context) { }
+        public void OnContentReady(ModContext context) { OnGameReady(); }
 
         public void OnWorldLoad() { }
 

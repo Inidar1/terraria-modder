@@ -941,6 +941,7 @@ bool open = UIRenderer.IsInventoryOpen;  // Check if inventory is open
 | `DrawTextSmall()` | Draw smaller text (0.75 scale) |
 | `DrawTextScaled()` | Draw text with custom scale |
 | `DrawItem()` | Draw item icon |
+| `DrawItemDeferred()` | Request missing item textures asynchronously and draw icons when ready |
 | `LoadTexture()` | Load a PNG file as a texture (cached) |
 | `DrawTexture()` | Draw a loaded texture (aspect-ratio preserved) |
 | `BeginClip()`, `EndClip()` | Scissor clipping for scroll regions |
@@ -1625,7 +1626,7 @@ bool exists = CommandRegistry.HasCommand("help");
 ### Events
 
 ```csharp
-// Subscribe to command output (used by public Debug Tools)
+// Subscribe to command output (used by Debug Tools)
 CommandRegistry.OnOutput += (message) => { };
 
 // Subscribe to clear events

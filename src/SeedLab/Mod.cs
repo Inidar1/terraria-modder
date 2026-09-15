@@ -24,7 +24,7 @@ namespace SeedLab
     {
         public string Id => "seed-lab";
         public string Name => "Seed Lab";
-        public string Version => "2.0.1";
+        public string Version => "2.0.2";
 
         private ILogger _log;
         private ModContext _context;

@@ -52,7 +52,7 @@ Download Core and any mods you want from [Nexus Mods](https://www.nexusmods.com/
 | **FpsUnlocked** | Unlock frame rate with smooth interpolation (60 Hz logic + high-FPS rendering) | Automatic | Client-only | [Nexus](https://www.nexusmods.com/terraria/mods/145) |
 | **BiomeSpread** | Prevent corruption, crimson, and Hallow spread | Automatic | Singleplayer | [Nexus](https://www.nexusmods.com/terraria/mods/146) |
 | **Randomizer** | Deterministic modular randomizer for chests, drops, recipes, shops, and more | Numpad / | Singleplayer | [Nexus](https://www.nexusmods.com/terraria/mods/147) |
-| **Public Debug Tools** | HTTP debug server, in-game console, virtual input, runtime introspection | Ctrl+` | Client-only | [Core optional files](https://www.nexusmods.com/terraria/mods/135) |
+| **Debug Tools** | HTTP debug server, in-game console, virtual input, runtime introspection | Ctrl+` | Client-only | [Core optional files](https://www.nexusmods.com/terraria/mods/135) |
 
 Press **F6** in-game to configure mods and rebind keys. Changes are saved automatically and keybinds persist across game restarts.
 
@@ -83,7 +83,7 @@ Learn by studying real, working mods:
 - [FPS Unlocked](walkthroughs/fps-unlocked.md) - Fixed-step simulation with interpolated high-rate rendering
 - [Biome Spread Control](walkthroughs/biome-spread.md) - Scoped world-spread patches
 - [Randomizer](walkthroughs/randomizer.md) - Deterministic module seeds and reversible recipe state
-- [Public Debug Tools](walkthroughs/debug-tools.md) - HTTP server, console, virtual input, window management
+- [Debug Tools](walkthroughs/debug-tools.md) - HTTP server, console, virtual input, window management
 
 ## Requirements
 

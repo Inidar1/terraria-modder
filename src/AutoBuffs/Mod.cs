@@ -11,7 +11,7 @@ namespace AutoBuffs
     {
         public string Id => "auto-buffs";
         public string Name => "Auto Furniture Buffs";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         private static ILogger _log;
         private static ModContext _context;

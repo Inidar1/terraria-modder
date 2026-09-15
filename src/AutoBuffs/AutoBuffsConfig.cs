@@ -6,7 +6,7 @@ namespace AutoBuffs
     {
         public override int Version => 1;
 
-        [Client, Label("Enabled"), Description("Automatically apply buffs from nearby buff stations, including the Dead Cells Potion Station.")]
+        [Client, Label("Enabled"), Description("Automatically apply buffs from nearby buff stations.")]
         public bool Enabled { get; set; } = true;
 
         [Client, Label("Scan Radius"), Description("How far (in tiles) to scan for buff furniture around the player. Higher values find more furniture but use more CPU."), Range(5, 100)]

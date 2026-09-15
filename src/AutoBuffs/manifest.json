@@ -1,7 +1,7 @@
 {
   "id": "auto-buffs",
   "name": "Auto Furniture Buffs",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "framework_version": ">=0.2.0",
   "author": "Inidar",
   "description": "Automatically applies buffs from nearby buff stations (Crystal Ball, Bewitching Table, Ammo Box, Sharpening Station, War Table, Slice of Cake).",

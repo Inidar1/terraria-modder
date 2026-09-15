@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.InteropServices;
 using System.Threading;
 using HarmonyLib;
 using Microsoft.Xna.Framework;
@@ -57,6 +58,9 @@ namespace FpsUnlocked
 
         // Stopwatch-based frame limiter (more accurate than XNA's IsFixedTimeStep)
         private static readonly Stopwatch _frameLimiter = Stopwatch.StartNew();
+        private static readonly Stopwatch _drawClock = Stopwatch.StartNew();
+        private static double _lastDrawTime;
+        private static float _drawElapsedTicks = 1f;
 
         public static void ApplyAll(Harmony harmony, ILogger log)
         {
@@ -184,17 +188,14 @@ namespace FpsUnlocked
                 log.Warn("Patch 8: Lighting.LightTiles not found - lighting may advance at render rate");
             }
 
-            var updateMainMouse = typeof(PlayerInput).GetMethod(nameof(PlayerInput.UpdateMainMouse),
-                BindingFlags.Public | BindingFlags.Static);
-            if (updateMainMouse != null)
+            // These owners advance presentation counters from Draw rather than Update.
+            foreach (string name in new[] { "DoDraw", "DrawInventory", "DrawInterface_24_InterfaceLogic2", "GUIChatDraw", "GUIHotbarDrawInner" })
             {
-                harmony.Patch(updateMainMouse,
-                    postfix: new HarmonyMethod(typeof(Patches), nameof(UpdateMainMouse_Postfix)) { priority = Priority.Last });
-                log.Info("Patch 9: PlayerInput.UpdateMainMouse postfix");
-            }
-            else
-            {
-                log.Warn("Patch 9: PlayerInput.UpdateMainMouse not found");
+                var method = AccessTools.Method(typeof(Main), name);
+                if (method != null)
+                    harmony.Patch(method, transpiler: new HarmonyMethod(typeof(Patches), nameof(DrawAnimations_Transpiler)));
+                else
+                    log.Warn($"Draw animation owner not found: {name}");
             }
 
             var cameraModifiers = typeof(CameraModifierStack).GetMethod(nameof(CameraModifierStack.ApplyTo),
@@ -300,7 +301,7 @@ namespace FpsUnlocked
 
         public static void SetTerrariaVSyncRequest(GraphicsDeviceManager graphics, bool requested)
         {
-            if (graphics == null || ReflectionCache.VSyncProp == null)
+            if (graphics == null)
                 return;
 
             if (ShouldUseUnlockedTiming())
@@ -308,9 +309,9 @@ namespace FpsUnlocked
 
             try
             {
-                bool current = (bool)ReflectionCache.VSyncProp.GetValue(graphics, null);
+                bool current = graphics.SynchronizeWithVerticalRetrace;
                 if (current != requested)
-                    ReflectionCache.VSyncProp.SetValue(graphics, requested, null);
+                    graphics.SynchronizeWithVerticalRetrace = requested;
             }
             catch (Exception ex)
             {
@@ -336,17 +337,14 @@ namespace FpsUnlocked
                 {
                     Main.FrameSkipMode = _savedFrameSkipMode;
                     _wasOverriding = false;
+                    SetVSync(true);
                     ResetTransitionState();
                     FrameState.Reset();
-                    _log?.Info("FPS override deactivated, restoring 60fps");
+                    _log?.Info("FPS override deactivated; restoring vanilla frame pacing and VSync");
                 }
 
                 if (!shouldOverride)
                 {
-                    SetVSync(true);
-                    ReflectionCache.IsFixedTimeStepProp?.SetValue(__instance, true, null);
-                    ReflectionCache.TargetElapsedTimeProp?.SetValue(__instance,
-                        TimeSpan.FromSeconds(_targetFrameTime), null);
                     return;
                 }
 
@@ -592,6 +590,11 @@ namespace FpsUnlocked
         {
             try
             {
+                if (!FrameState.TimingActive) return true;
+                double now = _drawClock.Elapsed.TotalSeconds;
+                _drawElapsedTicks = _lastDrawTime == 0 ? 1f : (float)Math.Min(3, (now - _lastDrawTime) * 60);
+                _lastDrawTime = now;
+                UpdateRenderMouse();
                 if (!FrameState.Active) return true;
 
                 Interpolator.ApplyAll();
@@ -605,12 +608,17 @@ namespace FpsUnlocked
         /// Vanilla only updates these during DoUpdate (60hz). This gives responsive cursor at display rate.
         /// </summary>
         private static bool _mouseLoggedOnce;
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
 
-        public static void UpdateMainMouse_Postfix()
+        private static void UpdateRenderMouse()
         {
             if (!Mod.MouseEveryFrame) return;
-            if (!FrameState.TimingActive || !FrameState.IsPartialTick) return;
+            if (!FrameState.TimingActive) return;
             if (Main.instance == null || !Main.instance.IsActive) return;
+            if (PlayerInput.UsingGamepad) return;
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT &&
+                GetForegroundWindow() != Main.instance.Window.Handle) return;
 
             try
             {
@@ -629,8 +637,8 @@ namespace FpsUnlocked
 
                 PlayerInput.MouseX = mouseX;
                 PlayerInput.MouseY = mouseY;
-                Main.mouseX = mouseX;
-                Main.mouseY = mouseY;
+                // Update the unscaled input before Draw switches between world/UI zoom.
+                PlayerInput.UpdateMainMouse();
 
                 if (!_mouseLoggedOnce)
                 {
@@ -678,16 +686,22 @@ namespace FpsUnlocked
 
         #region Patch 7: Camera timing and sub-pixel positioning
 
-        public static void CameraPosition_Prefix(out Vector2 __state)
+        public static void CameraPosition_Prefix(out Vector3 __state, ref float ___cameraLerp)
         {
-            __state = new Vector2(Main.cameraX, Main.cameraY);
+            __state = new Vector3(Main.cameraX, Main.cameraY, ___cameraLerp);
+            if (FrameState.TimingActive && ___cameraLerp > 0f && ___cameraLerp < 1f)
+                ___cameraLerp = 1f - (float)Math.Pow(1f - ___cameraLerp, _drawElapsedTicks);
         }
 
-        public static void CameraPosition_Postfix(Vector2 __state)
+        public static void CameraPosition_Postfix(Vector3 __state, ref float ___cameraLerp)
         {
-            if (!FrameState.TimingActive || !FrameState.IsPartialTick) return;
-            Main.cameraX = __state.X;
-            Main.cameraY = __state.Y;
+            if (!FrameState.TimingActive) return;
+            if (___cameraLerp != 0f) ___cameraLerp = __state.Z;
+            if (FrameState.IsPartialTick)
+            {
+                Main.cameraX = __state.X;
+                Main.cameraY = __state.Y;
+            }
         }
 
         public static bool CameraModifiers_Prefix(ref Vector2 cameraPosition, out Vector2 __state)
@@ -709,10 +723,10 @@ namespace FpsUnlocked
         }
 
         /// <summary>
-        /// Transpiler that removes the integer snap on screenPosition in DoDraw_UpdateCameraPosition.
+        /// Preserve fractional screenPosition only while interpolation is active.
         /// Vanilla does: screenPosition.X = (int)screenPosition.X; (and Y)
         /// IL pattern: conv.i4 (float->int) + conv.r4 (int->float) = truncation.
-        /// We NOP both instructions to preserve the sub-pixel fractional position.
+        /// Replace truncation with a conditional helper so disabled mode keeps vanilla snapping.
         /// </summary>
         public static IEnumerable<CodeInstruction> CameraPosition_Transpiler(IEnumerable<CodeInstruction> instructions)
         {
@@ -723,14 +737,49 @@ namespace FpsUnlocked
             {
                 if (codes[i].opcode == OpCodes.Conv_I4 && codes[i + 1].opcode == OpCodes.Conv_R4)
                 {
-                    codes[i].opcode = OpCodes.Nop;
+                    codes[i].opcode = OpCodes.Call;
+                    codes[i].operand = AccessTools.Method(typeof(Patches), nameof(SnapCameraPosition));
                     codes[i + 1].opcode = OpCodes.Nop;
                     patched++;
                 }
             }
 
-            _log?.Info($"Camera transpiler: removed {patched} integer snaps");
+            _log?.Info($"Camera transpiler: made {patched} integer snaps conditional");
             return codes;
+        }
+
+        public static float SnapCameraPosition(float value) => FrameState.Active ? value : (int)value;
+
+        public static float DrawAnimationValue(float next, float current) =>
+            FrameState.TimingActive && FrameState.IsPartialTick ? current : next;
+
+        public static int DrawAnimationValueInt(int next, int current) =>
+            FrameState.TimingActive && FrameState.IsPartialTick ? current : next;
+
+        public static float DrawAnimationStep(float step) =>
+            FrameState.TimingActive && FrameState.IsPartialTick ? 0f : step;
+
+        public static IEnumerable<CodeInstruction> DrawAnimations_Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var fields = new HashSet<string> { "essScale", "essDir", "armorAlpha", "invAlpha", "invDir", "textBlinkerCount", "textBlinkerState" };
+            foreach (var code in instructions)
+            {
+                if (code.opcode == OpCodes.Stsfld && code.operand is FieldInfo field &&
+                    field.DeclaringType == typeof(Main) && fields.Contains(field.Name))
+                {
+                    var previous = new CodeInstruction(OpCodes.Ldsfld, field);
+                    previous.labels.AddRange(code.labels);
+                    previous.blocks.AddRange(code.blocks);
+                    code.labels.Clear();
+                    code.blocks.Clear();
+                    yield return previous;
+                    yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(Patches),
+                        field.FieldType == typeof(float) ? nameof(DrawAnimationValue) : nameof(DrawAnimationValueInt)));
+                }
+                yield return code;
+                if (code.opcode == OpCodes.Ldc_R4 && code.operand is float step && step == 0.05f)
+                    yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(Patches), nameof(DrawAnimationStep)));
+            }
         }
 
         #endregion
@@ -759,8 +808,12 @@ namespace FpsUnlocked
                    Mod.Enabled && Mod.Mode != "VSync (Vanilla)" && !Main.gameMenu;
         }
 
+        internal static bool CanSuspend => !_wasOverriding && !_renderTargetsNeedRebuild &&
+            !_rebuildingRenderTargets && !FrameState.Active;
+
         public static void ResetTransitionState()
         {
+            _lastDrawTime = 0;
             _wasInterpolating = false;
             _firstKeyframeCaptured = false;
             _hasCameraModifierOffset = false;

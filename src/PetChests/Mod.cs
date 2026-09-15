@@ -11,7 +11,7 @@ namespace PetChests
     {
         public string Id => "pet-chests";
         public string Name => "Pet Chests";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         private static ILogger _log;
         private static ModContext _context;

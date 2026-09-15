@@ -32,7 +32,7 @@ TerrariaModder loads .NET Framework 4.8 mods into the normal Steam Terraria proc
 | FPS Unlocked | Renders above 60 FPS while game simulation stays at 60 Hz |
 | Biome Spread Control | Prevents corruption, crimson, and Hallow spread in singleplayer |
 | Randomizer | Deterministic modules for loot, drops, recipes, shops, spawns, and more |
-| Public Debug Tools | Optional in-game console, localhost HTTP API, virtual input, inspection, and window controls |
+| Debug Tools | Optional in-game console, localhost HTTP API, virtual input, inspection, and window controls |
 
 ## Mod author notes
 

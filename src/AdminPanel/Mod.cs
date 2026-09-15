@@ -18,7 +18,7 @@ namespace AdminPanel
     {
         public string Id => "admin-panel";
         public string Name => "Admin Panel";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         #region Constants
 
@@ -80,6 +80,7 @@ namespace AdminPanel
         private static int _lastRespawnTimer;
         private static Player _respawnPlayer;
         private static bool _inBossFight;
+        private static readonly MethodInfo BossRespawnCheck = AccessTools.Method(typeof(Player), "AnyBossHindersRespawnTime");
         private static int _moveSpeedMultiplier = 1;
 
         private static Harmony _harmony;
@@ -241,6 +242,11 @@ namespace AdminPanel
 
         private void OnServerCommandResponse(string type, string result)
         {
+            if (type == "spawnnpc")
+            {
+                NPCSpawner.OnSpawnResponse(result);
+                return;
+            }
             if (type != "worldcoords") return;
             // payload: "dungeonX,dungeonY"
             var parts = result.Split(',');
@@ -352,7 +358,7 @@ namespace AdminPanel
                 _prevRightClickSpawn = rightClickSpawn;
                 NPCSpawner.LoadRightClickSpawn(rightClickSpawn);
 
-                _log.Info($"Settings loaded - god:{_godModeActive} time:{_timeSpeedMultiplier}x respawn:{NormalRespawnSeconds[_normalRespawnIndex]}s/{BossRespawnSeconds[_bossRespawnIndex]}s move:{_moveSpeedMultiplier}x");
+                _log.Info($"Settings loaded - god:{_godModeActive} time:{_timeSpeedMultiplier}x respawn multipliers:{_normalRespawnMult:0.###}x/{_bossRespawnMult:0.###}x move:{_moveSpeedMultiplier}x");
             }
             catch (Exception ex)
             {
@@ -410,6 +416,10 @@ namespace AdminPanel
                 }
 
                 // Adjust only the native countdown; keep all death effects and respawn ownership native.
+                var respawnTimeMethod = AccessTools.Method(typeof(Player), "GetRespawnTime", new[] { typeof(bool) });
+                if (respawnTimeMethod != null)
+                    _harmony.Patch(respawnTimeMethod, prefix: new HarmonyMethod(typeof(Mod), nameof(GetRespawnTime_Prefix)));
+
                 var updateDeadMethod = typeof(Player).GetMethod("UpdateDead", BindingFlags.Public | BindingFlags.Instance);
                 if (updateDeadMethod != null)
                 {
@@ -470,7 +480,6 @@ namespace AdminPanel
                 _respawnTickFraction = 0;
             }
             if (current <= 0) { _lastRespawnTimer = current; return; }
-            _inBossFight = DetectBossFight(__instance);
             double mult = _inBossFight ? _bossRespawnMult : _normalRespawnMult;
             if (mult <= 0 || double.IsNaN(mult) || double.IsInfinity(mult)) mult = 1;
             _respawnTickFraction += 1.0 / mult;
@@ -522,21 +531,29 @@ namespace AdminPanel
 
         private static bool DetectBossFight(Player player)
         {
-            Vector2 playerCenter = player.Center;
+            return player != null && BossRespawnCheck != null &&
+                (bool)BossRespawnCheck.Invoke(player, null);
+        }
 
-            for (int i = 0; i < Math.Min(Main.npc.Length, 200); i++)
+        private static void GetRespawnTime_Prefix(Player __instance, bool pvp)
+        {
+            if (__instance != Main.LocalPlayer) return;
+            // Preserve the death's classification even if the boss moves or despawns.
+            // Native detection also includes bosses the player interacted with locally.
+            _inBossFight = !pvp && DetectBossFight(__instance);
+        }
+
+        private static double BaseRespawnSeconds(bool boss)
+        {
+            double seconds = Main.expertMode ? 15 : 10;
+            if (!boss || Main.netMode == 0) return seconds;
+            seconds *= 2;
+            if (Main.getGoodWorld)
             {
-                NPC npc = Main.npc[i];
-                if (npc == null || !npc.active) continue;
-
-                if ((npc.boss || npc.type == 13 || npc.type == 14 || npc.type == 15) && npc.type != 395)
-                {
-                    Vector2 npcCenter = npc.Center;
-                    if (Math.Abs(playerCenter.X - npcCenter.X) + Math.Abs(playerCenter.Y - npcCenter.Y) < 4000f)
-                        return true;
-                }
+                for (int i = 0; i < Math.Min(255, Main.player.Length); i++)
+                    if (i != Main.myPlayer && Main.player[i].active) return seconds * 2;
             }
-            return false;
+            return seconds;
         }
 
         #endregion
@@ -742,7 +759,7 @@ namespace AdminPanel
                 _normalRespawnIndex, 0, NormalRespawnSeconds.Length - 1);
             _normalRespawnMult = NormalRespawnSeconds[_normalRespawnIndex] / 10f;
             bool normalDefault = _normalRespawnIndex == NormalDefaultIndex;
-            string normalLabel = FormatRespawnLabel(NormalRespawnSeconds[_normalRespawnIndex], normalDefault);
+            string normalLabel = FormatRespawnLabel(_normalRespawnMult * BaseRespawnSeconds(false), normalDefault);
             UIRenderer.DrawText(normalLabel, s.X + s.Width - UIRenderer.MeasureText(normalLabel),
                 sy + 3, normalDefault ? UIColors.TextHint : UIColors.AccentText);
             SaveSettingIfChanged("normalRespawnIndex", _normalRespawnIndex, ref _prevNormalRespawnIndex);
@@ -753,7 +770,7 @@ namespace AdminPanel
                 _bossRespawnIndex, 0, BossRespawnSeconds.Length - 1);
             _bossRespawnMult = BossRespawnSeconds[_bossRespawnIndex] / 20f;
             bool bossDefault = _bossRespawnIndex == BossDefaultIndex;
-            string bossLabel = FormatRespawnLabel(BossRespawnSeconds[_bossRespawnIndex], bossDefault);
+            string bossLabel = FormatRespawnLabel(_bossRespawnMult * BaseRespawnSeconds(true), bossDefault);
             if (_inBossFight && !bossDefault) bossLabel += "*";
             var bossLabelColor = _inBossFight ? UIColors.Warning : (bossDefault ? UIColors.TextHint : UIColors.AccentText);
             UIRenderer.DrawText(bossLabel, s.X + s.Width - UIRenderer.MeasureText(bossLabel), sy + 3, bossLabelColor);
@@ -766,9 +783,9 @@ namespace AdminPanel
             s.SectionHeader("WORLD");
         }
 
-        private string FormatRespawnLabel(int seconds, bool isDefault)
+        private string FormatRespawnLabel(double seconds, bool isDefault)
         {
-            return isDefault ? $"{seconds}s (default)" : $"{seconds}s";
+            return isDefault ? $"{seconds:0.#}s (default)" : $"{seconds:0.#}s";
         }
 
         #endregion
@@ -805,9 +822,9 @@ namespace AdminPanel
 
         private bool SetTimePreset(string preset)
         {
-            if (Main.netMode != 0 && !Netplay.IsHostAndPlay)
+            if (Main.netMode == 1)
             {
-                // Pure multiplayer client: send server command (server validates admin, applies, broadcasts)
+                // Host & Play also runs a separate server; all clients request authoritative time.
                 if (!IsLocalAdmin())
                 {
                     try { Main.NewText("[AdminPanel] Time control requires Admin.", 255, 80, 80); } catch { }
@@ -817,7 +834,7 @@ namespace AdminPanel
                 return true;
             }
 
-            // SP or H&P host: apply directly and broadcast to clients
+            // Singleplayer or the server applies time directly.
             try
             {
                 switch (preset)

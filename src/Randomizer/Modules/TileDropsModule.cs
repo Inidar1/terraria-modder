@@ -2,6 +2,7 @@ using System;
 using System.Reflection;
 using HarmonyLib;
 using Terraria;
+using Microsoft.Xna.Framework;
 using TerrariaModder.Core.Assets;
 
 namespace Randomizer.Modules
@@ -209,16 +210,18 @@ namespace Randomizer.Modules
 
             try
             {
-                // Find Item.NewItem overload: (IEntitySource source, int X, int Y, int Width, int Height, int Type, ...)
+                // Native tile drops reach the center-based overload; the rectangle overload
+                // now delegates to it and is not used by RequestNewItem.
                 MethodInfo targetMethod = null;
                 foreach (var m in typeof(Item).GetMethods(BindingFlags.Public | BindingFlags.Static))
                 {
                     if (m.Name != "NewItem") continue;
                     var parms = m.GetParameters();
-                    if (parms.Length >= 7 &&
-                        parms[1].ParameterType == typeof(int) &&
+                    if (parms.Length == 9 &&
+                        parms[0].ParameterType.FullName == "Terraria.DataStructures.IEntitySource" &&
+                        parms[1].ParameterType == typeof(Vector2) &&
                         parms[2].ParameterType == typeof(int) &&
-                        parms[5].ParameterType == typeof(int))
+                        parms[8].ParameterType == typeof(bool))
                     {
                         targetMethod = m;
                         break;
@@ -248,14 +251,14 @@ namespace Randomizer.Modules
         /// Prefix on Item.NewItem — picks a random item from the tile-drop pool
         /// when source is tile-related. Each drop is independently random.
         /// </summary>
-        public static void NewItem_Prefix(object source, ref int Type)
+        public static void NewItem_Prefix(object source, ref int type)
         {
             if (Instance == null || !Instance.Enabled) return;
             if (Main.netMode != 0) return;
-            if (Type <= 0) return;
+            if (type <= 0) return;
 
             // Never randomize custom asset items (type >= VanillaItemCount) — they are mod-created
-            if (ItemRegistry.TypesAssigned && Type >= ItemRegistry.VanillaItemCount) return;
+            if (ItemRegistry.TypesAssigned && type >= ItemRegistry.VanillaItemCount) return;
 
             // Only shuffle for tile-break and tree-shake drops, not interactions/entities
             try
@@ -269,7 +272,7 @@ namespace Randomizer.Modules
             catch { return; }
 
             int randomItem = Instance.GetRandomFromPool();
-            if (randomItem > 0) Type = randomItem;
+            if (randomItem > 0) type = randomItem;
         }
 
         public override void RemovePatches(Harmony harmony)

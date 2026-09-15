@@ -22,12 +22,7 @@ namespace Randomizer.Modules
         public override void BuildShuffleMap()
         {
             Instance = this;
-            int maxItemId = Terraria.ID.ItemID.Count - 1;
-            var pool = new List<int>();
-            for (int i = 1; i <= maxItemId; i++)
-            {
-                pool.Add(i);
-            }
+            var pool = BuildVanillaItemPool();
             ShuffleMap = Seed.BuildShuffleMap(pool, Id);
         }
 

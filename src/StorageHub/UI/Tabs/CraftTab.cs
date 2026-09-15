@@ -468,7 +468,7 @@ namespace StorageHub.UI.Tabs
                 UIRenderer.DrawRectOutline(x, y, SlotOuter, SlotOuter, UIColors.Accent, 1);
 
             // Item icon
-            UIRenderer.DrawItem(result.Recipe.OutputItemId, x + IconPad, y + IconPad, IconSize, IconSize);
+            UIRenderer.DrawItemDeferred(result.Recipe.OutputItemId, x + IconPad, y + IconPad, IconSize, IconSize);
 
             // Status indicator bar at bottom
             // In Craftable view, MissingMaterials items are recursively craftable — show green
@@ -528,7 +528,7 @@ namespace StorageHub.UI.Tabs
             // Row 1: Icon + Name + Status
             int lineY = y + 8;
             const int OutputIconSize = 32;
-            UIRenderer.DrawItem(recipe.OutputItemId, infoX, lineY, OutputIconSize, OutputIconSize);
+            UIRenderer.DrawItemDeferred(recipe.OutputItemId, infoX, lineY, OutputIconSize, OutputIconSize);
 
             // Tooltip on output icon hover
             if (WidgetInput.IsMouseOver(infoX, lineY, OutputIconSize, OutputIconSize))
@@ -602,7 +602,7 @@ namespace StorageHub.UI.Tabs
                         break;
                     }
                 }
-                UIRenderer.DrawItem(iconItemId, ingX, lineY - 1, IngIconSize, IngIconSize);
+                UIRenderer.DrawItemDeferred(iconItemId, ingX, lineY - 1, IngIconSize, IngIconSize);
 
                 // Tooltip on ingredient icon hover
                 if (WidgetInput.IsMouseOver(ingX, lineY - 1, IngIconSize, IngIconSize))
@@ -1001,8 +1001,7 @@ namespace StorageHub.UI.Tabs
             if ((_modConfig?.RecursiveCrafting ?? true))
             {
                 var recursiveClock = Stopwatch.StartNew();
-                recursiveCandidates = GetRecursiveCandidates(allResults,
-                    _crafter.CreatePlanningContext(allResults));
+                recursiveCandidates = GetRecursiveCandidates(allResults);
                 recursiveClock.Stop();
                 LastRecursiveScanMilliseconds = recursiveClock.Elapsed.TotalMilliseconds;
             }
@@ -1058,10 +1057,11 @@ namespace StorageHub.UI.Tabs
         /// Validates each candidate with CalculatePlan to ensure the full chain is feasible
         /// (has raw materials, stations available, etc.) rather than just checking recipe existence.
         /// </summary>
-        private List<CraftabilityResult> GetRecursiveCandidates(IReadOnlyList<CraftabilityResult> allResults,
-            RecursiveCrafter.PlanningContext context)
+        private List<CraftabilityResult> GetRecursiveCandidates(IReadOnlyList<CraftabilityResult> allResults)
         {
             var results = new List<CraftabilityResult>();
+            RecursiveCrafter.PlanningContext context = null;
+            var reachable = RecipeReachability.Build(_recipeIndex.GetAllRecipes(), _checker.GetAllMaterialCounts());
 
             // Track existing recipes to avoid duplicates
             var existing = new HashSet<int>();
@@ -1077,6 +1077,7 @@ namespace StorageHub.UI.Tabs
 
                 if (result.Status != CraftStatus.MissingMaterials) continue;
                 if (result.MissingMaterials.Count == 0) continue;
+                if (!RecipeReachability.CanSupply(recipe, reachable)) continue;
 
                 // Main recipe must have stations and environment available
                 // (Status=MissingMaterials takes priority over MissingStation, so check explicitly)
@@ -1098,6 +1099,7 @@ namespace StorageHub.UI.Tabs
 
                 // Full validation: run CalculatePlan to verify the recursive chain is feasible
                 // (checks raw material availability, station access for sub-recipes, virtual pool)
+                if (context == null) context = _crafter.CreatePlanningContext(allResults);
                 var plan = _crafter.CalculateCraftPlan(recipe.OriginalIndex, 1, depth, context);
                 if (plan != null && plan.CanCraft)
                     results.Add(result);

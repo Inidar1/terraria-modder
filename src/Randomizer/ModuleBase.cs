@@ -61,6 +61,20 @@ namespace Randomizer
             PoolRng = new Random(Seed.DeriveSubSeed(Id));
         }
 
+        /// <summary>Exclude removed items and IDs that normalize to another item on creation.</summary>
+        protected static List<int> BuildVanillaItemPool()
+        {
+            var pool = new List<int>();
+            var probe = new Terraria.Item();
+            for (int type = 1; type < Terraria.ID.ItemID.Count; type++)
+            {
+                if (Terraria.ID.ItemID.Sets.Deprecated[type]) continue;
+                probe.SetDefaults(type);
+                if (!probe.IsAir && probe.type == type) pool.Add(type);
+            }
+            return pool;
+        }
+
         /// <summary>
         /// Pick a random item from the pool. Each call returns a different result.
         /// </summary>

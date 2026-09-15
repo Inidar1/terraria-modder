@@ -15,7 +15,6 @@ namespace Randomizer.Modules
         public override string Name => "Fishing Shuffle";
         public override string Description => "Fish up random items instead";
         public override string Tooltip => "Each fishing catch is replaced with a random item. Every reel is a surprise.";
-        private static readonly int MaxItemId = Terraria.ID.ItemID.Count - 1;
 
         internal static FishingModule Instance;
         private static MethodInfo _patchedMethod;
@@ -23,6 +22,7 @@ namespace Randomizer.Modules
         public override void BuildShuffleMap()
         {
             Instance = this;
+            RandomPool = BuildVanillaItemPool().ToArray();
             InitPoolRng();
         }
 
@@ -71,7 +71,8 @@ namespace Randomizer.Modules
             if (Instance == null || !Instance.Enabled) return;
             if (Main.netMode != 0) return;
             if (itemType <= 0) return;
-            itemType = Instance.GetRandomInRange(1, MaxItemId + 1);
+            int replacement = Instance.GetRandomFromPool();
+            if (replacement > 0) itemType = replacement;
         }
 
         public override void RemovePatches(Harmony harmony)

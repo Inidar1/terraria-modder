@@ -1,6 +1,7 @@
 using System;
 using HarmonyLib;
 using System.Collections.Generic;
+using Microsoft.Xna.Framework;
 using Terraria;
 using TerrariaModder.Core;
 using TerrariaModder.Core.Debug;
@@ -12,12 +13,15 @@ namespace FpsUnlocked
     {
         public string Id => "fps-unlocked";
         public string Name => "FPS Unlocked";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         private static ILogger _log;
         private static ModContext _context;
         private Harmony _harmony;
         private bool _patchesApplied;
+        private bool _contentReady;
+        private bool _resourcesReady;
+        private const string HarmonyId = "com.terrariamodder.fpsunlocked";
         private FpsUnlockedConfig _config;
 
         private static bool _initFailed;
@@ -45,7 +49,8 @@ namespace FpsUnlocked
 
             context.RegisterStateProvider(this);
             context.RegisterActionProvider(this);
-            _harmony = new Harmony("com.terrariamodder.fpsunlocked");
+            _harmony = new Harmony(HarmonyId);
+            Main.OnPostDraw += SynchronizePatches;
 
             _log.Info($"FPS Unlocked v2 initializing - Mode: {Mode}, MaxFPS: {MaxFps}, " +
                 $"Interpolation: {InterpolationEnabled}");
@@ -70,27 +75,26 @@ namespace FpsUnlocked
 
         private void ApplyPatches()
         {
-            if (_patchesApplied || _harmony == null) return;
+            if (_patchesApplied || _harmony == null || _initFailed) return;
 
             try
             {
-                // Initialize reflection cache (finds all types and builds IL accessors)
-                if (!ReflectionCache.Initialize(_log))
+                if (!_resourcesReady)
                 {
-                    _log.Error("ReflectionCache initialization failed - mod disabled");
-                    _initFailed = true;
-                    return;
+                    if (!ReflectionCache.Initialize(_log))
+                    {
+                        _log.Error("ReflectionCache initialization failed - mod disabled");
+                        _initFailed = true;
+                        return;
+                    }
+
+                    KeyframeStore.Allocate();
+                    Interpolator.Initialize(_log);
+                    _resourcesReady = true;
                 }
 
-                // Allocate keyframe storage arrays
-                KeyframeStore.Allocate();
-                _log.Info("KeyframeStore allocated");
-
-                // Initialize interpolator save/restore arrays
-                Interpolator.Initialize(_log);
-                _log.Info("Interpolator initialized");
-
-                // Apply all 8 Harmony patches
+                FrameState.Reset();
+                Patches.ResetTransitionState();
                 Patches.ApplyAll(_harmony, _log);
                 _patchesApplied = true;
 
@@ -98,8 +102,37 @@ namespace FpsUnlocked
             }
             catch (Exception ex)
             {
+                _harmony.UnpatchAll(HarmonyId);
                 _log.Error($"Patch error: {ex}");
                 _initFailed = true;
+            }
+        }
+
+        private void SynchronizePatches(GameTime gameTime)
+        {
+            if (!_contentReady || _harmony == null) return;
+            try
+            {
+                if (Enabled && Mode != "VSync (Vanilla)" && !Main.gameMenu)
+                {
+                    ApplyPatches();
+                    return;
+                }
+
+                // Main.OnPostDraw runs after DoDraw's interpolation finalizer. Keep the
+                // recovery hooks until the update restored VSync and Draw rebuilt targets.
+                if (!_patchesApplied || !Patches.CanSuspend) return;
+                _harmony.UnpatchAll(HarmonyId);
+                _patchesApplied = false;
+                FrameState.Reset();
+                Patches.ResetTransitionState();
+                _log.Info("FPS feature patches removed; vanilla frame pacing active");
+            }
+            catch (Exception ex)
+            {
+                _contentReady = false;
+                _initFailed = true;
+                _log.Error($"FPS patch transition failed: {ex}");
             }
         }
 
@@ -108,6 +141,8 @@ namespace FpsUnlocked
             return new Dictionary<string, object>
             {
                 { "enabled", Enabled },
+                { "patchesApplied", _patchesApplied },
+                { "resourcesReady", _resourcesReady },
                 { "mode", Mode },
                 { "maxFps", MaxFps },
                 { "interpolationEnabled", InterpolationEnabled },
@@ -120,7 +155,7 @@ namespace FpsUnlocked
                 { "tickCount", FrameState.TickCount },
                 { "gameFocused", Main.instance != null && Main.instance.IsActive },
                 { "presentationInterval", Patches.GetPresentationInterval() },
-                { "vsyncWritesPatched", Patches.VSyncWritesPatched }
+                { "vsyncWritesPatched", _patchesApplied && Patches.VSyncWritesPatched }
             };
         }
 
@@ -153,7 +188,7 @@ namespace FpsUnlocked
 
         public void OnContentReady(ModContext context)
         {
-            ApplyPatches();
+            _contentReady = true;
         }
 
         public void OnWorldLoad()
@@ -183,9 +218,11 @@ namespace FpsUnlocked
 
         public void Unload()
         {
+            Main.OnPostDraw -= SynchronizePatches;
+            _contentReady = false;
             FrameState.Reset();
             Patches.ResetTransitionState();
-            _harmony?.UnpatchAll("com.terrariamodder.fpsunlocked");
+            _harmony?.UnpatchAll(HarmonyId);
             _patchesApplied = false;
             _log?.Info("FPS Unlocked v2 unloaded");
         }

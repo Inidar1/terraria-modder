@@ -16,7 +16,6 @@ namespace Randomizer.Modules
         public override string Name => "Enemy Drop Shuffle";
         public override string Description => "Enemies and bosses drop random items";
         public override string Tooltip => "Each enemy drop is randomly replaced with any item in the game. Every kill is a surprise — no fixed mapping.";
-        private static readonly int MaxItemId = Terraria.ID.ItemID.Count - 1;
 
         internal static EnemyDropsModule Instance;
         private static MethodInfo _patchedDropItemFromNPC;
@@ -25,6 +24,7 @@ namespace Randomizer.Modules
         public override void BuildShuffleMap()
         {
             Instance = this;
+            RandomPool = BuildVanillaItemPool().ToArray();
             InitPoolRng();
         }
 
@@ -94,7 +94,8 @@ namespace Randomizer.Modules
             if (Instance == null || !Instance.Enabled) return;
             if (Main.netMode != 0) return; // SP only — MP would desync RNG between server/clients
             if (itemId <= 0) return;
-            itemId = Instance.GetRandomInRange(1, MaxItemId + 1);
+            int replacement = Instance.GetRandomFromPool();
+            if (replacement > 0) itemId = replacement;
         }
 
         /// <summary>
@@ -105,7 +106,8 @@ namespace Randomizer.Modules
             if (Instance == null || !Instance.Enabled) return;
             if (Main.netMode != 0) return; // SP only
             if (itemId <= 0) return;
-            itemId = Instance.GetRandomInRange(1, MaxItemId + 1);
+            int replacement = Instance.GetRandomFromPool();
+            if (replacement > 0) itemId = replacement;
         }
 
         public override void RemovePatches(Harmony harmony)

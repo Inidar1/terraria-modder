@@ -25,7 +25,7 @@ Seed 0 selects a fresh seed. World-owned changes retain their chosen seed for th
 | Tile Drops | Changes mined tile drops |
 | Spawns | Changes eligible enemy spawns |
 | Item Stats | Scrambles supported item statistics |
-| Starting Items | Changes the initial inventory |
+| Starting Items | Replaces starter copper tools and adds items in empty hotbar slots; preserves existing items |
 | Gravity | Changes player gravity over time |
 | Weather | Changes weather over time |
 
@@ -34,6 +34,10 @@ Modules can be toggled independently. Turning Recipe Shuffle off restores the un
 ## Configuration
 
 Use the Randomizer panel or the F6 Mod Menu. The panel key is handled through TerrariaModder's keybind system and can be rebound.
+
+Chest Loot and Starting Items settings apply when first entering a world without saved Randomizer settings, then remain locked for that world. Configure them on the title screen or in F6 before entering. Tile Drops can be toggled during play.
+
+Turning Randomizer off restores untouched chest items from the current load while preserving items changed since shuffling. Saved chest contents are shuffled again on later entry while Chest Loot is active.
 
 ## Multiplayer
 

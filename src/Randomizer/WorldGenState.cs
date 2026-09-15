@@ -49,7 +49,8 @@ namespace Randomizer
         /// <summary>Set armed state for a module.</summary>
         public void SetArmed(string moduleId, bool armed)
         {
-            _armedModules[moduleId] = armed;
+            if (armed) _armedModules[moduleId] = true;
+            else _armedModules.Remove(moduleId);
             SaveArmed();
         }
 
@@ -70,7 +71,7 @@ namespace Randomizer
         /// Called on world load. Checks for per-world state or applies armed settings.
         /// Returns the seed to use for world-gen modules (0 if none).
         /// </summary>
-        public int OnWorldLoad(string worldName)
+        public int OnWorldLoad(string worldName, int fallbackSeed = 0)
         {
             _currentWorldName = SanitizeFileName(worldName);
             _lockedModules.Clear();
@@ -82,6 +83,11 @@ namespace Randomizer
             {
                 // Returning to a world that was already tagged
                 LoadWorldState(worldFile);
+                if (_worldSeed == 0 && _lockedModules.Count > 0 && fallbackSeed != 0)
+                {
+                    _worldSeed = fallbackSeed;
+                    SaveWorldState(worldFile);
+                }
                 _log.Info($"[Randomizer] Loaded world-gen state for '{worldName}': seed={_worldSeed}, modules={string.Join(",", _lockedModules)}");
                 return _worldSeed;
             }
@@ -89,7 +95,7 @@ namespace Randomizer
             // Check if armed settings should apply
             if (HasArmedSettings)
             {
-                _worldSeed = _armedSeed;
+                _worldSeed = _armedSeed != 0 ? _armedSeed : fallbackSeed;
                 foreach (var kvp in _armedModules)
                 {
                     if (kvp.Value) _lockedModules.Add(kvp.Key);

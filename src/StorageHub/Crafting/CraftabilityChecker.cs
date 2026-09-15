@@ -25,7 +25,8 @@ namespace StorageHub.Crafting
 
         // Cached material counts for performance
         private Dictionary<int, int> _materialCounts = new Dictionary<int, int>();
-        private IReadOnlyList<ItemSnapshot> _materialItems = new List<ItemSnapshot>();
+        private readonly Dictionary<int, long> _planningCounts = new Dictionary<int, long>();
+        private bool _invalidMaterialSources;
         private bool _materialsDirty = true;
 
         // Available stations (tile IDs) â€” includes both remembered AND nearby
@@ -89,12 +90,18 @@ namespace StorageHub.Crafting
         public void RefreshMaterials()
         {
             _materialCounts.Clear();
+            _planningCounts.Clear();
+            _invalidMaterialSources = false;
 
             var items = Materials.Read();
-            _materialItems = items;
+            var locations = new HashSet<(int, int)>();
             foreach (var item in items)
             {
                 if (item.IsEmpty) continue;
+                if (item.SourceSlot < 0 || !locations.Add((item.SourceChestIndex, item.SourceSlot)))
+                    _invalidMaterialSources = true;
+                _planningCounts.TryGetValue(item.ItemId, out long total);
+                _planningCounts[item.ItemId] = total + item.Stack;
 
                 // Group by item ID (ignore prefix for crafting materials)
                 if (_materialCounts.TryGetValue(item.ItemId, out int count))
@@ -286,6 +293,9 @@ namespace StorageHub.Crafting
             if (_materialsDirty) RefreshMaterials();
             if (_stationsDirty) RefreshStations();
 
+            if (_invalidMaterialSources)
+                return new CraftabilityResult { Recipe = recipe, Status = CraftStatus.InvalidRecipe };
+
             var result = new CraftabilityResult
             {
                 Recipe = recipe,
@@ -298,21 +308,43 @@ namespace StorageHub.Crafting
             result.MissingMaterials = new List<MissingMaterial>();
             bool validMaterials = true;
             int upper = int.MaxValue;
-            foreach (var ing in recipe.Ingredients)
+            bool independentCosts = true;
+            var usedTypes = new HashSet<int>();
+            var missing = new int[recipe.Ingredients.Count];
+            for (int ingredientIndex = 0; ingredientIndex < recipe.Ingredients.Count; ingredientIndex++)
             {
+                var ing = recipe.Ingredients[ingredientIndex];
                 if (ing == null || ing.RequiredStack <= 0 ||
                     (ing.IsRecipeGroup && (ing.ValidItemIds == null || ing.ValidItemIds.Count == 0)))
                 { validMaterials = false; break; }
                 long have = 0;
                 if (ing.IsRecipeGroup)
                 {
-                    foreach (int id in ing.ValidItemIds) have += GetMaterialCount(id);
+                    foreach (int id in ing.ValidItemIds)
+                    {
+                        have += GetMaterialCount(id);
+                        if (!usedTypes.Add(id)) independentCosts = false;
+                    }
                 }
-                else have = GetMaterialCount(ing.ItemId);
+                else
+                {
+                    have = GetMaterialCount(ing.ItemId);
+                    if (!usedTypes.Add(ing.ItemId)) independentCosts = false;
+                }
                 upper = (int)Math.Min(upper, have / ing.RequiredStack);
+                upper = Math.Min(upper, int.MaxValue / ing.RequiredStack);
+                missing[ingredientIndex] = (int)Math.Max(0, ing.RequiredStack - have);
             }
-            bool enoughMaterials = ConsumptionPlanner.TryPlan(recipe, 1, _materialItems,
-                false, out _, out _, out var missing);
+            IReadOnlyList<ItemSnapshot> availabilitySources = null;
+            bool enoughMaterials = validMaterials && upper > 0;
+            // Separate costs have no allocation conflicts: their minimum ratio is exact.
+            // Shared types still use residual flow and quantity probes.
+            if (validMaterials && !independentCosts)
+            {
+                availabilitySources = ConsumptionPlanner.CreateAvailabilitySources(recipe, _planningCounts);
+                enoughMaterials = ConsumptionPlanner.TryPlan(recipe, 1, availabilitySources,
+                    false, out _, out _, out missing);
+            }
             if (!enoughMaterials)
             {
                 if (missing == null) validMaterials = false;
@@ -331,13 +363,13 @@ namespace StorageHub.Crafting
                 if (recipe.Ingredients.Count > 0)
                 {
                     int low = 1, high = upper;
-                    while (low < high)
+                    while (!independentCosts && low < high)
                     {
                         int middle = low + (int)(((long)high - low + 1) / 2);
-                        if (ConsumptionPlanner.TryPlan(recipe, middle, _materialItems, false, out _, out _)) low = middle;
+                        if (ConsumptionPlanner.TryPlan(recipe, middle, availabilitySources, false, out _, out _)) low = middle;
                         else high = middle - 1;
                     }
-                    result.MaxCraftable = low;
+                    result.MaxCraftable = independentCosts ? upper : low;
                 }
             }
 

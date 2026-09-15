@@ -13,6 +13,8 @@ namespace DebugTools
     {
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -35,13 +37,15 @@ namespace DebugTools
         private static volatile IntPtr _consoleWindowHandle;
         private static volatile bool _isHidden;
         private static bool _startHidden;
+        private static bool _startupVisibilityPending;
 
-        public static bool IsHidden => _isHidden;
+        public static bool IsHidden => _gameWindowHandle != IntPtr.Zero ? !IsWindowVisible(_gameWindowHandle) : _isHidden;
 
         public static void Initialize(ILogger log, bool startHidden)
         {
             _log = log;
             _startHidden = startHidden;
+            _startupVisibilityPending = startHidden;
 
             // Grab console window handle immediately (always available)
             _consoleWindowHandle = GetConsoleWindow();
@@ -81,6 +85,7 @@ namespace DebugTools
 
         public static void Show()
         {
+            _startupVisibilityPending = false;
             if (_gameWindowHandle != IntPtr.Zero)
             {
                 ShowWindow(_gameWindowHandle, SW_SHOW);
@@ -104,6 +109,16 @@ namespace DebugTools
 
             _isHidden = true;
             _log?.Info("[WindowManager] Windows hidden");
+        }
+
+        internal static void ApplyStartupVisibilityAfterDraw()
+        {
+            if (!_startupVisibilityPending) return;
+            AcquireGameWindowHandle();
+            if (_gameWindowHandle == IntPtr.Zero) return;
+            // The first actual draw follows XNA's startup window show, including in menus.
+            Hide();
+            _startupVisibilityPending = false;
         }
 
         /// <summary>

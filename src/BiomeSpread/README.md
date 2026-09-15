@@ -4,7 +4,7 @@ Prevents corruption, crimson, and Hallow from spreading to new tiles in singlepl
 
 ## Behavior
 
-When Disable Evil Spread is enabled:
+When Disable Biome Spread is enabled:
 
 - Terraria's infection-spread update is suppressed.
 - Evil and Hallow grass cannot grow naturally onto bare dirt or mud.
@@ -17,10 +17,9 @@ The option is enabled by default. Turning it off restores Terraria's normal spre
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| Enabled | On | Enables the mod |
-| Disable Evil Spread | On | Prevents corruption, crimson, and Hallow spread |
+| Disable Biome Spread | On | Prevents corruption, crimson, and Hallow spread |
 
-Open the F6 Mod Menu to change either setting.
+Open the F6 Mod Menu to change this setting.
 
 ## Multiplayer
 

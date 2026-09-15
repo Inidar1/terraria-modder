@@ -17,7 +17,7 @@ namespace QuickKeys
     {
         public string Id => "quick-keys";
         public string Name => "Quick Keys";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         private ILogger _log;
         private ModContext _context;
@@ -41,11 +41,14 @@ namespace QuickKeys
 
         // Terraria item IDs for recall items (priority order)
         private static readonly int[] RecallItemIds = new int[] {
-            3124,  // Cell Phone
-            5358,  // Shellphone (recall variant only — excludes Spawn/Ocean/Hell variants)
-            50,    // Magic Mirror
-            3199,  // Ice Mirror
-            2350   // Recall Potion
+            ItemID.CellPhone,
+            ItemID.Shellphone,
+            ItemID.ShellphoneSpawn,
+            ItemID.ShellphoneOcean,
+            ItemID.ShellphoneHell,
+            ItemID.MagicMirror,
+            ItemID.IceMirror,
+            ItemID.RecallPotion
         };
 
         // Extended hotbar: slots 11-20 (indices 10-19), registered as keybinds
@@ -429,22 +432,6 @@ namespace QuickKeys
                 }
 
                 if (!QuickUseItemAt(player, inventory, foundSlot)) return;
-
-                // Speed up the recall animation. The mirror/phone teleport fires at
-                // itemTime == item.useTime/2, not at 0. Set itemTime to useTime/2+1 so
-                // the next ItemCheck decrement hits the trigger on the very next frame.
-                // Keep two frames: Terraria decrements animation before checking the effect.
-                // Recall Potion uses a fixed trigger at 20 instead of useTime/2.
-                try
-                {
-                    if (player.itemAnimation > 0)
-                    {
-                        int useTime = player.inventory[player.selectedItem].useTime;
-                        player.itemTime = (inventory[player.selectedItem].type == ItemID.RecallPotion ? 20 : useTime / 2) + 1;
-                        player.itemAnimation = 2;
-                    }
-                }
-                catch { }
 
                 ShowMessage($"Using {itemName}", 173, 216, 230);
             }

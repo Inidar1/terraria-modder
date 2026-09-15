@@ -1042,6 +1042,10 @@ namespace TerrariaModder.Core.UI
         private static object _itemTextureAssets;
         private static PropertyInfo _assetValueProp;
         private static PropertyInfo _assetIsLoadedProp;
+        private static PropertyInfo _assetNameProp;
+        private static FieldInfo _assetRepositoryField;
+        private static MethodInfo _asyncItemRequest;
+        private static object _asyncRequestMode;
 
         /// <summary>
         /// Draw a Terraria item texture at the specified position.
@@ -1053,6 +1057,13 @@ namespace TerrariaModder.Core.UI
         /// <param name="height">Target height (item will be scaled to fit).</param>
         /// <param name="alpha">Transparency (0-255).</param>
         public static void DrawItem(int itemType, int x, int y, int width, int height, byte alpha = 255)
+            => DrawItemCore(itemType, x, y, width, height, alpha, false);
+
+        /// <summary>Draw an icon when ready, requesting missing textures through Terraria's async loader.</summary>
+        public static void DrawItemDeferred(int itemType, int x, int y, int width, int height, byte alpha = 255)
+            => DrawItemCore(itemType, x, y, width, height, alpha, true);
+
+        private static void DrawItemCore(int itemType, int x, int y, int width, int height, byte alpha, bool deferLoading)
         {
             if (!EnsureInitialized()) return;
             if (!InitItemDrawing()) return;
@@ -1077,6 +1088,12 @@ namespace TerrariaModder.Core.UI
                 // If not loaded, try Main.instance.LoadItem() first (the proper Terraria way)
                 if (!isLoaded)
                 {
+                    if (deferLoading && _asyncItemRequest != null)
+                    {
+                        var repository = _assetRepositoryField.GetValue(null);
+                        _asyncItemRequest.Invoke(repository, new[] { _assetNameProp.GetValue(asset), _asyncRequestMode });
+                        return;
+                    }
                     try
                     {
                         Main.instance?.LoadItem(itemType);
@@ -1213,6 +1230,21 @@ namespace TerrariaModder.Core.UI
                         var assetType = firstAsset.GetType();
                         _assetValueProp = assetType.GetProperty("Value");
                         _assetIsLoadedProp = assetType.GetProperty("IsLoaded");
+                        _assetNameProp = assetType.GetProperty("Name");
+                        _assetRepositoryField = typeof(Main).GetField("Assets", BindingFlags.Public | BindingFlags.Static);
+                        var repository = _assetRepositoryField?.GetValue(null);
+                        if (repository != null && _assetNameProp != null && _assetIsLoadedProp != null)
+                        {
+                            foreach (var method in repository.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                            {
+                                var parameters = method.GetParameters();
+                                if (method.Name != "Request" || !method.IsGenericMethodDefinition || parameters.Length != 2 ||
+                                    parameters[0].ParameterType != typeof(string) || !parameters[1].ParameterType.IsEnum) continue;
+                                _asyncRequestMode = Enum.Parse(parameters[1].ParameterType, "AsyncLoad");
+                                _asyncItemRequest = method.MakeGenericMethod(typeof(Texture2D));
+                                break;
+                            }
+                        }
                     }
                 }
 

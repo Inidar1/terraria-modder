@@ -28,7 +28,7 @@ Back up characters and worlds you care about before testing an update. For manua
 | Biome Spread Control | Prevent corruption, crimson, and Hallow spread | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/146) |
 | Randomizer | Deterministic modules for loot, drops, recipes, shops, spawns, and more | Numpad / | [Nexus](https://www.nexusmods.com/terraria/mods/147) |
 
-Public Debug Tools 2.0.0 is available from the Core optional files for mod development and advanced diagnostics. Its stable feature set includes an in-game console, localhost HTTP API, virtual input, state inspection, and window controls.
+Debug Tools 2.0.1 is available from the Core optional files for mod development and advanced diagnostics. Its stable feature set includes an in-game console, localhost HTTP API, virtual input, state inspection, and window controls.
 
 Each mod's README states whether it is client-only, optional, singleplayer-only, or required on every peer.
 

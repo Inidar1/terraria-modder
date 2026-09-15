@@ -72,6 +72,8 @@ namespace FpsUnlocked
 
         // Skip flags: set when entity teleported or just spawned (skip interpolation for 1 tick)
         public static bool[] PlayerSkip;
+        public static bool[] PlayerItemSkip;
+        private static int[] _itemType, _itemAnimation, _playerDirection;
         public static bool[] NpcSkip;
         public static bool[] ProjSkip;
 
@@ -94,6 +96,10 @@ namespace FpsUnlocked
             PlayerActiveBegin = new bool[maxP];
             PlayerVelBegin = new float[maxP * 2];
             PlayerSkip = new bool[maxP];
+            PlayerItemSkip = new bool[maxP];
+            _itemType = new int[maxP];
+            _itemAnimation = new int[maxP];
+            _playerDirection = new int[maxP];
 
             NpcBegin = new float[maxN * NpcStride];
             NpcEnd = new float[maxN * NpcStride];
@@ -147,6 +153,10 @@ namespace FpsUnlocked
             Array.Clear(PlayerActiveBegin, 0, PlayerActiveBegin.Length);
             Array.Clear(PlayerVelBegin, 0, PlayerVelBegin.Length);
             Array.Clear(PlayerSkip, 0, PlayerSkip.Length);
+            Array.Clear(PlayerItemSkip, 0, PlayerItemSkip.Length);
+            Array.Clear(_itemType, 0, _itemType.Length);
+            Array.Clear(_itemAnimation, 0, _itemAnimation.Length);
+            Array.Clear(_playerDirection, 0, _playerDirection.Length);
 
             Array.Clear(NpcBegin, 0, NpcBegin.Length);
             Array.Clear(NpcEnd, 0, NpcEnd.Length);
@@ -208,6 +218,14 @@ namespace FpsUnlocked
                     var player = p as Player;
                     if (player == null) continue;
                     int offset = i * PlayerStride;
+                    // Use style and facing change discretely. Blending across two swings
+                    // puts the old weapon pose behind the new facing or animation phase.
+                    PlayerItemSkip[i] = _itemType[i] != player.HeldItem.type ||
+                        _playerDirection[i] != player.direction || _itemAnimation[i] <= 0 ||
+                        player.itemAnimation <= 0 || player.itemAnimation > _itemAnimation[i];
+                    _itemType[i] = player.HeldItem.type;
+                    _playerDirection[i] = player.direction;
+                    _itemAnimation[i] = player.itemAnimation;
                     float endX = player.Bottom.X;
                     float endY = player.Bottom.Y;
                     PlayerEnd[offset + 0] = endX;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using HarmonyLib;
 using Randomizer.Modules;
 using Randomizer.UI;
@@ -17,7 +18,7 @@ namespace Randomizer
     {
         public string Id => "randomizer";
         public string Name => "Randomizer";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         private ILogger _log;
         private ModContext _context;
@@ -25,6 +26,9 @@ namespace Randomizer
         private RandomizerConfig _config;
 
         private RandomSeed _seed;
+        private RandomSeed _worldGenSeed;
+        private int _configuredSeed;
+        private int _requestedSeed;
         private RandomizerPanel _panel;
         private WorldGenPanel _worldGenPanel;
         private WorldGenState _worldGenState;
@@ -32,6 +36,7 @@ namespace Randomizer
 
         private static Harmony _harmony;
         private bool _patchesApplied;
+        private readonly HashSet<string> _installedModules = new HashSet<string>();
 
 
         // Static reference for Harmony patches to access modules
@@ -48,11 +53,6 @@ namespace Randomizer
             _config = context.GetConfig<RandomizerConfig>();
 
             _enabled = _config != null ? _config.Enabled : true;
-            if (!_enabled)
-            {
-                _log.Info("[Randomizer] Disabled in config");
-                return;
-            }
 
             if (Environment.GetEnvironmentVariable("TERRARIA_MODDER_DEDSERV") == "1")
             {
@@ -63,6 +63,9 @@ namespace Randomizer
             // Initialize seed system
             int seedValue = _config != null ? _config.Seed : 0;
             _seed = new RandomSeed(seedValue);
+            _configuredSeed = _seed.Seed;
+            _requestedSeed = seedValue;
+            _worldGenSeed = new RandomSeed(_configuredSeed);
 
             // Register all modules
             _modules = new List<ModuleBase>
@@ -82,7 +85,7 @@ namespace Randomizer
 
             foreach (var module in _modules)
             {
-                module.Init(_log, _seed);
+                module.Init(_log, module.IsWorldGen ? _worldGenSeed : _seed);
                 // Load enabled state from config (runtime modules only)
                 if (!module.IsWorldGen)
                     module.Enabled = GetModuleEnabled(module.Id);
@@ -90,6 +93,15 @@ namespace Randomizer
 
             // Initialize per-world state persistence
             _worldGenState = new WorldGenState(_log, context.ModFolder);
+            // Preserve existing title-screen settings; otherwise import the config switches.
+            bool hasArmedFile = File.Exists(Path.Combine(context.ModFolder, "state-worldgen.json"));
+            foreach (var module in _modules)
+            {
+                if (!module.IsWorldGen) continue;
+                if (hasArmedFile) SetModuleEnabled(module.Id, _worldGenState.IsArmed(module.Id));
+                else _worldGenState.SetArmed(module.Id, GetModuleEnabled(module.Id));
+            }
+            _config?.Save();
 
             // Create UI panels
             _panel = new RandomizerPanel(_log, this);
@@ -98,7 +110,7 @@ namespace Randomizer
             // Core owns input polling in both title-screen and world contexts.
             context.RegisterKeybind("toggle", "Toggle Panel", "Open/close Randomizer config", "NumDiv", OnToggle).AllowInMenu = true;
 
-            // Subscribe to events (fires in both menu and world)
+            // Update gameplay modules in worlds; the menu panel updates while drawing.
             FrameEvents.OnPreUpdate += OnUpdate;
             UIRenderer.RegisterPanelDraw("randomizer", OnDraw);
 
@@ -149,16 +161,55 @@ namespace Randomizer
 
         public void OnContentReady(ModContext context) { }
 
+        public void OnConfigChanged()
+        {
+            if (_modules == null || _config == null) return;
+            bool wasEnabled = _enabled;
+            _enabled = _config.Enabled;
+            if (_requestedSeed != _config.Seed) OnSeedChanged(_config.Seed);
+            foreach (var module in _modules)
+            {
+                if (module.IsWorldGen)
+                {
+                    _worldGenState.SetArmed(module.Id, GetModuleEnabled(module.Id));
+                    if (!wasEnabled && _enabled && module.Enabled && Game.InWorld)
+                        module.BuildShuffleMap();
+                    continue;
+                }
+                bool active = _enabled && GetModuleEnabled(module.Id);
+                if (active == module.Enabled) continue;
+                module.Enabled = active;
+                if (active && Game.InWorld) module.BuildShuffleMap();
+                if (active) ApplyModulePatches(module);
+                else RemoveModulePatches(module);
+            }
+            if (wasEnabled && !_enabled)
+            {
+                foreach (var module in _modules)
+                    if (module.IsWorldGen) RemoveModulePatches(module);
+                _panel?.Close();
+                _worldGenPanel?.Close();
+            }
+        }
+
+        public void SetWorldGenModuleArmed(string id, bool enabled)
+        {
+            _worldGenState.SetArmed(id, enabled);
+            SetModuleEnabled(id, enabled);
+            _config?.Save();
+        }
+
         public void OnWorldLoad()
         {
-            if (!_enabled || _modules == null) return;
+            if (_modules == null) return;
 
             // Close world-gen panel when entering a world
             _worldGenPanel?.Close();
 
             // Load or apply per-world state
             string worldName = GetWorldName();
-            int worldSeed = _worldGenState.OnWorldLoad(worldName);
+            int worldSeed = _worldGenState.OnWorldLoad(worldName, _configuredSeed);
+            _worldGenSeed.SetSeed(worldSeed != 0 ? worldSeed : _configuredSeed);
 
             // Lock world-gen modules based on per-world state
             foreach (var module in _modules)
@@ -184,15 +235,17 @@ namespace Randomizer
                 _seed.SetSeed(worldSeed);
                 _log.Info($"[Randomizer] Using world-gen seed: {worldSeed}");
             }
+            else _seed.SetSeed(_configuredSeed);
 
             // Build shuffle maps for all enabled modules
             foreach (var module in _modules)
             {
-                if (module.Enabled)
+                if (_enabled && module.Enabled)
                 {
                     try
                     {
                         module.BuildShuffleMap();
+                        ApplyModulePatches(module);
                         _log.Info($"[Randomizer] {module.Name}: shuffle map built ({module.Id})");
                     }
                     catch (Exception ex)
@@ -207,10 +260,11 @@ namespace Randomizer
 
         public void OnWorldUnload()
         {
-            if (!_enabled) return;
+            if (_modules == null) return;
 
             _panel?.Close();
             _worldGenState?.OnWorldUnload();
+            _seed?.SetSeed(_configuredSeed);
 
             // Unlock world-gen modules and reset per-world state
             foreach (var module in _modules)
@@ -223,6 +277,8 @@ namespace Randomizer
 
                 if (module is Modules.StartingItemsModule sim)
                     sim.ResetForNewWorld();
+                if (module is Modules.ChestLootModule chestLoot)
+                    chestLoot.OnWorldUnload();
             }
 
             _log.Info("[Randomizer] World unloaded");
@@ -318,8 +374,10 @@ namespace Randomizer
 
         private void OnDraw()
         {
+            if (!_enabled) return;
             if (Game.InMenu)
             {
+                _worldGenPanel?.Update();
                 _worldGenPanel?.Draw();
             }
             else
@@ -339,7 +397,7 @@ namespace Randomizer
 
                 try
                 {
-                    module.ApplyPatches(_harmony);
+                    ApplyModulePatches(module);
                     _log.Info($"[Randomizer] {module.Name}: patches applied");
                 }
                 catch (Exception ex)
@@ -347,6 +405,19 @@ namespace Randomizer
                     _log.Error($"[Randomizer] {module.Name} patch error: {ex.Message}");
                 }
             }
+        }
+
+        private void ApplyModulePatches(ModuleBase module)
+        {
+            if (_installedModules.Contains(module.Id)) return;
+            module.ApplyPatches(_harmony);
+            _installedModules.Add(module.Id);
+        }
+
+        private void RemoveModulePatches(ModuleBase module)
+        {
+            module.RemovePatches(_harmony);
+            _installedModules.Remove(module.Id);
         }
 
         /// <summary>
@@ -367,7 +438,7 @@ namespace Randomizer
                 try
                 {
                     module.BuildShuffleMap();
-                    module.ApplyPatches(_harmony);
+                    ApplyModulePatches(module);
                     _log.Info($"[Randomizer] {module.Name}: enabled, shuffle map built + patches applied");
                 }
                 catch (Exception ex)
@@ -379,7 +450,7 @@ namespace Randomizer
             {
                 try
                 {
-                    module.RemovePatches(_harmony);
+                    RemoveModulePatches(module);
                     _log.Info($"[Randomizer] {module.Name}: disabled, patches removed");
                 }
                 catch (Exception ex)
@@ -395,6 +466,8 @@ namespace Randomizer
         public void OnSeedChanged(int newSeed)
         {
             _seed.SetSeed(newSeed);
+            _configuredSeed = _seed.Seed;
+            _requestedSeed = _seed.Seed;
             if (_config != null) { _config.Seed = _seed.Seed; _config.Save(); }
 
             // Rebuild all enabled shuffle maps
@@ -402,7 +475,7 @@ namespace Randomizer
             {
                 foreach (var module in _modules)
                 {
-                    if (module.Enabled)
+                    if (module.Enabled && !module.IsWorldGen)
                     {
                         try
                         {

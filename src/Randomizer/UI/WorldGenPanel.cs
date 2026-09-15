@@ -187,7 +187,7 @@ namespace Randomizer.UI
             // Click handling
             if (hover && WidgetInput.MouseLeftClick)
             {
-                _worldGenState.SetArmed(module.Id, !armed);
+                _mod.SetWorldGenModuleArmed(module.Id, !armed);
                 WidgetInput.ConsumeClick();
             }
 

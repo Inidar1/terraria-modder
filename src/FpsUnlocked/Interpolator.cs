@@ -211,11 +211,19 @@ namespace FpsUnlocked
                 ReflectionCache.SetPlayerHeadRot(p, AngleLerp(KeyframeStore.PlayerBegin[offset + 3], KeyframeStore.PlayerEnd[offset + 3], t));
                 ReflectionCache.SetPlayerBodyRot(p, AngleLerp(KeyframeStore.PlayerBegin[offset + 4], KeyframeStore.PlayerEnd[offset + 4], t));
                 ReflectionCache.SetPlayerLegRot(p, AngleLerp(KeyframeStore.PlayerBegin[offset + 5], KeyframeStore.PlayerEnd[offset + 5], t));
-                ReflectionCache.SetPlayerItemLocX(p, interpBottomX +
-                    Lerp(KeyframeStore.PlayerBegin[offset + 6], KeyframeStore.PlayerEnd[offset + 6], t));
-                ReflectionCache.SetPlayerItemLocY(p, interpBottomY +
-                    Lerp(KeyframeStore.PlayerBegin[offset + 7], KeyframeStore.PlayerEnd[offset + 7], t));
-                ReflectionCache.SetPlayerItemRot(p, AngleLerp(KeyframeStore.PlayerBegin[offset + 8], KeyframeStore.PlayerEnd[offset + 8], t));
+                if (KeyframeStore.PlayerItemSkip[i])
+                {
+                    ReflectionCache.SetPlayerItemLocX(p, _savedPlayer[offset + 6] + interpX - realX);
+                    ReflectionCache.SetPlayerItemLocY(p, _savedPlayer[offset + 7] + interpY - realY);
+                }
+                else
+                {
+                    ReflectionCache.SetPlayerItemLocX(p, interpBottomX +
+                        Lerp(KeyframeStore.PlayerBegin[offset + 6], KeyframeStore.PlayerEnd[offset + 6], t));
+                    ReflectionCache.SetPlayerItemLocY(p, interpBottomY +
+                        Lerp(KeyframeStore.PlayerBegin[offset + 7], KeyframeStore.PlayerEnd[offset + 7], t));
+                    ReflectionCache.SetPlayerItemRot(p, AngleLerp(KeyframeStore.PlayerBegin[offset + 8], KeyframeStore.PlayerEnd[offset + 8], t));
+                }
 
                 // Compute interpolation delta
                 float dx = interpX - realX;

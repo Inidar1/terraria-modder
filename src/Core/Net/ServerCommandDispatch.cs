@@ -307,6 +307,12 @@ namespace TerrariaModder.Core.Net
 
             try
             {
+                if (npcType <= 0 || npcType >= Terraria.ID.NPCID.Count)
+                {
+                    NetSync.SendServerCommandResponseTo(callerSlot, "spawnnpc", "Invalid NPC type");
+                    return;
+                }
+                bool spawned = false;
                 // Use reflection to call NPC.NewNPC on the correct assembly (ded server safe)
                 bool isDedServ = Environment.GetEnvironmentVariable("TERRARIA_MODDER_DEDSERV") == "1";
                 if (!isDedServ)
@@ -314,7 +320,10 @@ namespace TerrariaModder.Core.Net
                     var source = new Terraria.DataStructures.EntitySource_SpawnNPC();
                     int idx = Terraria.NPC.NewNPC(source, worldX, worldY, npcType, Target: callerSlot);
                     if (idx >= 0 && idx < Terraria.Main.npc.Length)
+                    {
                         Terraria.Main.npc[idx].timeLeft *= 20;
+                        spawned = true;
+                    }
                     _log?.Info($"[ServerCommand] SpawnNPC: type={npcType} at ({worldX},{worldY}) idx={idx} for slot {callerSlot}");
                 }
                 else
@@ -356,11 +365,19 @@ namespace TerrariaModder.Core.Net
                         }
 
                         var result = newNPC.Invoke(null, args);
+                        var npcs = asm.GetType("Terraria.Main")?.GetField("npc", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as Array;
+                        if (result is int idx && npcs != null && idx >= 0 && idx < npcs.Length)
+                        {
+                            var npc = npcs.GetValue(idx);
+                            var timeLeft = npcClass.GetField("timeLeft", BindingFlags.Public | BindingFlags.Instance);
+                            if (timeLeft != null) timeLeft.SetValue(npc, (int)timeLeft.GetValue(npc) * 20);
+                            spawned = true;
+                        }
                         _log?.Info($"[ServerCommand] SpawnNPC (dedServ): type={npcType} at ({worldX},{worldY}) idx={result} for slot {callerSlot}");
                         break;
                     }
                 }
-                NetSync.SendServerCommandResponseTo(callerSlot, "spawnnpc", "ok");
+                NetSync.SendServerCommandResponseTo(callerSlot, "spawnnpc", spawned ? "ok" : "No NPC spawn slot is available");
             }
             catch (Exception ex)
             {

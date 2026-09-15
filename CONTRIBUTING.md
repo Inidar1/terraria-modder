@@ -25,7 +25,7 @@ The scripts can be called from another working directory; they resolve paths fro
 
 - `src/Core/`: loader, typed config, input, UI, assets, save support, networking, and server administration
 - `src/<Mod>/`: released mod source, manifest, README, and assets
-- `src/DebugTools/`: public Debug Tools with a stable feature set
+- `src/DebugTools/`: Debug Tools with a stable feature set
 - `templates/ModTemplate/`: starter project for new mods
 - `docs/`: MkDocs wiki source
 

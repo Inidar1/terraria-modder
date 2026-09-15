@@ -19,7 +19,7 @@ namespace ItemSpawner
     {
         public string Id => "item-spawner";
         public string Name => "Item Spawner";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         private ILogger _log;
         private ModContext _context;
@@ -313,7 +313,7 @@ namespace ItemSpawner
                         UIRenderer.DrawRectOutline(slotX, slotY, SlotOuter, SlotOuter, UIColors.Accent, 1);
 
                     // Item icon
-                    UIRenderer.DrawItem(item.Id, slotX + IconPad, slotY + IconPad, IconSize, IconSize);
+                    UIRenderer.DrawItemDeferred(item.Id, slotX + IconPad, slotY + IconPad, IconSize, IconSize);
 
                     // Hover tooltip + click handling
                     if (isHover)

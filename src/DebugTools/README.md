@@ -1,6 +1,6 @@
-# Public Debug Tools
+# Debug Tools
 
-This README documents the public Debug Tools 2.0.0 feature set for Terraria 1.4.5.8. The feature set is stable; compatibility updates and minor defect fixes continue.
+This README documents the Debug Tools 2.0.1 feature set for Terraria 1.4.5.8. The feature set is stable; compatibility updates and minor defect fixes continue.
 
 All-in-one debug and remote control suite for TerrariaModder. Provides an HTTP API, in-game debug console, virtual input injection, window management, and game state observation.
 

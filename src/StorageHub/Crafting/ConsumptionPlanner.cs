@@ -79,6 +79,38 @@ namespace StorageHub.Crafting
             { To = to; Reverse = reverse; Remaining = remaining; }
         }
 
+        // Availability needs quantities by type, not a graph node for every chest slot.
+        // These synthetic capacities never leave the checker as executable allocations.
+        internal static IReadOnlyList<ItemSnapshot> CreateAvailabilitySources(RecipeInfo recipe,
+            IReadOnlyDictionary<int, long> counts)
+        {
+            var ids = new HashSet<int>();
+            foreach (var ingredient in recipe.Ingredients)
+            {
+                if (ingredient == null) continue;
+                if (ingredient.IsRecipeGroup)
+                {
+                    if (ingredient.ValidItemIds != null) ids.UnionWith(ingredient.ValidItemIds);
+                }
+                else ids.Add(ingredient.ItemId);
+            }
+            var sources = new List<ItemSnapshot>();
+            foreach (int id in ids)
+            {
+                if (!counts.TryGetValue(id, out long remaining) || remaining <= 0) continue;
+                // Every individual demand is int-bounded; excess stock cannot change
+                // feasibility and must not create an unbounded number of capacity nodes.
+                remaining = Math.Min(remaining, (long)int.MaxValue * Math.Max(1, recipe.Ingredients.Count));
+                while (remaining > 0)
+                {
+                    int capacity = (int)Math.Min(int.MaxValue, remaining);
+                    sources.Add(new ItemSnapshot(id, capacity, 0, "", int.MaxValue, 0, -1, sources.Count));
+                    remaining -= capacity;
+                }
+            }
+            return sources;
+        }
+
         public static bool TryPlan(RecipeInfo recipe, int count, IReadOnlyList<ItemSnapshot> items,
             bool protectHotbar, out List<Allocation> plan, out string reason)
         {
@@ -113,12 +145,19 @@ namespace StorageHub.Crafting
 
             var sources = new List<ItemSnapshot>();
             var locations = new HashSet<(int, int)>();
+            var acceptedTypes = new HashSet<int>();
+            foreach (var ingredient in recipe.Ingredients)
+            {
+                if (ingredient.IsRecipeGroup) acceptedTypes.UnionWith(ingredient.ValidItemIds);
+                else acceptedTypes.Add(ingredient.ItemId);
+            }
             foreach (var item in items)
             {
                 if (item.IsEmpty) continue;
                 if (item.SourceSlot < 0 || !locations.Add((item.SourceChestIndex, item.SourceSlot)))
                 { reason = "Invalid or duplicate storage location"; return false; }
                 if (protectHotbar && item.IsFromInventory && item.SourceSlot < 10) continue;
+                if (!acceptedTypes.Contains(item.ItemId)) continue;
                 sources.Add(item);
             }
 

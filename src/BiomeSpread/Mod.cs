@@ -12,7 +12,7 @@ namespace BiomeSpread
     {
         public string Id => "biome-spread";
         public string Name => "Biome Spread Control";
-        public string Version => "2.0.0";
+        public string Version => "2.0.1";
 
         private static ILogger _log;
         private static ModContext _context;
@@ -20,7 +20,6 @@ namespace BiomeSpread
         private static BiomeSpreadConfig _config;
 
         // Config
-        internal static bool Enabled = true;
         internal static bool DisableSpread = true;
 
         public void Initialize(ModContext context)
@@ -79,25 +78,24 @@ namespace BiomeSpread
         private void LoadConfig()
         {
             if (_config == null) return;
-            Enabled = _config.Enabled;
             DisableSpread = _config.DisableSpread;
         }
 
         public void OnConfigChanged()
         {
             LoadConfig();
-            if (!Enabled || !DisableSpread)
+            if (!DisableSpread)
             {
                 try { WorldGen.AllowedToSpreadInfections = true; } catch { }
             }
-            _log.Info($"Config reloaded - Enabled: {Enabled}, DisableSpread: {DisableSpread}");
+            _log.Info($"Config reloaded - DisableSpread: {DisableSpread}");
         }
 
         public void OnContentReady(ModContext context) { if (_harmony != null) ApplyPatches(); }
 
         public void OnWorldLoad()
         {
-            _log.Info($"World loaded - spread {(Enabled && DisableSpread ? "DISABLED" : "enabled")}");
+            _log.Info($"World loaded - spread {(DisableSpread ? "DISABLED" : "enabled")}");
         }
 
         public void OnWorldUnload()
@@ -113,7 +111,7 @@ namespace BiomeSpread
 
         public static bool SpreadGrass_Prefix(int grass, bool repeat)
         {
-            if (!Enabled || !DisableSpread || repeat || WorldGen.isGeneratingOrLoadingWorld) return true;
+            if (!DisableSpread || repeat || WorldGen.isGeneratingOrLoadingWorld) return true;
             return grass != TileID.CorruptGrass && grass != TileID.CrimsonGrass &&
                 grass != TileID.HallowedGrass && grass != TileID.GolfGrassHallowed &&
                 grass != TileID.CorruptJungleGrass && grass != TileID.CrimsonJungleGrass;
@@ -121,7 +119,7 @@ namespace BiomeSpread
 
         public static void HardUpdateWorld_Prefix()
         {
-            if (!Enabled || !DisableSpread) return;
+            if (!DisableSpread) return;
             WorldGen.AllowedToSpreadInfections = false;
         }
     }

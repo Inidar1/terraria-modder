@@ -26,7 +26,7 @@ All mods require TerrariaModder Core to be installed first.
 | **FpsUnlocked** | Unlock frame rate with smooth interpolation (60hz logic + high-FPS rendering) | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/145) |
 | **BiomeSpread** | Prevent corruption, crimson, and Hallow spread in singleplayer worlds | Automatic | [Nexus](https://www.nexusmods.com/terraria/mods/146) |
 | **Randomizer** | Modular randomizer with seed system — shuffle chests, drops, recipes, shops, and more | Numpad / | [Nexus](https://www.nexusmods.com/terraria/mods/147) |
-| **Public Debug Tools** | Debug HTTP server, in-game console, virtual input, window management | Ctrl+` | [Core optional files](https://www.nexusmods.com/terraria/mods/135) |
+| **Debug Tools** | Debug HTTP server, in-game console, virtual input, window management | Ctrl+` | [Core optional files](https://www.nexusmods.com/terraria/mods/135) |
 
 **ModMenu** (F6) is built into Core, no separate download needed.
 
