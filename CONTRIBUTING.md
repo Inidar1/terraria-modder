@@ -64,3 +64,37 @@ Use the issue tracker or Discord for questions:
 
 - https://github.com/Inidar1/terraria-modder/issues
 - https://discord.gg/VvVD5EeYsK
+
+## Versioning and releases
+
+All components (Core, Vault, mods) follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### Git tags and GitHub releases
+
+An annotated git tag is created for all releases according to the following format:
+
+| Component | Tag name          | Tag description |
+| --------- | ----------------- | --------------- |
+| Core      | `core-vX.Y.Z`     | Core X.Y.Z      |
+| Vault     | `vault-vX.Y.Z`    | Vault X.Y.Z     |
+| Mods      | `mod-name-vX.Y.Z` | Mod Name X.Y.Z  |
+
+A GitHub release is created for each version. The name of the release should follow the tag description format. The body of the release should contain the changelog for that version.
+
+#### Bundled Releases
+
+If multiple components are released at once due to a common change, such as a compatibility update in response to a Terraria update or migrating to a new version of Core, the individual GitHub releases are not created. Instead a single bundled release including a new git tag and a corresponding GitHub release is created, following [Calendar Versioning](https://calver.org/). The git tag name format is `terraria-modder-YYYY.MM`. The description format is
+
+```
+TerrariaModder YYYY.MM
+
+<short description of the release>
+
+Updated Components:
+- Component Name X.Y.Z
+- ...
+```
+
+The GitHub release name format is `TerrariaModder YYYY.MM`. The description is the same as the git tag description, but additionally the changelog of each component is included at the end.
+
+The purpose of bundled releases is to reduce maintenance when multiple components are updated at once.
