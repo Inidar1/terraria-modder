@@ -64,3 +64,59 @@ Use the issue tracker or Discord for questions:
 
 - https://github.com/Inidar1/terraria-modder/issues
 - https://discord.gg/VvVD5EeYsK
+
+## Versioning and releases
+
+All components (Core, Vault, mods) follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### Git tags and GitHub releases
+
+For each component version, an annotated Git tag and a matching GitHub release are created.
+
+| Component | Git tag name      | Git tag description | GitHub release name |
+| --------- | ----------------- | ------------------- | ------------------- |
+| Core      | `core-vX.Y.Z`     | `Core X.Y.Z`        | `Core X.Y.Z`        |
+| Vault     | `vault-vX.Y.Z`    | `Vault X.Y.Z`       | `Vault X.Y.Z`       |
+| Mods      | `mod-name-vX.Y.Z` | `Mod Name X.Y.Z`    | `Mod Name X.Y.Z`    |
+
+The GitHub release body should contain the changelog for that version.
+
+#### Bundled releases
+
+If multiple mods are published together for a common change, such as a compatibility update after a Terraria update or a migration to a new Core version, the individual GitHub releases for each mod are not created. Instead, a single bundled release is created, featuring a new Git tag and a GitHub release, following [Calendar Versioning](https://calver.org/).
+
+| Item                | Format              |
+| ------------------- | ------------------- |
+| Git tag             | `core-mods-YYYY.MM` |
+| GitHub release name | `Core Mods YYYY.MM` |
+
+Git tag description format:
+
+```
+# short description of the release
+
+Updated Mods:
+- Mod Name X.Y.Z
+- ...
+```
+
+GitHub release body format:
+
+```md
+<!-- short description of the release -->
+
+## Updated Mods
+
+| Mod      | Version |
+| -------- | ------- |
+| Mod Name | X.Y.Z   |
+| ...      | ...     |
+
+## Changelogs
+
+### Mod Name
+
+- ...
+```
+
+Bundled releases reduce maintenance when several mods need to be published together.
