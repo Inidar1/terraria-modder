@@ -107,8 +107,10 @@ GitHub release body format:
 
 ## Updated Mods
 
-- Mod Name X.Y.Z
-- ...
+| Mod      | Version |
+| -------- | ------- |
+| Mod Name | X.Y.Z   |
+| ...      | ...     |
 
 ## Changelogs
 
