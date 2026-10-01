@@ -1337,7 +1337,7 @@ namespace TerrariaModder.Core.UI
             }
 
             // Check for mouse button presses (exclude MouseLeft - needed for UI interaction)
-            int[] mouseButtons = { KeyCode.MouseRight, KeyCode.MouseMiddle };
+            int[] mouseButtons = { KeyCode.MouseRight, KeyCode.MouseMiddle, KeyCode.MouseSide1, KeyCode.MouseSide2 };
             foreach (int mouseButton in mouseButtons)
             {
                 if (InputState.IsKeyJustPressed(mouseButton))

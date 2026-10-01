@@ -125,6 +125,8 @@ namespace TerrariaModder.Core.Input
         public const int MouseLeft = 1000;
         public const int MouseRight = 1001;
         public const int MouseMiddle = 1002;
+        public const int MouseSide1 = 1003;
+        public const int MouseSide2 = 1004;
 
         /// <summary>
         /// Get key name from code.
@@ -182,6 +184,8 @@ namespace TerrariaModder.Core.Input
                 case MouseLeft: return "MouseLeft";
                 case MouseRight: return "MouseRight";
                 case MouseMiddle: return "MouseMiddle";
+                case MouseSide1: return "MouseSide1";
+                case MouseSide2: return "MouseSide2";
                 default: return $"Key{keyCode}";
             }
         }
@@ -236,6 +240,8 @@ namespace TerrariaModder.Core.Input
                 case "MOUSELEFT": case "LMB": return MouseLeft;
                 case "MOUSERIGHT": case "RMB": return MouseRight;
                 case "MOUSEMIDDLE": case "MMB": return MouseMiddle;
+                case "MOUSESIDE1": return MouseSide1;
+                case "MOUSESIDE2": return MouseSide2;
                 case "NUMMUL": return Multiply;
                 case "NUMADD": return Add;
                 case "NUMSUB": return Subtract;
