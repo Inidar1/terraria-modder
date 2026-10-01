@@ -49,15 +49,3 @@ public class NexusDownloadLink
     [JsonPropertyName("short_name")]
     public string ShortName { get; set; } = "";
 }
-
-public class UpdatedModEntry
-{
-    [JsonPropertyName("mod_id")]
-    public int ModId { get; set; }
-
-    [JsonPropertyName("latest_file_update")]
-    public long LatestFileUpdate { get; set; }
-
-    [JsonPropertyName("latest_mod_activity")]
-    public long LatestModActivity { get; set; }
-}

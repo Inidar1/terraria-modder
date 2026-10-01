@@ -29,8 +29,10 @@ public class TerrariaDetector
 
     public bool Validate(string path)
     {
-        return !string.IsNullOrWhiteSpace(path)
-            && File.Exists(System.IO.Path.Combine(path, "Terraria.exe"));
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        // Windows: Terraria.exe; Linux/macOS: Terraria (no extension)
+        return File.Exists(System.IO.Path.Combine(path, "Terraria.exe"))
+            || File.Exists(System.IO.Path.Combine(path, "Terraria"));
     }
 
     public bool HasTerrariaModder(string path)

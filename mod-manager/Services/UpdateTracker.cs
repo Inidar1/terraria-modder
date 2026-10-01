@@ -14,18 +14,15 @@ public class UpdateTracker
     private readonly string _trackingFile;
     private readonly string _versionsFile;
     private readonly Logger _logger;
+    private readonly object _lock = new();
     private Dictionary<string, int> _entries = new();
     private Dictionary<string, string> _versions = new();
 
-    public UpdateTracker(SettingsService settings, Logger logger)
+    public UpdateTracker(AppPaths paths, Logger logger)
     {
         _logger = logger;
-        // Re-calculate or use SettingsService properties
-        var appDataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "TerrariaModManager");
-        _trackingFile = Path.Combine(appDataDir, "nexus-mod-map.json");
-        _versionsFile = Path.Combine(appDataDir, "installed-versions.json");
+        _trackingFile = paths.NexusMapFile;
+        _versionsFile = paths.InstalledVersionsFile;
         Load();
     }
 
@@ -34,8 +31,11 @@ public class UpdateTracker
     /// </summary>
     public void RecordInstall(string modId, int nexusModId)
     {
-        _entries[modId] = nexusModId;
-        Save();
+        lock (_lock)
+        {
+            _entries[modId] = nexusModId;
+            Save();
+        }
     }
 
     /// <summary>
@@ -43,8 +43,11 @@ public class UpdateTracker
     /// </summary>
     public void RecordVersion(string modId, string version)
     {
-        _versions[modId] = version;
-        SaveVersions();
+        lock (_lock)
+        {
+            _versions[modId] = version;
+            SaveVersions();
+        }
     }
 
     /// <summary>
@@ -52,7 +55,7 @@ public class UpdateTracker
     /// </summary>
     public string? GetTrackedVersion(string modId)
     {
-        return _versions.TryGetValue(modId, out var v) ? v : null;
+        lock (_lock) { return _versions.TryGetValue(modId, out var v) ? v : null; }
     }
 
     /// <summary>
@@ -67,8 +70,11 @@ public class UpdateTracker
         if (mod.Manifest?.NexusId > 0)
             return mod.Manifest.NexusId;
 
-        if (_entries.TryGetValue(mod.Id, out var nexusId) && nexusId > 0)
-            return nexusId;
+        lock (_lock)
+        {
+            if (_entries.TryGetValue(mod.Id, out var nexusId) && nexusId > 0)
+                return nexusId;
+        }
 
         return 0;
     }
@@ -78,8 +84,11 @@ public class UpdateTracker
     /// </summary>
     public string? GetLocalModId(int nexusModId)
     {
-        foreach (var (modId, nid) in _entries)
-            if (nid == nexusModId) return modId;
+        lock (_lock)
+        {
+            foreach (var (modId, nid) in _entries)
+                if (nid == nexusModId) return modId;
+        }
         return null;
     }
 
@@ -108,9 +117,8 @@ public class UpdateTracker
                 var files = await nexusApi.GetModFilesAsync(nexusId);
                 if (files.Count == 0) continue;
 
-                // Find the primary/main file, or fall back to latest uploaded
-                var mainFile = files.FirstOrDefault(f => f.IsPrimary)
-                    ?? files.OrderByDescending(f => f.UploadedTimestamp).First();
+                var mainFile = NexusFileSelector.SelectCurrentMain(files);
+                if (mainFile == null) continue;
 
                 var hasUpdate = !string.IsNullOrWhiteSpace(mainFile.Version) &&
                     IsNewerVersion(mainFile.Version, mod.Version);
@@ -185,14 +193,10 @@ public class UpdateTracker
             if (suffix.StartsWith("hotfix") || suffix.StartsWith("patch") || suffix.StartsWith("fix"))
             {
                 rank = 1;
-                // Extract trailing number: "hotfix2" → 2
-                var numStr = suffix.TrimStart("hotfix".ToCharArray())
-                    .TrimStart("patch".ToCharArray())
-                    .TrimStart("fix".ToCharArray());
-                // Re-parse more carefully: find first digit run after the prefix
+                // Extract trailing number: "hotfix2" → rank 2, "hotfix" / "hotfix1" → rank 1
                 var prefixLen = suffix.StartsWith("hotfix") ? 6
                     : suffix.StartsWith("patch") ? 5 : 3;
-                numStr = suffix[prefixLen..];
+                var numStr = suffix[prefixLen..];
                 if (int.TryParse(numStr, out var n) && n > 1)
                     rank = n;
             }

@@ -40,6 +40,7 @@ public class MainViewModel : ViewModelBase
     private readonly DownloadManager _downloadManager;
     private readonly NxmLinkHandler _nxmHandler;
     private readonly NexusApiService _nexusApi;
+    private readonly AppPaths _paths;
     private AppSettings _appSettings = null!;
 
     public InstalledModsViewModel InstalledModsVm { get; }
@@ -159,7 +160,8 @@ public class MainViewModel : ViewModelBase
         NxmProtocolRegistrar nxmRegistrar,
         DownloadManager downloadManager,
         NxmLinkHandler nxmHandler,
-        NexusApiService nexusApi)
+        NexusApiService nexusApi,
+        AppPaths paths)
     {
         InstalledModsVm = installedModsVm;
         BrowseVm = browseVm;
@@ -171,18 +173,28 @@ public class MainViewModel : ViewModelBase
         _downloadManager = downloadManager;
         _nxmHandler = nxmHandler;
         _nexusApi = nexusApi;
+        _paths = paths;
 
         _appSettings = _settingsService.Load();
         NeedsSetup = string.IsNullOrWhiteSpace(_appSettings.TerrariaPath);
         _currentView = NeedsSetup ? SettingsVm : InstalledModsVm;
 
-        InstalledModsVm.NavigateToBrowseCommand = new RelayCommand(() => ShowBrowseCommand.Execute(null));
-        BrowseVm.NavigateToSettingsCommand = new RelayCommand(() => ShowSettingsCommand.Execute(null));
         SettingsVm.LoginSucceeded += () =>
             Dispatcher.UIThread.InvokeAsync(() =>
             {
                 _ = BrowseVm.LoadFeedAsync();
                 _ = CheckVaultUpdateAsync();
+            });
+
+        // When a free user successfully downloads via browser, mark them as logged in
+        BrowseVm.BrowserDownloadSucceeded += () =>
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (!SettingsVm.IsLoggedIn)
+                {
+                    SettingsVm.IsLoggedIn = true;
+                    SettingsVm.MarkBrowserAuthenticated();
+                }
             });
 
         ShowInstalledCommand = new RelayCommand(() =>
@@ -211,6 +223,8 @@ public class MainViewModel : ViewModelBase
         LaunchVanillaCommand = new RelayCommand(() => LaunchGame(modded: false));
         RegisterNxmCommand = new AsyncRelayCommand(RegisterNxm);
         UpdateVaultCommand = new AsyncRelayCommand(DoVaultUpdateAsync);
+        InstalledModsVm.NavigateToBrowseCommand = new RelayCommand(() => ShowBrowseCommand.Execute(null));
+        BrowseVm.NavigateToSettingsCommand = new RelayCommand(() => ShowSettingsCommand.Execute(null));
 
         _isNxmRegistered = _nxmRegistrar.IsRegistered();
         _nxmRegistrar.RegistrationChanged += SyncNxmStatus;
@@ -302,8 +316,8 @@ public class MainViewModel : ViewModelBase
             var files = await _nexusApi.GetModFilesAsync(VaultNexusModId);
             if (files.Count == 0) return;
 
-            var mainFile = files.FirstOrDefault(f => f.IsPrimary)
-                ?? files.OrderByDescending(f => f.UploadedTimestamp).First();
+            var mainFile = NexusFileSelector.SelectCurrentMain(files);
+            if (mainFile == null) return;
 
             if (string.IsNullOrWhiteSpace(mainFile.Version)) return;
 
@@ -371,8 +385,7 @@ public class MainViewModel : ViewModelBase
         }
     }
 
-    private static string UpdateLogPath =>
-        Path.Combine(Path.GetTempPath(), "TerrariaModderVault_updater.log");
+    private string UpdateLogPath => _paths.UpdateLogFile;
 
     private void CheckUpdateLog()
     {
@@ -389,7 +402,7 @@ public class MainViewModel : ViewModelBase
 
     private async Task ApplyVaultUpdateAsync(string downloadUrl)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"TerrariaModderVault_Update_{Guid.NewGuid():N}");
+        var tempDir = Path.Combine(_paths.UpdateDirectory, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         var zipPath = Path.Combine(tempDir, "update.zip");
 
@@ -415,6 +428,19 @@ public class MainViewModel : ViewModelBase
                 }
             }
 
+            // Verify download integrity: size must match Content-Length
+            if (total > 0)
+            {
+                var actualSize = new FileInfo(zipPath).Length;
+                if (actualSize != total)
+                {
+                    StatusText = $"Update download incomplete ({actualSize}/{total} bytes). Please retry.";
+                    try { Directory.Delete(tempDir, true); } catch { }
+                    IsVaultUpdating = false;
+                    return;
+                }
+            }
+
             await ApplyZipUpdateAsync(zipPath, tempDir);
         }
         catch
@@ -428,7 +454,7 @@ public class MainViewModel : ViewModelBase
     // Used when the user manually downloads the zip (free-user path).
     private async Task ApplyVaultUpdateFromFileAsync(string sourceZipPath)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"TerrariaModderVault_Update_{Guid.NewGuid():N}");
+        var tempDir = Path.Combine(_paths.UpdateDirectory, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         var zipPath = Path.Combine(tempDir, "update.zip");
         try
@@ -448,14 +474,14 @@ public class MainViewModel : ViewModelBase
     {
         StatusText = "Extracting update...";
         var extractDir = Path.Combine(tempDir, "extracted");
-        ZipFile.ExtractToDirectory(zipPath, extractDir);
+        ExtractUpdateArchive(zipPath, extractDir);
 
         var (sourceDir, foundExeName) = FindExtractedAppDir(extractDir);
         if (foundExeName == null)
         {
             var found = Directory.GetFiles(extractDir, "*", SearchOption.AllDirectories)
                 .Select(Path.GetFileName).Distinct().Take(6);
-            StatusText = $"Update failed: no executable found in zip. Contents: {string.Join(", ", found)}";
+            StatusText = $"Update failed: package must contain exactly one {AppExeName}. Contents: {string.Join(", ", found)}";
             try { Directory.Delete(tempDir, true); } catch { }
             IsVaultUpdating = false;
             return;
@@ -478,70 +504,77 @@ public class MainViewModel : ViewModelBase
             return;
         }
 
-        WriteAndLaunchUpdaterScript(sourceDir, destDir, foundExeName);
+        WriteAndLaunchUpdaterScript(sourceDir, destDir, foundExeName, tempDir);
 
         await Dispatcher.UIThread.InvokeAsync(() => StatusText = "Restarting to apply update...");
         await Task.Delay(800);
         Environment.Exit(0);
     }
 
-    // Returns (directory, exeFileName) where the app exe was found, or (root, null) if not found.
-    // Matches exact name first, then falls back to any .exe (Windows) or any non-extension file (Linux).
-    private static (string dir, string? exeName) FindExtractedAppDir(string extractRoot)
+    // Returns the package directory only when it contains this application's exact executable name.
+    internal static (string dir, string? exeName) FindExtractedAppDir(string extractRoot, string? expectedExeName = null)
     {
-        static string? FindExeIn(string dir)
-        {
-            if (File.Exists(Path.Combine(dir, AppExeName))) return AppExeName;
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                // Pick the largest .exe — most likely to be the app, not a helper
-                var exes = Directory.GetFiles(dir, "*.exe");
-                return exes.Length > 0
-                    ? Path.GetFileName(exes.OrderByDescending(f => new FileInfo(f).Length).First())
-                    : null;
-            }
-            else
-            {
-                // On Linux look for a file with no extension that is large enough to be the app
-                var candidates = Directory.GetFiles(dir)
-                    .Where(f => !Path.HasExtension(f) && new FileInfo(f).Length > 1_000_000)
-                    .ToArray();
-                return candidates.Length > 0
-                    ? Path.GetFileName(candidates.OrderByDescending(f => new FileInfo(f).Length).First())
-                    : null;
-            }
-        }
-
-        var name = FindExeIn(extractRoot);
-        if (name != null) return (extractRoot, name);
-
-        foreach (var sub in Directory.GetDirectories(extractRoot))
-        {
-            name = FindExeIn(sub);
-            if (name != null) return (sub, name);
-        }
-
-        foreach (var sub in Directory.GetDirectories(extractRoot))
-            foreach (var sub2 in Directory.GetDirectories(sub))
-            {
-                name = FindExeIn(sub2);
-                if (name != null) return (sub2, name);
-            }
-
-        return (extractRoot, null);
+        expectedExeName ??= AppExeName;
+        var comparison = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var matches = Directory.GetFiles(extractRoot, "*", SearchOption.AllDirectories)
+            .Where(path => string.Equals(Path.GetFileName(path), expectedExeName, comparison))
+            .ToArray();
+        return matches.Length == 1
+            ? (Path.GetDirectoryName(matches[0])!, Path.GetFileName(matches[0]))
+            : (extractRoot, null);
     }
 
-    private static void WriteAndLaunchUpdaterScript(string sourceDir, string destDir, string exeName)
+    internal static void ExtractUpdateArchive(string zipPath, string extractDir)
+    {
+        const long maxBytes = 1_000_000_000;
+        const int maxEntries = 20_000;
+        Directory.CreateDirectory(extractDir);
+        var fullRoot = Path.GetFullPath(extractDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var destinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var zip = ZipFile.OpenRead(zipPath);
+        if (zip.Entries.Count > maxEntries)
+            throw new InvalidOperationException($"Update archive contains too many files (>{maxEntries:N0}).");
+        if (zip.Entries.Sum(entry => entry.Length) > maxBytes)
+            throw new InvalidOperationException("Update archive expands beyond 1GB.");
+
+        long actualBytes = 0;
+        var buffer = new byte[128 * 1024];
+        foreach (var entry in zip.Entries)
+        {
+            if (string.IsNullOrEmpty(entry.Name)) continue;
+            var destination = Path.GetFullPath(Path.Combine(extractDir,
+                entry.FullName.Replace('/', Path.DirectorySeparatorChar)));
+            if (!destination.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Update entry '{entry.FullName}' leaves the package directory.");
+            if (!destinations.Add(destination))
+                throw new InvalidOperationException($"Update archive contains duplicate destination '{entry.FullName}'.");
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            using var input = entry.Open();
+            using var output = File.Create(destination);
+            int read;
+            while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                actualBytes += read;
+                if (actualBytes > maxBytes)
+                    throw new InvalidOperationException("Update archive expands beyond 1GB.");
+                output.Write(buffer, 0, read);
+            }
+        }
+    }
+
+    private void WriteAndLaunchUpdaterScript(string sourceDir, string destDir, string exeName, string cleanupDir)
     {
         var pid = Environment.ProcessId;
         var logPath = UpdateLogPath;
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            var scriptPath = Path.Combine(Path.GetTempPath(), $"vault_update_{pid}.ps1");
+            Directory.CreateDirectory(_paths.UpdateDirectory);
+            var scriptPath = Path.Combine(_paths.UpdateDirectory, $"vault_update_{pid}.ps1");
             var exePath = Path.Combine(destDir, exeName);
             // Use variable assignment so paths with spaces and apostrophes are safe.
-            // robocopy /E /IS /IT: mirror all files, overwrite same/newer/tweaked.
+            // robocopy /E /IS /IT: copy all package files, overwriting same/newer/tweaked.
             // Exit codes 0-7 are success (bit flags for what was copied); >=8 means error.
             var script = string.Join("\r\n",
                 $"$appPid = {pid}",
@@ -549,14 +582,36 @@ public class MainViewModel : ViewModelBase
                 $"$dst = \"{EscapeForDoubleQuotedPs(destDir)}\"",
                 $"$exe = \"{EscapeForDoubleQuotedPs(exePath)}\"",
                 $"$log = \"{EscapeForDoubleQuotedPs(logPath)}\"",
+                $"$cleanup = \"{EscapeForDoubleQuotedPs(cleanupDir)}\"",
+                "$rollback = Join-Path $cleanup 'rollback'",
+                "$newFiles = [System.Collections.Generic.List[string]]::new()",
                 "\"Updater started, waiting for PID $appPid\" | Set-Content $log",
                 "while (Get-Process -Id $appPid -ErrorAction SilentlyContinue) { Start-Sleep 1 }",
-                "\"Process exited, copying files...\" | Add-Content $log",
-                "& robocopy $src $dst /E /IS /IT /NFL /NDL /NJH /NJS | Out-Null",
-                "if ($LASTEXITCODE -ge 8) { \"FAILED: robocopy exit $LASTEXITCODE\" | Add-Content $log }",
-                "else { \"Copy succeeded (robocopy $LASTEXITCODE)\" | Add-Content $log }",
-                "Start-Process $exe",
-                "Remove-Item $src -Recurse -Force -ErrorAction SilentlyContinue",
+                "try {",
+                "  New-Item -ItemType Directory -Path $rollback -Force | Out-Null",
+                "  Get-ChildItem $src -File -Recurse | ForEach-Object {",
+                "    $relative = [IO.Path]::GetRelativePath($src, $_.FullName)",
+                "    $existing = Join-Path $dst $relative",
+                "    if (Test-Path -LiteralPath $existing) {",
+                "      $backup = Join-Path $rollback $relative",
+                "      New-Item -ItemType Directory -Path (Split-Path $backup -Parent) -Force | Out-Null",
+                "      Copy-Item -LiteralPath $existing -Destination $backup -Force",
+                "    } else { $newFiles.Add($existing) }",
+                "  }",
+                "  & robocopy $src $dst /E /IS /IT /NFL /NDL /NJH /NJS | Out-Null",
+                "  if ($LASTEXITCODE -ge 8) { throw \"robocopy exit $LASTEXITCODE\" }",
+                "  $updated = Start-Process -FilePath $exe -PassThru -ErrorAction Stop",
+                "  Start-Sleep -Milliseconds 1200",
+                "  if ($updated.HasExited) { throw 'updated app exited during startup' }",
+                "  \"Copy succeeded (robocopy $LASTEXITCODE)\" | Add-Content $log",
+                "} catch {",
+                "  $failure = $_.Exception.Message",
+                "  foreach ($file in $newFiles) { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }",
+                "  & robocopy $rollback $dst /E /IS /IT /NFL /NDL /NJH /NJS | Out-Null",
+                "  \"FAILED and rolled back: $failure\" | Add-Content $log",
+                "  if (Test-Path -LiteralPath $exe) { Start-Process -FilePath $exe -ErrorAction SilentlyContinue }",
+                "}",
+                "Remove-Item $cleanup -Recurse -Force -ErrorAction SilentlyContinue",
                 "Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue");
             File.WriteAllText(scriptPath, script);
             Process.Start(new ProcessStartInfo
@@ -570,24 +625,46 @@ public class MainViewModel : ViewModelBase
         }
         else
         {
-            var scriptPath = Path.Combine(Path.GetTempPath(), $"vault_update_{pid}.sh");
+            Directory.CreateDirectory(_paths.UpdateDirectory);
+            var scriptPath = Path.Combine(_paths.UpdateDirectory, $"vault_update_{pid}.sh");
             var exePath = Path.Combine(destDir, exeName);
             // Use double-quoted variables so paths with spaces are safe.
-            // Apostrophes in paths are also fine inside "..." in bash.
+            // Back up replaced files and track new files so a failed copy/start can be rolled back.
             var script = string.Join("\n",
                 "#!/bin/bash",
+                "set -u",
                 $"app_pid={pid}",
                 $"src=\"{EscapeForDoubleQuotedBash(sourceDir)}\"",
                 $"dst=\"{EscapeForDoubleQuotedBash(destDir)}\"",
                 $"exe=\"{EscapeForDoubleQuotedBash(exePath)}\"",
                 $"log=\"{EscapeForDoubleQuotedBash(logPath)}\"",
+                $"cleanup=\"{EscapeForDoubleQuotedBash(cleanupDir)}\"",
+                "rollback=\"$cleanup/rollback\"",
+                "new_files=\"$cleanup/new-files.txt\"",
                 "echo \"Updater started\" > \"$log\"",
                 "while kill -0 \"$app_pid\" 2>/dev/null; do sleep 1; done",
-                "echo \"Copying files...\" >> \"$log\"",
-                "cp -rf \"$src/.\" \"$dst/\" && echo \"Copy succeeded\" >> \"$log\" || echo \"FAILED: cp error $?\" >> \"$log\"",
-                "chmod +x \"$exe\"",
-                "\"$exe\" &",
-                "rm -rf \"$src\"",
+                "mkdir -p \"$rollback\"",
+                ": > \"$new_files\"",
+                "while IFS= read -r -d '' file; do",
+                "  relative=\"${file#\"$src/\"}\"",
+                "  existing=\"$dst/$relative\"",
+                "  if [ -f \"$existing\" ]; then",
+                "    mkdir -p \"$(dirname \"$rollback/$relative\")\"",
+                "    cp -p -- \"$existing\" \"$rollback/$relative\"",
+                "  else printf '%s\\0' \"$existing\" >> \"$new_files\"; fi",
+                "done < <(find \"$src\" -type f -print0)",
+                "failure=''",
+                "cp -a \"$src/.\" \"$dst/\" || failure='copy failed'",
+                "if [ -z \"$failure\" ]; then chmod +x \"$exe\" || failure='chmod failed'; fi",
+                "if [ -z \"$failure\" ]; then \"$exe\" >/dev/null 2>&1 & new_pid=$!; sleep 1; kill -0 \"$new_pid\" 2>/dev/null || failure='updated app did not start'; fi",
+                "if [ -n \"$failure\" ]; then",
+                "  while IFS= read -r -d '' file; do rm -f -- \"$file\"; done < \"$new_files\"",
+                "  cp -a \"$rollback/.\" \"$dst/\"",
+                "  echo \"FAILED and rolled back: $failure\" >> \"$log\"",
+                "  chmod +x \"$exe\" 2>/dev/null || true",
+                "  \"$exe\" >/dev/null 2>&1 &",
+                "else echo \"Copy succeeded\" >> \"$log\"; fi",
+                "rm -rf -- \"$cleanup\"",
                 "rm -- \"$0\"");
             File.WriteAllText(scriptPath, script);
             File.SetUnixFileMode(scriptPath,

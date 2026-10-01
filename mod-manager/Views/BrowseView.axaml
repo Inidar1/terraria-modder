@@ -25,7 +25,7 @@
                             HorizontalAlignment="Right" VerticalAlignment="Center"/>
                 </Grid>
 
-                <!-- Toolbar: search + feeds + sort + layout toggle -->
+                <!-- Toolbar: search + deterministic catalog sort + layout toggle -->
                 <StackPanel Grid.Row="1" Margin="0,0,0,12">
                     <!-- Search bar + hide installed + layout toggle -->
                     <Grid Margin="0,0,0,8" ColumnDefinitions="*,Auto,Auto">
@@ -42,22 +42,13 @@
                                 Padding="10,6" FontSize="11" Margin="4,0,0,0"/>
                     </Grid>
 
-                    <!-- Feed + sort buttons (wrapping) -->
-                    <WrapPanel>
-                        <!-- Feed tabs -->
-                        <Button Content="All" Classes="secondary" Padding="10,5" FontSize="11"
-                                Classes.nav-active="{Binding IsFeedAll}"
-                                Command="{Binding LoadAllCommand}" Margin="0,0,4,4"/>
-                        <Button Content="Latest" Classes="secondary" Padding="10,5" FontSize="11"
-                                Classes.nav-active="{Binding IsFeedLatest}"
-                                Command="{Binding LoadLatestCommand}" Margin="0,0,4,4"/>
-                        <Button Content="Trending" Classes="secondary" Padding="10,5" FontSize="11"
-                                Classes.nav-active="{Binding IsFeedTrending}"
-                                Command="{Binding LoadTrendingCommand}" Margin="0,0,4,4"/>
-                        <Button Content="Updated" Classes="secondary" Padding="10,5" FontSize="11"
-                                Classes.nav-active="{Binding IsFeedUpdated}"
-                                Command="{Binding LoadUpdatedCommand}" Margin="0,0,16,4"/>
+                    <TextBlock Text="{Binding CatalogStatusText}"
+                               IsVisible="{Binding HasCatalogStatus}"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               FontSize="11" Margin="0,0,0,8" TextWrapping="Wrap"/>
 
+                    <!-- Catalog sort buttons (wrapping) -->
+                    <WrapPanel>
                         <!-- Sort -->
                         <TextBlock Text="Sort:" Foreground="{StaticResource TextSecondaryBrush}"
                                    VerticalAlignment="Center" Margin="0,0,6,4" FontSize="12"/>
@@ -239,25 +230,11 @@
                         <TextBlock Text="No mods found" FontSize="16" FontWeight="SemiBold"
                                    HorizontalAlignment="Center"
                                    Foreground="{StaticResource TextSecondaryBrush}"/>
-                        <TextBlock Text="Try a different search term, feed, or click 'Show Installed'."
+                        <TextBlock Text="Try a different search term or click 'Show Installed'."
                                    FontSize="13" HorizontalAlignment="Center"
                                    Foreground="{StaticResource TextSecondaryBrush}"/>
                     </StackPanel>
 
-                    <!-- Not logged in — topmost so button is clickable -->
-                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
-                                IsVisible="{Binding !HasApiKey}" Spacing="12" MaxWidth="340"
-                                Background="{StaticResource BgDarkBrush}">
-                        <TextBlock Text="Sign in to browse mods" FontSize="18" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center"
-                                   Foreground="{StaticResource TextPrimaryBrush}"/>
-                        <TextBlock TextWrapping="Wrap" TextAlignment="Center" FontSize="13"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   Text="A Nexus Mods account is required to browse and download mods."/>
-                        <Button Content="Go to Settings to log in" Classes="primary"
-                                Command="{Binding NavigateToSettingsCommand}"
-                                HorizontalAlignment="Center" Padding="20,10" FontSize="14"/>
-                    </StackPanel>
                 </Grid>
 
                 <!-- Toast notification -->
@@ -397,8 +374,12 @@
                                        IsVisible="{Binding IsDetailLoading}" Margin="0,0,0,8"/>
 
                             <!-- Description (rendered HTML from BBCode) -->
-                            <html:HtmlLabel Text="{Binding DetailDescription}"
+                            <html:HtmlLabel x:Name="DetailDescriptionHtml"
+                                            Text="{Binding DetailDescription}"
                                             Background="Transparent"
+                                            AutoSize="False"
+                                            AutoSizeHeightOnly="True"
+                                            HorizontalAlignment="Stretch"
                                             Margin="0,0,0,0"/>
                         </StackPanel>
                     </ScrollViewer>

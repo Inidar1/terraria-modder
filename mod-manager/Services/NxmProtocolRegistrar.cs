@@ -136,7 +136,8 @@ public class NxmProtocolRegistrar
             var currentExe = Environment.ProcessPath;
             if (currentExe == null) return;
 
-            if (!string.Equals(registeredPath, currentExe, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(registeredPath, currentExe, StringComparison.OrdinalIgnoreCase) &&
+                IsSameVaultExecutableName(registeredPath, currentExe, StringComparison.OrdinalIgnoreCase))
             {
                 _logger.Info($"NXM: stale registration detected (was: \"{registeredPath}\", now: \"{currentExe}\") — repairing");
                 RegisterWindows();
@@ -210,10 +211,8 @@ public class NxmProtocolRegistrar
             foreach (var line in File.ReadAllLines(desktopPath))
             {
                 if (!line.StartsWith("Exec=", StringComparison.Ordinal)) continue;
-                // Exec=/path/to/exe %u
                 var rest = line["Exec=".Length..].Trim();
-                var space = rest.IndexOf(' ');
-                return space > 0 ? rest[..space] : rest;
+                return ParseDesktopExecPath(rest);
             }
         }
         catch { }
@@ -243,7 +242,8 @@ public class NxmProtocolRegistrar
             var currentExe = Environment.ProcessPath;
             if (currentExe == null) return;
 
-            if (!string.Equals(registeredPath, currentExe, StringComparison.Ordinal))
+            if (!string.Equals(registeredPath, currentExe, StringComparison.Ordinal) &&
+                IsSameVaultExecutableName(registeredPath, currentExe, StringComparison.Ordinal))
             {
                 _logger.Info($"NXM: stale .desktop registration detected — repairing");
                 RegisterLinux();
@@ -270,7 +270,7 @@ public class NxmProtocolRegistrar
             [Desktop Entry]
             Type=Application
             Name=TerrariaModder Vault
-            Exec={exePath} %u
+            Exec="{EscapeDesktopExecPath(exePath)}" %u
             MimeType=x-scheme-handler/nxm;
             NoDisplay=true
             Terminal=false
@@ -297,6 +297,48 @@ public class NxmProtocolRegistrar
         }
         catch { }
     }
+
+    private static bool IsSameVaultExecutableName(string registeredPath, string currentPath, StringComparison comparison) =>
+        string.Equals(Path.GetFileName(registeredPath), Path.GetFileName(currentPath), comparison);
+
+    internal static string? ParseDesktopExecPath(string value)
+    {
+        value = value.Trim();
+        if (value.Length == 0) return null;
+        if (value[0] != '"')
+        {
+            var space = value.IndexOf(' ');
+            return space > 0 ? value[..space] : value;
+        }
+
+        var result = new System.Text.StringBuilder();
+        var escaped = false;
+        for (var index = 1; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (escaped)
+            {
+                result.Append(character);
+                escaped = false;
+            }
+            else if (character == '\\')
+            {
+                escaped = true;
+            }
+            else if (character == '"')
+            {
+                return result.ToString();
+            }
+            else
+            {
+                result.Append(character);
+            }
+        }
+        return null;
+    }
+
+    private static string EscapeDesktopExecPath(string path) =>
+        path.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("`", "\\`").Replace("$", "\\$");
 
     private static void UnregisterLinux()
     {

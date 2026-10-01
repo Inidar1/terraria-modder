@@ -22,6 +22,7 @@ public class InstalledModsViewModel : ViewModelBase
     private bool _isDisabledExpanded = true;
     private bool _isUpdatesDismissed;
     private bool _isBulkRunning;
+    private string _scanWarningText = "";
     private List<InstalledMod> _allMods = new();
     private CancellationTokenSource? _updateCts;
     private CancellationTokenSource? _bulkCts;
@@ -33,6 +34,7 @@ public class InstalledModsViewModel : ViewModelBase
     private readonly DownloadManager _downloadManager;
     private readonly ModInstallService _installer;
     private readonly NxmProtocolRegistrar _nxmRegistrar;
+    private readonly Logger _logger;
 
     /// <summary>
     /// Set by MainWindow to open the shared NexusBrowserPanel.
@@ -84,6 +86,18 @@ public class InstalledModsViewModel : ViewModelBase
         get => _isCheckingUpdates;
         set => SetProperty(ref _isCheckingUpdates, value);
     }
+
+    public string ScanWarningText
+    {
+        get => _scanWarningText;
+        private set
+        {
+            if (SetProperty(ref _scanWarningText, value))
+                OnPropertyChanged(nameof(HasScanWarnings));
+        }
+    }
+
+    public bool HasScanWarnings => !string.IsNullOrWhiteSpace(ScanWarningText);
 
     public int UpdatesAvailable
     {
@@ -183,7 +197,8 @@ public class InstalledModsViewModel : ViewModelBase
         NexusApiService nexusApi,
         DownloadManager downloadManager,
         ModInstallService installer,
-        NxmProtocolRegistrar nxmRegistrar)
+        NxmProtocolRegistrar nxmRegistrar,
+        Logger logger)
     {
         _settings = settings;
         _modState = modState;
@@ -192,6 +207,7 @@ public class InstalledModsViewModel : ViewModelBase
         _downloadManager = downloadManager;
         _installer = installer;
         _nxmRegistrar = nxmRegistrar;
+        _logger = logger;
 
         ToggleEnabledCommand = new AsyncRelayCommand(ToggleEnabled);
         ToggleModCommand = new RelayCommand<InstalledMod>(ToggleMod);
@@ -219,6 +235,12 @@ public class InstalledModsViewModel : ViewModelBase
         IsCoreInstalled = coreInfo.IsInstalled;
 
         var mods = _modState.ScanInstalledMods(path);
+        ScanWarningText = _modState.LastScanWarnings.Count switch
+        {
+            0 => "",
+            1 => _modState.LastScanWarnings[0],
+            _ => $"{_modState.LastScanWarnings.Count} installed mod folders could not be read. See Logs in Settings."
+        };
         foreach (var mod in mods)
             mod.NexusModId = _updateTracker.GetNexusModId(mod);
 
@@ -367,10 +389,18 @@ public class InstalledModsViewModel : ViewModelBase
         var path = _settings.Load().TerrariaPath;
         if (string.IsNullOrWhiteSpace(path)) return;
 
-        if (enabled)
-            _modState.EnableMod(mod.Id, path);
-        else
-            _modState.DisableMod(mod.Id, path);
+        try
+        {
+            if (enabled)
+                _modState.EnableMod(mod.Id, path);
+            else
+                _modState.DisableMod(mod.Id, path);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Could not {(enabled ? "enable" : "disable")} '{mod.Id}'", ex);
+            _ = DialogHelper.ShowDialog("Could Not Change Mod", ex.Message, ButtonEnum.Ok, Icon.Warning);
+        }
 
         // Defer refresh so collection changes happen after the click event finishes processing
         Avalonia.Threading.Dispatcher.UIThread.Post(Refresh);
@@ -382,26 +412,37 @@ public class InstalledModsViewModel : ViewModelBase
         SetModEnabled(mod, !mod.IsEnabled);
     }
 
-    private Task ToggleEnabled()
+    private async Task ToggleEnabled()
     {
-        if (SelectedMods.Count == 0) return Task.CompletedTask;
+        if (SelectedMods.Count == 0) return;
         var path = _settings.Load().TerrariaPath;
-        if (string.IsNullOrWhiteSpace(path)) return Task.CompletedTask;
+        if (string.IsNullOrWhiteSpace(path)) return;
 
         // Core cannot be enabled/disabled — skip it
         var mods = SelectedMods.Where(m => !m.IsCore).ToList();
-        if (mods.Count == 0) return Task.CompletedTask;
+        if (mods.Count == 0) return;
 
+        var failures = new List<string>();
         foreach (var mod in mods)
         {
-            if (mod.IsEnabled)
-                _modState.DisableMod(mod.Id, path);
-            else
-                _modState.EnableMod(mod.Id, path);
+            try
+            {
+                if (mod.IsEnabled)
+                    _modState.DisableMod(mod.Id, path);
+                else
+                    _modState.EnableMod(mod.Id, path);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Could not toggle '{mod.Id}'", ex);
+                failures.Add($"{mod.Name}: {ex.Message}");
+            }
         }
 
         Refresh();
-        return Task.CompletedTask;
+        if (failures.Count > 0)
+            await DialogHelper.ShowDialog("Some Mods Could Not Be Changed",
+                string.Join("\n", failures), ButtonEnum.Ok, Icon.Warning);
     }
 
     private void OpenModFolder()
@@ -484,10 +525,24 @@ public class InstalledModsViewModel : ViewModelBase
             deleteSettings = choice == "Delete Mod & Settings";
         }
 
+        var failures = new List<string>();
         foreach (var mod in mods)
-            _modState.UninstallMod(mod.Id, path, deleteSettings);
+        {
+            try
+            {
+                _modState.UninstallMod(mod.Id, path, deleteSettings);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Could not delete '{mod.Id}'", ex);
+                failures.Add($"{mod.Name}: {ex.Message}");
+            }
+        }
 
         Refresh();
+        if (failures.Count > 0)
+            await DialogHelper.ShowDialog("Some Mods Could Not Be Deleted",
+                string.Join("\n", failures), ButtonEnum.Ok, Icon.Warning);
     }
 
     private async Task InstallCore()
@@ -510,7 +565,7 @@ public class InstalledModsViewModel : ViewModelBase
             {
                 var coreFiles = await _nexusApi.GetModFilesAsync(UpdateTracker.CoreNexusModId);
                 // Pick the most recently uploaded file — user guarantees Core is always first
-                var primary = coreFiles.OrderByDescending(f => f.UploadedTimestamp).FirstOrDefault();
+                var primary = NexusFileSelector.SelectCurrentMain(coreFiles);
 
                 if (primary != null)
                 {
@@ -534,7 +589,7 @@ public class InstalledModsViewModel : ViewModelBase
 
         // Premium: direct download — picks latest file automatically
         var files = await _nexusApi.GetModFilesAsync(UpdateTracker.CoreNexusModId);
-        var mainFile = files.OrderByDescending(f => f.UploadedTimestamp).FirstOrDefault();
+        var mainFile = NexusFileSelector.SelectCurrentMain(files);
 
         if (mainFile == null)
         {

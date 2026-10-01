@@ -12,7 +12,7 @@
     <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
     <RootNamespace>TerrariaModManager</RootNamespace>
     <AssemblyName>TerrariaModderVault</AssemblyName>
-    <Version>0.2.1</Version>
+    <Version>0.4.4</Version>
     <ApplicationIcon>Resources\app-icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Suppress CA1416 for Registry access (Windows-only, guarded at runtime) -->
@@ -32,10 +32,6 @@
   </Target>
 
   <ItemGroup>
-    <AvaloniaResource Include="Resources\bunny5.png"/>
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.2.3" />
     <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
     <PackageReference Include="Avalonia.HtmlRenderer" Version="11.2.0" />
@@ -45,7 +41,10 @@
     <PackageReference Include="MessageBox.Avalonia" Version="3.1.6" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
     <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
-    <PackageReference Include="SharpCompress" Version="0.46.2" />
+    <PackageReference Include="SharpCompress" Version="0.48.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.5" />
+    <!-- Avalonia.FreeDesktop 11.2.3 resolves vulnerable 0.20.0 without this patched override. -->
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
     <PackageReference Include="WebView.Avalonia" Version="11.0.0.1" />
     <PackageReference Include="WebView.Avalonia.Desktop" Version="11.0.0.1" />
   </ItemGroup>

@@ -19,8 +19,7 @@ public partial class NexusBrowserPanel : UserControl
     private bool _eventsWired;
     private bool _downloadHooked;
 
-    private static readonly string StagingDir = Path.Combine(
-        Path.GetTempPath(), "TerrariaModderVault", "staging");
+    private readonly string _stagingDir;
 
     // Hide ads, strip page chrome, and remove distractions on Nexus pages
     private const string PageCleanupScript = """
@@ -155,10 +154,14 @@ public partial class NexusBrowserPanel : UserControl
     /// </summary>
     public Action? DownloadStartedCallback { get; set; }
 
+    internal bool IsAwaitingDownload => _tcs != null;
+    internal string BrowserLabel => ModNameText.Text ?? "";
+
     public NexusBrowserPanel()
     {
         InitializeComponent();
-        Directory.CreateDirectory(StagingDir);
+        _stagingDir = App.CurrentPaths.BrowserStagingDirectory;
+        Directory.CreateDirectory(_stagingDir);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -371,7 +374,7 @@ public partial class NexusBrowserPanel : UserControl
                 catch { }
             }
 
-            var resultPath = Path.Combine(StagingDir, $"{Guid.NewGuid():N}_{fileName}");
+            var resultPath = Path.Combine(_stagingDir, $"{Guid.NewGuid():N}_{fileName}");
 
             // Set save path and suppress save dialog
             var resultPathProp = e.GetType().GetProperty("ResultFilePath");

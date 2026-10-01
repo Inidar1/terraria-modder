@@ -7,11 +7,9 @@ public class Logger
     private readonly string _logPath;
     private readonly object _lock = new();
 
-    public Logger(SettingsService settings)
+    public Logger(AppPaths paths)
     {
-        _logPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "TerrariaModManager", "app.log");
+        _logPath = paths.LogFile;
         
         // Ensure directory exists
         var dir = Path.GetDirectoryName(_logPath);

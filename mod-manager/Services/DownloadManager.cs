@@ -15,7 +15,7 @@ public class DownloadManager : IDisposable
     private readonly UpdateTracker _updateTracker;
     private readonly Logger _logger;
     private readonly string _downloadDir;
-    private readonly HashSet<(int modId, int fileId)> _activeDownloads = new();
+    private readonly Dictionary<(int modId, int fileId), CancellationTokenSource> _activeDownloads = new();
 
     public ObservableCollection<DownloadItem> Downloads { get; } = new();
 
@@ -55,19 +55,25 @@ public class DownloadManager : IDisposable
     public async Task EnqueueAsync(int modId, int fileId, string? key = null, long? expires = null, bool forceKeepSettings = false)
     {
         var downloadKey = (modId, fileId);
+        var cancellation = new CancellationTokenSource();
         lock (_activeDownloads)
         {
-            if (!_activeDownloads.Add(downloadKey))
+            if (_activeDownloads.ContainsKey(downloadKey))
             {
                 _logger.Info($"Download {modId}/{fileId}: already in progress, skipping duplicate");
+                cancellation.Dispose();
                 return;
             }
+            _activeDownloads[downloadKey] = cancellation;
         }
+        var cancellationToken = cancellation.Token;
 
         var item = new DownloadItem
         {
             ModId = modId,
             FileId = fileId,
+            RetryKey = key,
+            RetryExpires = expires,
             Name = $"Mod {modId} (file {fileId})",
             Status = "Fetching info..."
         };
@@ -77,12 +83,12 @@ public class DownloadManager : IDisposable
         string? filePath = null;
         try
         {
-            var modInfo = await _nexusApi.GetModInfoAsync(modId);
+            var modInfo = await _nexusApi.GetModInfoAsync(modId, cancellationToken);
             if (modInfo != null)
                 await SafeDispatch(() => item.Name = modInfo.Name);
 
             await SafeDispatch(() => item.Status = "Getting download link...");
-            var links = await _nexusApi.GetDownloadLinksAsync(modId, fileId, key, expires);
+            var links = await _nexusApi.GetDownloadLinksAsync(modId, fileId, key, expires, cancellationToken);
             if (links.Count == 0)
             {
                 await SafeDispatch(() => {
@@ -96,24 +102,26 @@ public class DownloadManager : IDisposable
 
             var downloadUrl = links[0].Uri;
 
-            var files = await _nexusApi.GetModFilesAsync(modId);
+            var files = await _nexusApi.GetModFilesAsync(modId, cancellationToken);
             var fileInfo = files.FirstOrDefault(f => f.FileId == fileId);
-            var fileName = fileInfo?.FileName ?? $"mod_{modId}_{fileId}.zip";
+            var fileName = SafeFileName(fileInfo?.FileName, $"mod_{modId}_{fileId}.zip");
 
             await SafeDispatch(() => item.Status = "Downloading...");
             filePath = Path.Combine(_downloadDir, $"{Guid.NewGuid():N}_{fileName}");
 
-            using var response = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
+            using var response = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             var contentType = response.Content.Headers.ContentType?.MediaType ?? "unknown";
-            _logger.Info($"Download {modId}/{fileId}: content-type={contentType}, url={downloadUrl}");
+            _logger.Info($"Download {modId}/{fileId}: content-type={contentType}");
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1;
+            if (totalBytes > 1_000_000_000)
+                throw new InvalidOperationException("Download exceeds the 1GB install limit.");
             await SafeDispatch(() => item.TotalBytes = totalBytes);
 
             {
-                await using var contentStream = await response.Content.ReadAsStreamAsync();
+                await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
                 await using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
 
                 var buffer = new byte[8192];
@@ -121,10 +129,12 @@ public class DownloadManager : IDisposable
                 int bytesRead;
                 var lastProgressUpdate = DateTime.UtcNow;
 
-                while ((bytesRead = await contentStream.ReadAsync(buffer)) > 0)
+                while ((bytesRead = await contentStream.ReadAsync(buffer, cancellationToken)) > 0)
                 {
-                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
                     downloaded += bytesRead;
+                    if (downloaded > 1_000_000_000)
+                        throw new InvalidOperationException("Download exceeds the 1GB install limit.");
 
                     if ((DateTime.UtcNow - lastProgressUpdate).TotalMilliseconds >= 100)
                     {
@@ -182,6 +192,7 @@ public class DownloadManager : IDisposable
                 return;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             await SafeDispatch(() => item.Status = "Installing...");
             _logger.Info($"Download {modId}/{fileId}: file downloaded ({new FileInfo(filePath).Length} bytes), starting install");
             var result = await _installer.InstallModAsync(filePath, forceKeepSettings);
@@ -212,24 +223,7 @@ public class DownloadManager : IDisposable
             }
             else
             {
-                string? savedPath = null;
-                if (result.DownloadedFilePath != null)
-                {
-                    try
-                    {
-                        var userDownloads = Path.Combine(
-                            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-                        var destName = fileName;
-                        savedPath = Path.Combine(userDownloads, destName);
-                        if (File.Exists(savedPath))
-                            savedPath = Path.Combine(userDownloads, $"{Path.GetFileNameWithoutExtension(destName)}_{DateTime.Now:HHmmss}{Path.GetExtension(destName)}");
-                        File.Move(filePath, savedPath);
-                    }
-                    catch
-                    {
-                        savedPath = filePath;
-                    }
-                }
+                var savedPath = result.DownloadedFilePath != null && File.Exists(filePath) ? filePath : null;
 
                 var statusMsg = result.Error ?? "Unknown error";
                 _logger.Error($"Download {modId}/{fileId}: install failed — {statusMsg}");
@@ -257,6 +251,16 @@ public class DownloadManager : IDisposable
                 DownloadFailed?.Invoke(item, result.Error ?? "Unknown error");
             }
         }
+        catch (OperationCanceledException)
+        {
+            try { if (filePath != null && File.Exists(filePath)) File.Delete(filePath); } catch { }
+            await SafeDispatch(() =>
+            {
+                item.Status = "Cancelled";
+                item.IsCancelled = true;
+                item.ClearSpeedSamples();
+            });
+        }
         catch (Exception ex)
         {
             try { if (filePath != null && File.Exists(filePath)) File.Delete(filePath); } catch { }
@@ -270,6 +274,7 @@ public class DownloadManager : IDisposable
         finally
         {
             lock (_activeDownloads) { _activeDownloads.Remove(downloadKey); }
+            cancellation.Dispose();
         }
     }
 
@@ -279,6 +284,7 @@ public class DownloadManager : IDisposable
     public async Task EnqueueFromFileAsync(int modId, string filePath, bool forceKeepSettings = false, string? nexusVersion = null)
     {
         var fileName = Path.GetFileName(filePath);
+        var deleteAfterInstall = false;
         var item = new DownloadItem
         {
             ModId = modId,
@@ -332,6 +338,7 @@ public class DownloadManager : IDisposable
                     item.IsInstalled = true;
                 });
                 DownloadCompleted?.Invoke(item);
+                deleteAfterInstall = true;
             }
             else
             {
@@ -339,7 +346,7 @@ public class DownloadManager : IDisposable
                 await SafeDispatch(() =>
                 {
                     item.Status = "Install Failed";
-                    item.ErrorMessage = result.Error ?? "Unknown error";
+                    item.ErrorMessage = $"{result.Error ?? "Unknown error"} (Saved to {filePath})";
                     item.HasError = true;
                 });
                 DownloadFailed?.Invoke(item, result.Error ?? "Unknown error");
@@ -351,15 +358,30 @@ public class DownloadManager : IDisposable
             await SafeDispatch(() =>
             {
                 item.Status = "Error";
-                item.ErrorMessage = ex.Message;
+                item.ErrorMessage = $"{ex.Message} (Saved to {filePath})";
                 item.HasError = true;
             });
             DownloadFailed?.Invoke(item, ex.Message);
         }
         finally
         {
-            try { if (File.Exists(filePath)) File.Delete(filePath); } catch { }
+            if (deleteAfterInstall)
+                try { if (File.Exists(filePath)) File.Delete(filePath); } catch { }
         }
+    }
+
+    internal static string SafeFileName(string? value, string fallback)
+    {
+        var name = Path.GetFileName(value ?? "");
+        if (string.IsNullOrWhiteSpace(name) || name is "." or "..") name = fallback;
+        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
+        name = new string(name.Select(character => invalid.Contains(character) ? '_' : character).ToArray());
+        if (name.Length > 180)
+        {
+            var extension = Path.GetExtension(name);
+            name = name[..Math.Max(1, 180 - extension.Length)] + extension;
+        }
+        return name;
     }
 
     private static async Task SafeDispatch(Action action)
@@ -370,7 +392,12 @@ public class DownloadManager : IDisposable
 
     private static async Task SafeDispatch(Func<Task> action)
     {
-        try { await Dispatcher.UIThread.InvokeAsync(action); }
+        try
+        {
+            Task? inner = null;
+            await Dispatcher.UIThread.InvokeAsync(() => inner = action());
+            await inner!;
+        }
         catch (InvalidOperationException) { /* dispatcher shut down */ }
     }
 
@@ -379,5 +406,20 @@ public class DownloadManager : IDisposable
         Downloads.Remove(item);
     }
 
-    public void Dispose() => _http.Dispose();
+    public void Cancel(DownloadItem item)
+    {
+        lock (_activeDownloads)
+        {
+            if (_activeDownloads.TryGetValue((item.ModId, item.FileId), out var cancellation))
+                cancellation.Cancel();
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_activeDownloads)
+            foreach (var cancellation in _activeDownloads.Values)
+                cancellation.Cancel();
+        _http.Dispose();
+    }
 }

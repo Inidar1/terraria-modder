@@ -21,23 +21,30 @@ public partial class App : Application
     private SingleInstance? _singleInstance;
     private IServiceProvider? _serviceProvider;
     private Logger? _logger;
+    private AppPaths? _paths;
 
     public static string? EnvApiKey { get; private set; }
     public static Logger? AppLogger { get; private set; }
 
+    private AppPaths Paths => _paths ??= CreatePaths();
+    internal static AppPaths CurrentPaths => (Current as App)?.Paths ?? new AppPaths();
+
+    private AppPaths CreatePaths()
+    {
+        var paths = new AppPaths();
+        ConfigureRuntimePaths(ref paths);
+        return paths;
+    }
+
     public override void RegisterServices()
     {
         base.RegisterServices();
-        var webViewDataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "TerrariaModManager", "WebView2");
+        var webViewDataDir = Paths.WebViewDirectory;
 
         // Clear WebView2 data if flagged from a previous logout
         try
         {
-            var settingsPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "TerrariaModManager", "settings.json");
+            var settingsPath = Paths.SettingsFile;
             if (File.Exists(settingsPath))
             {
                 var json = File.ReadAllText(settingsPath);
@@ -100,21 +107,23 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Single instance check
-            _singleInstance = new SingleInstance();
+            _singleInstance = new SingleInstance(Paths);
             if (!_singleInstance.TryAcquire())
             {
                 var nxmArg = FindNxmArg(desktop.Args ?? []);
-                SingleInstance.SendToExisting(nxmArg ?? "ACTIVATE");
+                _singleInstance.SendToExisting(nxmArg ?? "ACTIVATE");
                 desktop.Shutdown();
                 return;
             }
 
-            // Load .env file (dev API key)
-            LoadEnvFile();
+            var loadEnvironmentFile = true;
+            ConfigureStartup(ref loadEnvironmentFile);
+            if (loadEnvironmentFile)
+                LoadEnvFile();
 
             // Set up DI
             var services = new ServiceCollection();
-            ConfigureServices(services);
+            ConfigureServices(services, Paths);
             _serviceProvider = services.BuildServiceProvider();
 
             // Initialize Logger
@@ -124,13 +133,15 @@ public partial class App : Application
 
             var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
             settingsService.EnsureDirectories();
+            ApplyRuntimeSettings(settingsService);
 
             var appSettings = settingsService.Load();
             var nexusApi = _serviceProvider.GetRequiredService<NexusApiService>();
             var installer = _serviceProvider.GetRequiredService<ModInstallService>();
 
-            if (!string.IsNullOrWhiteSpace(appSettings.NexusApiKey))
-                nexusApi.SetApiKey(appSettings.NexusApiKey);
+            var savedApiKey = settingsService.GetApiKey(appSettings);
+            if (!string.IsNullOrWhiteSpace(savedApiKey))
+                nexusApi.SetApiKey(savedApiKey);
             else if (!string.IsNullOrWhiteSpace(EnvApiKey))
                 nexusApi.SetApiKey(EnvApiKey);
 
@@ -164,8 +175,31 @@ public partial class App : Application
                 return result == "Clean Install" ? ConfigAction.Delete : ConfigAction.Keep;
             };
 
+            installer.OnCompatibilityWarningsFound = async (modId, warnings) =>
+            {
+                var warningList = string.Join("\n", warnings.Select(warning => $"  • {warning.Message}"));
+                var box = MessageBoxManager.GetMessageBoxCustom(
+                    new MsBox.Avalonia.Dto.MessageBoxCustomParams
+                    {
+                        ContentTitle = "Compatibility Warning",
+                        ContentMessage = $"'{modId}' reports possible compatibility issues:\n\n{warningList}\n\n" +
+                            "The mod may still work. Continue with the install?",
+                        Icon = Icon.Warning,
+                        WindowStartupLocation = Avalonia.Controls.WindowStartupLocation.CenterOwner,
+                        ButtonDefinitions = new[]
+                        {
+                            new MsBox.Avalonia.Models.ButtonDefinition { Name = "Continue", IsDefault = true },
+                            new MsBox.Avalonia.Models.ButtonDefinition { Name = "Cancel", IsCancel = true }
+                        }
+                    });
+                return await box.ShowWindowDialogAsync(mainWindow) == "Continue";
+            };
+
             // Auto-repair stale nxm:// registration (exe moved or updated to different path)
-            _serviceProvider.GetRequiredService<NxmProtocolRegistrar>().AutoRepairIfStale();
+            var repairNxmRegistration = true;
+            ConfigureNxmRepair(ref repairNxmRegistration);
+            if (repairNxmRegistration)
+                _serviceProvider.GetRequiredService<NxmProtocolRegistrar>().AutoRepairIfStale();
 
             // Listen for nxm:// links from other instances
             var nxmHandler = _serviceProvider.GetRequiredService<NxmLinkHandler>();
@@ -204,7 +238,10 @@ public partial class App : Application
                 nexusApi.Dispose();
                 _serviceProvider.GetRequiredService<DownloadManager>().Dispose();
                 _singleInstance?.Dispose();
+                StopRuntimeServices();
             };
+
+            StartRuntimeServices(_serviceProvider, mainWindow, vm);
 
             _logger.Info("Main window shown");
         }
@@ -212,20 +249,22 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
-    private void ConfigureServices(IServiceCollection services)
+    private void ConfigureServices(IServiceCollection services, AppPaths paths)
     {
         // Services
+        services.AddSingleton(paths);
         services.AddSingleton<SettingsService>();
         services.AddSingleton<Logger>();
         services.AddSingleton<TerrariaDetector>();
         services.AddSingleton<ModStateService>();
+        services.AddSingleton<CompatibilityService>();
         services.AddSingleton<NexusApiService>();
+        services.AddSingleton<NexusCatalogService>();
         services.AddSingleton<NxmLinkHandler>();
         services.AddSingleton<NxmProtocolRegistrar>();
         services.AddSingleton<ModInstallService>();
         services.AddSingleton<UpdateTracker>();
         services.AddSingleton<DownloadManager>();
-        services.AddSingleton<NexusBrowserService>();
 
         // ViewModels
         services.AddTransient<MainViewModel>();
@@ -260,4 +299,11 @@ public partial class App : Application
     {
         return args.FirstOrDefault(a => a.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase));
     }
+
+    partial void ConfigureRuntimePaths(ref AppPaths paths);
+    partial void ConfigureStartup(ref bool loadEnvironmentFile);
+    partial void ApplyRuntimeSettings(SettingsService settingsService);
+    partial void ConfigureNxmRepair(ref bool repairNxmRegistration);
+    partial void StartRuntimeServices(IServiceProvider services, MainWindow window, MainViewModel viewModel);
+    partial void StopRuntimeServices();
 }

@@ -11,7 +11,6 @@ namespace TerrariaModManager.ViewModels;
 
 public class BrowseViewModel : ViewModelBase
 {
-    private string _selectedFeed = "All";
     private bool _isLoading;
     private bool _isLoadingFeed;
     private NexusMod? _selectedMod;
@@ -33,8 +32,10 @@ public class BrowseViewModel : ViewModelBase
     private bool _isSelectMode;
     private int _selectedForInstallCount;
     private bool _isBulkRunning;
+    private string _catalogStatusText = "";
     private CancellationTokenSource? _bulkCts;
     private readonly NexusApiService _nexusApi;
+    private readonly NexusCatalogService _catalog;
     private readonly SettingsService _settings;
     private readonly ModStateService _modState;
     private readonly UpdateTracker _updateTracker;
@@ -43,27 +44,6 @@ public class BrowseViewModel : ViewModelBase
     private readonly Logger _logger;
 
     public ObservableCollection<NexusMod> Mods { get; } = new();
-
-    public string SelectedFeed
-    {
-        get => _selectedFeed;
-        set
-        {
-            if (SetProperty(ref _selectedFeed, value))
-            {
-                OnPropertyChanged(nameof(IsFeedAll));
-                OnPropertyChanged(nameof(IsFeedLatest));
-                OnPropertyChanged(nameof(IsFeedTrending));
-                OnPropertyChanged(nameof(IsFeedUpdated));
-                _ = LoadFeedAsync();
-            }
-        }
-    }
-
-    public bool IsFeedAll => _selectedFeed == "All";
-    public bool IsFeedLatest => _selectedFeed == "Latest";
-    public bool IsFeedTrending => _selectedFeed == "Trending";
-    public bool IsFeedUpdated => _selectedFeed == "Updated";
 
     public bool IsLoading
     {
@@ -145,10 +125,6 @@ public class BrowseViewModel : ViewModelBase
         }
     }
 
-    public ICommand LoadAllCommand { get; }
-    public ICommand LoadLatestCommand { get; }
-    public ICommand LoadTrendingCommand { get; }
-    public ICommand LoadUpdatedCommand { get; }
     public ICommand RefreshCommand { get; }
     public ICommand ToggleLayoutCommand { get; }
     public ICommand ToggleHideInstalledCommand { get; }
@@ -200,7 +176,19 @@ public class BrowseViewModel : ViewModelBase
         set => SetProperty(ref _isToastVisible, value);
     }
 
-    public bool ShowEmptyMessage => HasApiKey && !IsLoading && Mods.Count == 0;
+    public bool ShowEmptyMessage => !IsLoading && Mods.Count == 0;
+
+    public string CatalogStatusText
+    {
+        get => _catalogStatusText;
+        private set
+        {
+            if (SetProperty(ref _catalogStatusText, value))
+                OnPropertyChanged(nameof(HasCatalogStatus));
+        }
+    }
+
+    public bool HasCatalogStatus => !string.IsNullOrWhiteSpace(CatalogStatusText);
 
     public bool IsSelectMode
     {
@@ -249,6 +237,7 @@ public class BrowseViewModel : ViewModelBase
 
     public BrowseViewModel(
         NexusApiService nexusApi,
+        NexusCatalogService catalog,
         SettingsService settings,
         ModStateService modState,
         UpdateTracker updateTracker,
@@ -257,6 +246,7 @@ public class BrowseViewModel : ViewModelBase
         Logger logger)
     {
         _nexusApi = nexusApi;
+        _catalog = catalog;
         _settings = settings;
         _modState = modState;
         _updateTracker = updateTracker;
@@ -272,10 +262,6 @@ public class BrowseViewModel : ViewModelBase
         _downloadManager.Downloads.CollectionChanged += (_, _) =>
             Dispatcher.UIThread.InvokeAsync(() => ApplySort());
 
-        LoadAllCommand = new RelayCommand(() => SelectedFeed = "All");
-        LoadLatestCommand = new RelayCommand(() => SelectedFeed = "Latest");
-        LoadTrendingCommand = new RelayCommand(() => SelectedFeed = "Trending");
-        LoadUpdatedCommand = new RelayCommand(() => SelectedFeed = "Updated");
         RefreshCommand = new AsyncRelayCommand(LoadFeedAsync);
         ToggleLayoutCommand = new RelayCommand(() => IsGridLayout = !IsGridLayout);
         ToggleHideInstalledCommand = new RelayCommand(() => HideInstalled = !HideInstalled);
@@ -300,7 +286,7 @@ public class BrowseViewModel : ViewModelBase
         CancelBulkCommand = new RelayCommand(() => _bulkCts?.Cancel());
     }
 
-    private async Task OpenDetailAsync(NexusMod mod)
+    internal async Task OpenDetailAsync(NexusMod mod)
     {
         DetailMod = mod;
         IsDetailOpen = true;
@@ -362,6 +348,9 @@ public class BrowseViewModel : ViewModelBase
         result = Regex.Replace(result, @"\[img\].*?\[/img\]", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
         // Lists — process [*] items first, then wrap with correct list tags
+        // Nexus emits explicit [/*] terminators, while older descriptions may
+        // rely on the next item or list end to close an entry.
+        result = Regex.Replace(result, @"\[/\*\]", "", RegexOptions.IgnoreCase);
         result = Regex.Replace(result, @"\[\*\](.*?)(?=\[\*\]|\[/list\]|$)", "<li>$1</li>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         result = Regex.Replace(result, @"\[list=1\](.*?)\[/list\]", "<ol>$1</ol>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         result = Regex.Replace(result, @"\[list\](.*?)\[/list\]", "<ul>$1</ul>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
@@ -395,7 +384,6 @@ public class BrowseViewModel : ViewModelBase
     public async Task LoadFeedAsync()
     {
         HasApiKey = _nexusApi.HasApiKey;
-        if (!HasApiKey) return;
         if (_isLoadingFeed) return;
         _isLoadingFeed = true;
 
@@ -406,38 +394,22 @@ public class BrowseViewModel : ViewModelBase
 
         try
         {
-            if (SelectedFeed == "All")
-            {
-                await LoadAllModsAsync();
-            }
-            else
-            {
-                var mods = SelectedFeed switch
-                {
-                    "Trending" => await _nexusApi.GetTrendingAsync(),
-                    "Updated" => await _nexusApi.GetLatestUpdatedAsync(),
-                    _ => await _nexusApi.GetLatestAddedAsync()
-                };
-                var candidates = (mods ?? new List<NexusMod>()).Where(m => m.Available).ToList();
-
-                // Quick-check name/summary, show immediately
-                foreach (var mod in candidates)
-                {
-                    if (IsTerrariaModder(mod.Name, mod.Summary))
-                    {
-                        mod.IsTerrariaModder = true;
-                        lock (_allModsLock) { _allMods.Add(mod); }
-                    }
-                }
-                ApplySort();
-
-                // Deep-check remaining via full description
-                await DeepCheckModsAsync(candidates.Where(m => !m.IsTerrariaModder).ToList());
-                ApplySort(appendOnly: true);
-            }
+            var catalog = await _catalog.GetCatalogAsync();
+            lock (_allModsLock) { _allMods = catalog.Mods.ToList(); }
+            CatalogStatusText = catalog.IsCached
+                ? $"Showing {catalog.Mods.Count} TerrariaModder mods from cache ({catalog.FetchedAtUtc.LocalDateTime:g}); Nexus refresh was incomplete."
+                : catalog.IsComplete
+                    ? $"{catalog.Mods.Count} TerrariaModder mods · refreshed {catalog.FetchedAtUtc.LocalDateTime:g}"
+                    : $"Showing {catalog.Mods.Count} TerrariaModder mods (partial) · refreshed {catalog.FetchedAtUtc.LocalDateTime:g}";
+            if (catalog.Warning != null)
+                CatalogStatusText += $" - {catalog.Warning}";
+            if (catalog.IsCached && catalog.LiveError != null)
+                CatalogStatusText += $" - {catalog.LiveError}";
+            ApplySort();
         }
         catch (Exception ex)
         {
+            CatalogStatusText = ex.Message;
             _logger.Error("Failed to load feed", ex);
         }
         finally
@@ -445,101 +417,6 @@ public class BrowseViewModel : ViewModelBase
             IsLoading = false;
             _isLoadingFeed = false;
         }
-    }
-
-    private async Task LoadAllModsAsync()
-    {
-        // Phase 1: Fetch feeds + updated mod IDs in parallel
-        var feedTask = Task.WhenAll(
-            _nexusApi.GetLatestAddedAsync(),
-            _nexusApi.GetTrendingAsync(),
-            _nexusApi.GetLatestUpdatedAsync());
-        var updatedTask = _nexusApi.GetUpdatedModIdsAsync("1m");
-
-        await Task.WhenAll(feedTask, updatedTask);
-
-        var feedResults = feedTask.Result;
-        var updatedEntries = updatedTask.Result;
-
-        // Collect feed mods (these have full info already)
-        var knownMods = new Dictionary<int, NexusMod>();
-        foreach (var feed in feedResults)
-        {
-            if (feed == null) continue;
-            foreach (var mod in feed)
-            {
-                if (mod.Available && !knownMods.ContainsKey(mod.ModId))
-                    knownMods[mod.ModId] = mod;
-            }
-        }
-
-        // Quick-check feed mods and show immediately
-        foreach (var mod in knownMods.Values)
-        {
-            if (IsTerrariaModder(mod.Name, mod.Summary))
-            {
-                mod.IsTerrariaModder = true;
-                lock (_allModsLock) { _allMods.Add(mod); }
-            }
-        }
-        ApplySort();
-
-        // Phase 2: Deep-check feed mods that didn't match on name/summary
-        var feedUnchecked = knownMods.Values.Where(m => !m.IsTerrariaModder).ToList();
-        await DeepCheckModsAsync(feedUnchecked);
-        ApplySort(appendOnly: true);
-
-        // Phase 3: Fetch full info for updated mods not in feeds (5 concurrent)
-        var unknownIds = updatedEntries
-            .Select(e => e.ModId)
-            .Where(id => !knownMods.ContainsKey(id))
-            .ToList();
-
-        if (unknownIds.Count > 0)
-        {
-            var semaphore = new SemaphoreSlim(5);
-            var fetchTasks = unknownIds.Select(async modId =>
-            {
-                await semaphore.WaitAsync();
-                try
-                {
-                    var mod = await _nexusApi.GetModInfoAsync(modId);
-                    if (mod != null && mod.Available &&
-                        IsTerrariaModder(mod.Name, mod.Summary ?? mod.Description))
-                    {
-                        mod.IsTerrariaModder = true;
-                        lock (_allModsLock) _allMods.Add(mod);
-                    }
-                }
-                catch { }
-                finally { semaphore.Release(); }
-            });
-            await Task.WhenAll(fetchTasks);
-            ApplySort(appendOnly: true);
-        }
-    }
-
-    private async Task DeepCheckModsAsync(List<NexusMod> unchecked_)
-    {
-        if (unchecked_.Count == 0) return;
-
-        var semaphore = new SemaphoreSlim(5);
-        var tasks = unchecked_.Select(async mod =>
-        {
-            await semaphore.WaitAsync();
-            try
-            {
-                var full = await _nexusApi.GetModInfoAsync(mod.ModId);
-                if (full?.Description != null && IsTerrariaModder(full.Name, full.Description))
-                {
-                    mod.IsTerrariaModder = true;
-                    lock (_allModsLock) _allMods.Add(mod);
-                }
-            }
-            catch { }
-            finally { semaphore.Release(); }
-        });
-        await Task.WhenAll(tasks);
     }
 
     private async Task SearchMod()
@@ -610,11 +487,9 @@ public class BrowseViewModel : ViewModelBase
     public void ApplyCurrentSort() => ApplySort();
 
     /// <summary>
-    /// Rebuild the displayed Mods collection from _allMods with current filter/sort.
-    /// When appendOnly=true (used during loading), new mods are appended to the end
-    /// without clearing existing items, avoiding layout shift.
+    /// Rebuild the displayed Mods collection from the canonical catalog with current filter/sort.
     /// </summary>
-    private void ApplySort(bool appendOnly = false)
+    private void ApplySort()
     {
         List<NexusMod> snapshot;
         lock (_allModsLock) { snapshot = _allMods.ToList(); }
@@ -627,7 +502,7 @@ public class BrowseViewModel : ViewModelBase
             && !int.TryParse(filter, out _)
             && !filter.Contains("nexusmods.com");
 
-        IEnumerable<NexusMod> source = snapshot;
+        IEnumerable<NexusMod> source = snapshot.Where(m => m.ModId != 159); // exclude the Vault itself
 
         if (isTextFilter)
             source = source.Where(m => m.Name.Contains(filter!, StringComparison.OrdinalIgnoreCase)
@@ -638,36 +513,15 @@ public class BrowseViewModel : ViewModelBase
 
         var sorted = SortBy switch
         {
-            "Downloads" => source.OrderByDescending(m => m.Downloads).ToList(),
-            "Updated" => source.OrderByDescending(m => m.UpdatedTimestamp).ToList(),
-            "Endorsements" => source.OrderByDescending(m => m.EndorsementCount).ToList(),
-            _ => source.OrderBy(m => m.Name).ToList()
+            "Downloads" => source.OrderByDescending(m => m.Downloads).ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ThenBy(m => m.ModId).ToList(),
+            "Updated" => source.OrderByDescending(m => m.UpdatedTimestamp).ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ThenBy(m => m.ModId).ToList(),
+            "Endorsements" => source.OrderByDescending(m => m.EndorsementCount).ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ThenBy(m => m.ModId).ToList(),
+            _ => source.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ThenBy(m => m.ModId).ToList()
         };
 
-        if (appendOnly)
-        {
-            // During loading: only add items not already displayed, at the end
-            var existing = new HashSet<int>(Mods.Select(m => m.ModId));
-            foreach (var mod in sorted)
-            {
-                if (!existing.Contains(mod.ModId))
-                    Mods.Add(mod);
-            }
-
-            // Remove items that no longer pass the filter
-            var desired = new HashSet<int>(sorted.Select(m => m.ModId));
-            for (int i = Mods.Count - 1; i >= 0; i--)
-            {
-                if (!desired.Contains(Mods[i].ModId))
-                    Mods.RemoveAt(i);
-            }
-        }
-        else
-        {
-            Mods.Clear();
-            foreach (var mod in sorted)
-                Mods.Add(mod);
-        }
+        Mods.Clear();
+        foreach (var mod in sorted)
+            Mods.Add(mod);
     }
 
     public void RefreshInstallStates()
@@ -711,15 +565,11 @@ public class BrowseViewModel : ViewModelBase
                 mod.IsInstalled = true;
                 mod.InstalledVersion = localMod.Version;
 
-                // Compare versions
-                var nexusVer = (mod.Version ?? "").TrimStart('v', 'V');
-                var localVer = (localMod.Version ?? "").TrimStart('v', 'V');
-                mod.HasNewerVersion = !string.IsNullOrEmpty(nexusVer)
-                    && !string.IsNullOrEmpty(localVer)
-                    && nexusVer != localVer
-                    && (Version.TryParse(nexusVer, out var nv) && Version.TryParse(localVer, out var lv)
-                        ? nv > lv
-                        : string.Compare(nexusVer, localVer, StringComparison.OrdinalIgnoreCase) > 0);
+                // Use the same version comparison as the update checker for consistency.
+                // This correctly handles pre-release suffixes (-beta, -rc < release < -hotfix).
+                mod.HasNewerVersion = !string.IsNullOrEmpty(mod.Version)
+                    && !string.IsNullOrEmpty(localMod.Version)
+                    && UpdateTracker.IsNewerVersion(mod.Version, localMod.Version);
             }
             else
             {
@@ -761,8 +611,7 @@ public class BrowseViewModel : ViewModelBase
             try
             {
                 var modFiles = await _nexusApi.GetModFilesAsync(mod.ModId);
-                var primary = modFiles.FirstOrDefault(f => f.IsPrimary)
-                    ?? modFiles.OrderByDescending(f => f.UploadedTimestamp).FirstOrDefault();
+                var primary = NexusFileSelector.SelectCurrentMain(modFiles);
 
                 if (primary != null)
                 {
@@ -795,17 +644,15 @@ public class BrowseViewModel : ViewModelBase
 
         // Premium: direct download
         var files = await _nexusApi.GetModFilesAsync(mod.ModId);
-        if (files.Count == 0)
+        var mainFile = NexusFileSelector.SelectCurrentMain(files);
+        if (mainFile == null)
         {
-            _logger.Info("DownloadMod: no files found, opening in-app browser");
+            _logger.Info("DownloadMod: no current main file found, opening in-app browser");
             var result = await OpenBrowserAsync($"https://www.nexusmods.com/terraria/mods/{mod.ModId}?tab=files", $"Installing: {mod.Name}",
                 "Choose a file version below, then click 'Manual Download'");
             await EnqueueFromBrowserResult(result, mod.ModId);
             return;
         }
-
-        var mainFile = files.FirstOrDefault(f => f.IsPrimary)
-            ?? files.OrderByDescending(f => f.UploadedTimestamp).First();
 
         var keep = mod.IsInstalled && mod.HasNewerVersion;
         _ = ShowToastAsync($"Downloading {mod.Name}...");
@@ -828,10 +675,16 @@ public class BrowseViewModel : ViewModelBase
         IsToastVisible = false;
     }
 
+    /// <summary>Fires when a browser-based download succeeds (proves browser auth is valid).</summary>
+    public event Action? BrowserDownloadSucceeded;
+
     private async Task EnqueueFromBrowserResult(Models.InlineBrowserResult? result, int modId, bool keepSettings = false, string? version = null)
     {
         if (result?.DownloadedFilePath != null)
+        {
             await _downloadManager.EnqueueFromFileAsync(modId, result.DownloadedFilePath, forceKeepSettings: keepSettings, nexusVersion: version);
+            BrowserDownloadSucceeded?.Invoke();
+        }
     }
 
     public void ToggleSelectMod(NexusMod? mod)

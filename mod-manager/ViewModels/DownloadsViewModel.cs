@@ -12,6 +12,7 @@ public class DownloadItem : ViewModelBase
     private string _errorMessage = "";
     private bool _hasError;
     private bool _isInstalled;
+    private bool _isCancelled;
     private double _progress;
     private long _totalBytes;
     private long _downloadedBytes;
@@ -73,9 +74,22 @@ public class DownloadItem : ViewModelBase
         }
     }
 
-    public bool IsDownloading => !HasError && !IsInstalled;
+    public bool IsCancelled
+    {
+        get => _isCancelled;
+        set
+        {
+            if (SetProperty(ref _isCancelled, value))
+            {
+                OnPropertyChanged(nameof(IsDownloading));
+                OnPropertyChanged(nameof(IsDone));
+            }
+        }
+    }
+
+    public bool IsDownloading => !HasError && !IsInstalled && !IsCancelled;
     public bool IsFailed => HasError;
-    public bool IsDone => IsInstalled || HasError;
+    public bool IsDone => IsInstalled || HasError || IsCancelled;
 
     public double Progress
     {
@@ -181,6 +195,7 @@ public class DownloadsViewModel : ViewModelBase
 
     public ICommand OpenOnNexusCommand { get; }
     public ICommand RetryCommand { get; }
+    public ICommand CancelCommand { get; }
     public ICommand DismissCommand { get; }
     public ICommand ClearCompletedCommand { get; }
 
@@ -189,6 +204,7 @@ public class DownloadsViewModel : ViewModelBase
         _downloadManager = downloadManager;
         OpenOnNexusCommand = new RelayCommand<DownloadItem>(OpenOnNexus);
         RetryCommand = new AsyncRelayCommand<DownloadItem>(RetryDownload);
+        CancelCommand = new RelayCommand<DownloadItem>(item => { if (item != null) _downloadManager.Cancel(item); });
         DismissCommand = new RelayCommand<DownloadItem>(Dismiss);
         ClearCompletedCommand = new RelayCommand(ClearCompleted);
     }
@@ -202,7 +218,7 @@ public class DownloadsViewModel : ViewModelBase
 
     private async Task RetryDownload(DownloadItem? item)
     {
-        if (item == null || !item.HasError) return;
+        if (item == null || (!item.HasError && !item.IsCancelled)) return;
         var modId = item.ModId;
         var fileId = item.FileId;
         var key = item.RetryKey;

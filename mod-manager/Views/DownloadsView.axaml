@@ -88,6 +88,14 @@
                                     Command="{Binding $parent[UserControl].DataContext.DismissCommand}"
                                     CommandParameter="{Binding}"/>
 
+                            <Button Grid.Row="0" Grid.Column="2"
+                                    Content="Cancel" FontSize="10"
+                                    Padding="6,2" Margin="6,0,0,0"
+                                    Classes="secondary" VerticalAlignment="Center"
+                                    IsVisible="{Binding IsDownloading}"
+                                    Command="{Binding $parent[UserControl].DataContext.CancelCommand}"
+                                    CommandParameter="{Binding}"/>
+
                             <!-- Row 1: Error detail -->
                             <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
                                        Text="{Binding ErrorMessage}"

@@ -40,6 +40,7 @@ public class SettingsViewModel : ViewModelBase
     private readonly TerrariaDetector _detector;
     private readonly NxmProtocolRegistrar _nxmRegistrar;
     private readonly Logger _logger;
+    private readonly AppPaths _paths;
     private AppSettings _appSettings = null!;
 
     public Func<string, string, string?, Task<InlineBrowserResult?>>? OpenBrowser { get; set; }
@@ -219,7 +220,8 @@ public class SettingsViewModel : ViewModelBase
         NexusApiService nexusApi,
         TerrariaDetector detector,
         NxmProtocolRegistrar nxmRegistrar,
-        Logger logger)
+        Logger logger,
+        AppPaths paths)
     {
         _settings = settings;
         _installer = installer;
@@ -229,6 +231,7 @@ public class SettingsViewModel : ViewModelBase
         _detector = detector;
         _nxmRegistrar = nxmRegistrar;
         _logger = logger;
+        _paths = paths;
 
         BrowsePathCommand = new AsyncRelayCommand(BrowsePath);
         AutoDetectCommand = new RelayCommand(AutoDetect);
@@ -253,7 +256,7 @@ public class SettingsViewModel : ViewModelBase
     {
         _appSettings = _settings.Load();
         _terrariaPath = _appSettings.TerrariaPath ?? "";
-        _apiKey = _appSettings.NexusApiKey ?? "";
+        _apiKey = _settings.GetApiKey(_appSettings) ?? "";
         _isPremium = _appSettings.IsPremium;
         _isNxmRegistered = _nxmRegistrar.IsRegistered();
         _autoCheckForUpdates = _appSettings.AutoCheckForUpdates;
@@ -279,15 +282,49 @@ public class SettingsViewModel : ViewModelBase
         if (!string.IsNullOrWhiteSpace(_apiKey))
             _nexusApi.SetApiKey(_apiKey);
 
-        var user = await _nexusApi.ValidateApiKeyAsync();
+        NexusUser? user;
+        try
+        {
+            user = await _nexusApi.ValidateApiKeyAsync();
+        }
+        catch (Exception ex)
+        {
+            IsLoggedIn = false;
+            LoginStatus = $"Could not validate Nexus login: {ex.Message}";
+            return;
+        }
         if (user != null)
         {
-            IsLoggedIn = true;
             UserName = user.Name;
             IsPremium = user.IsPremium;
             LoginStatus = "";
 
             _appSettings.IsPremium = user.IsPremium;
+
+            // Detect app version change — free users need to re-authenticate via browser
+            var currentVersion = System.Reflection.Assembly.GetExecutingAssembly()
+                .GetName().Version?.ToString() ?? "";
+            bool versionChanged = _appSettings.LastRunVersion != null
+                && _appSettings.LastRunVersion != currentVersion;
+
+            if (user.IsPremium)
+            {
+                // Premium: API key is sufficient, always logged in
+                IsLoggedIn = true;
+            }
+            else if (versionChanged)
+            {
+                // Free user + app updated: browser cookies may be invalid, show logged out
+                IsLoggedIn = false;
+                _appSettings.BrowserAuthenticated = false;
+            }
+            else
+            {
+                // Free user + same version: preserve previous browser auth state
+                IsLoggedIn = _appSettings.BrowserAuthenticated;
+            }
+
+            _appSettings.LastRunVersion = currentVersion;
             _settings.Save(_appSettings);
         }
         else
@@ -295,6 +332,15 @@ public class SettingsViewModel : ViewModelBase
             IsLoggedIn = false;
             LoginStatus = "";
         }
+    }
+
+    /// <summary>Called when a browser download succeeds, proving browser auth is valid.</summary>
+    public void MarkBrowserAuthenticated()
+    {
+        _appSettings.BrowserAuthenticated = true;
+        _appSettings.LastRunVersion = System.Reflection.Assembly.GetExecutingAssembly()
+            .GetName().Version?.ToString() ?? "";
+        _settings.Save(_appSettings);
     }
 
     public void RefreshCoreInfo()
@@ -362,35 +408,7 @@ public class SettingsViewModel : ViewModelBase
         _ssoService?.Dispose();
         _ssoService = new NexusSsoService();
 
-        _ssoService.ApiKeyReceived += apiKey =>
-        {
-            Dispatcher.UIThread.InvokeAsync(async () =>
-            {
-                CloseBrowser?.Invoke();
-
-                ApiKey = apiKey;
-                _nexusApi.SetApiKey(apiKey);
-
-                var user = await _nexusApi.ValidateApiKeyAsync();
-                if (user != null)
-                {
-                    IsLoggedIn = true;
-                    UserName = user.Name;
-                    IsPremium = user.IsPremium;
-                    LoginStatus = "";
-
-                    _appSettings.NexusApiKey = apiKey;
-                    _appSettings.IsPremium = user.IsPremium;
-                    _settings.Save(_appSettings);
-
-                    LoginSucceeded?.Invoke();
-                }
-
-                IsLoggingIn = false;
-                _ssoService?.Dispose();
-                _ssoService = null;
-            });
-        };
+        _ssoService.ApiKeyReceived += apiKey => _ = CompleteSsoLoginAsync(apiKey);
 
         _ssoService.ErrorOccurred += error =>
         {
@@ -399,6 +417,8 @@ public class SettingsViewModel : ViewModelBase
                 CloseBrowser?.Invoke();
                 LoginStatus = $"Login failed: {error}. Use manual API key instead.";
                 IsLoggingIn = false;
+                _ssoService?.Dispose();
+                _ssoService = null;
             });
         };
 
@@ -425,6 +445,59 @@ public class SettingsViewModel : ViewModelBase
         {
             LoginStatus = "Could not connect to Nexus SSO. Use manual API key instead.";
             IsLoggingIn = false;
+            _ssoService?.Dispose();
+            _ssoService = null;
+        }
+    }
+
+    private async Task CompleteSsoLoginAsync(string apiKey)
+    {
+        try
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                CloseBrowser?.Invoke();
+                ApiKey = apiKey;
+                _nexusApi.SetApiKey(apiKey);
+                LoginStatus = "Validating Nexus login...";
+            });
+
+            var user = await _nexusApi.ValidateApiKeyAsync();
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (user == null)
+                {
+                    LoginStatus = "Nexus returned an invalid login credential. Please try again.";
+                    _nexusApi.SetApiKey("");
+                    return;
+                }
+
+                IsLoggedIn = true;
+                UserName = user.Name;
+                IsPremium = user.IsPremium;
+                LoginStatus = "";
+                _settings.SetApiKey(_appSettings, apiKey);
+                _appSettings.IsPremium = user.IsPremium;
+                _appSettings.BrowserAuthenticated = true;
+                _appSettings.LastRunVersion = System.Reflection.Assembly.GetExecutingAssembly()
+                    .GetName().Version?.ToString() ?? "";
+                _settings.Save(_appSettings);
+                LoginSucceeded?.Invoke();
+            });
+        }
+        catch (Exception ex)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                LoginStatus = $"Nexus login validation failed: {ex.Message}";
+                _nexusApi.SetApiKey("");
+            });
+        }
+        finally
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => IsLoggingIn = false);
+            _ssoService?.Dispose();
+            _ssoService = null;
         }
     }
 
@@ -437,7 +510,7 @@ public class SettingsViewModel : ViewModelBase
         LoginStatus = "";
 
         _nexusApi.SetApiKey("");
-        _appSettings.NexusApiKey = "";
+        _settings.SetApiKey(_appSettings, null);
         _appSettings.IsPremium = false;
 
         // Clear cookies in the live WebView2 instance (works without restart)
@@ -445,9 +518,7 @@ public class SettingsViewModel : ViewModelBase
 
         // Also nuke the user-data folder so cached credentials don't survive a restart.
         // If the folder is locked by an active WebView2 process, flag it for next startup.
-        var webViewDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "TerrariaModManager", "WebView2");
+        var webViewDir = _paths.WebViewDirectory;
         try
         {
             if (Directory.Exists(webViewDir))
@@ -473,7 +544,17 @@ public class SettingsViewModel : ViewModelBase
         LoginStatus = "Validating...";
         _nexusApi.SetApiKey(ApiKey);
 
-        var user = await _nexusApi.ValidateApiKeyAsync();
+        NexusUser? user;
+        try
+        {
+            user = await _nexusApi.ValidateApiKeyAsync();
+        }
+        catch (Exception ex)
+        {
+            LoginStatus = $"Could not validate API key: {ex.Message}";
+            _nexusApi.SetApiKey("");
+            return;
+        }
         if (user != null)
         {
             IsLoggedIn = true;
@@ -481,7 +562,7 @@ public class SettingsViewModel : ViewModelBase
             IsPremium = user.IsPremium;
             LoginStatus = "";
 
-            _appSettings.NexusApiKey = ApiKey;
+            _settings.SetApiKey(_appSettings, ApiKey);
             _appSettings.IsPremium = user.IsPremium;
             _settings.Save(_appSettings);
 

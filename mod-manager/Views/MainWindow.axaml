@@ -67,15 +67,9 @@
                         </StackPanel>
                     </Border>
 
-                    <Button Classes="primary"
+                    <Button Content="Launch Modded" Classes="primary"
                             Command="{Binding LaunchModdedCommand}" Margin="0,0,0,4"
-                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="Launch Modded" VerticalAlignment="Center"/>
-                            <Image Source="avares://TerrariaModderVault/Resources/bunny5.png"
-                                   Width="14" Height="14" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
                     <Button Content="Launch Vanilla" Classes="primary"
                             Command="{Binding LaunchVanillaCommand}"
                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>

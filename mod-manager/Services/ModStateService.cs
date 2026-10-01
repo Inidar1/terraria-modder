@@ -8,6 +8,9 @@ public class ModStateService
 {
     private readonly UpdateTracker _updateTracker;
     private readonly Logger _logger;
+    private readonly List<string> _lastScanWarnings = new();
+
+    public IReadOnlyList<string> LastScanWarnings => _lastScanWarnings;
 
     public ModStateService(UpdateTracker updateTracker, Logger logger)
     {
@@ -19,9 +22,11 @@ public class ModStateService
     {
         var mods = new List<InstalledMod>();
         var modsDir = Path.Combine(terrariaPath, "TerrariaModder", "mods");
-        if (!Directory.Exists(modsDir)) return mods;
+        _lastScanWarnings.Clear();
 
-        foreach (var dir in Directory.GetDirectories(modsDir))
+        var centralConfigsDir = Path.Combine(terrariaPath, "TerrariaModder", "core", "configs");
+
+        foreach (var dir in Directory.Exists(modsDir) ? Directory.GetDirectories(modsDir) : [])
         {
             var folderName = Path.GetFileName(dir);
             if (folderName == "Libs" || folderName == "logs") continue;
@@ -30,13 +35,24 @@ public class ModStateService
             string modId = enabled ? folderName : folderName[1..];
 
             var manifestPath = Path.Combine(dir, "manifest.json");
-            if (!File.Exists(manifestPath)) continue;
+            if (!File.Exists(manifestPath))
+            {
+                WarnScan($"Installed folder '{folderName}' has no manifest.json and is not listed.");
+                continue;
+            }
 
             try
             {
                 var json = File.ReadAllText(manifestPath);
                 var manifest = JsonSerializer.Deserialize<ModManifest>(json);
-                if (manifest == null) continue;
+                if (manifest == null || string.IsNullOrWhiteSpace(manifest.Id))
+                {
+                    WarnScan($"Installed folder '{folderName}' has an empty or ID-less manifest and is not listed.");
+                    continue;
+                }
+
+                if (!string.Equals(manifest.Id, modId, StringComparison.OrdinalIgnoreCase))
+                    WarnScan($"Installed folder '{folderName}' contains mod '{manifest.Id}'; operations will resolve it by manifest ID.");
 
                 mods.Add(new InstalledMod
                 {
@@ -49,11 +65,17 @@ public class ModStateService
                     FolderPath = dir,
                     IsEnabled = enabled,
                     Manifest = manifest,
-                    HasConfigFiles = HasModConfigFiles(dir)
+                    HasConfigFiles = HasModConfigFiles(dir, centralConfigsDir, manifest.Id)
                 });
             }
-            catch { }
+            catch (Exception ex)
+            {
+                WarnScan($"Installed folder '{folderName}' has an unreadable manifest and is not listed: {ex.Message}");
+            }
         }
+
+        foreach (var duplicate in mods.GroupBy(mod => mod.Id, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1))
+            WarnScan($"Multiple installed folders claim mod ID '{duplicate.Key}'; resolve the duplicate before changing it.");
 
         // Add Core as a special entry at the top
         var coreInfo = GetCoreInfo(terrariaPath);
@@ -77,7 +99,16 @@ public class ModStateService
             });
         }
 
-        return mods.OrderBy(m => m.IsCore ? 0 : 1).ThenBy(m => m.Name).ToList();
+        return mods.OrderBy(m => m.IsCore ? 0 : 1)
+            .ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(m => m.Id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void WarnScan(string message)
+    {
+        _lastScanWarnings.Add(message);
+        _logger.Warn($"Installed scan: {message}");
     }
 
     public CoreInstallInfo GetCoreInfo(string terrariaPath)
@@ -117,21 +148,24 @@ public class ModStateService
     public void EnableMod(string modId, string terrariaPath)
     {
         var modsDir = Path.Combine(terrariaPath, "TerrariaModder", "mods");
-        var disabled = Path.Combine(modsDir, "." + modId);
-        var enabled = Path.Combine(modsDir, modId);
-
-        if (Directory.Exists(disabled) && !Directory.Exists(enabled))
-            Directory.Move(disabled, enabled);
+        var disabled = ResolveModDirectory(modId, modsDir, enabled: false)
+            ?? throw new InvalidOperationException($"Disabled mod '{modId}' is not installed.");
+        var folderName = Path.GetFileName(disabled).TrimStart('.');
+        var enabled = Path.Combine(modsDir, folderName);
+        if (Directory.Exists(enabled))
+            throw new InvalidOperationException($"Cannot enable '{modId}' because both enabled and disabled folders exist.");
+        Directory.Move(disabled, enabled);
     }
 
     public void DisableMod(string modId, string terrariaPath)
     {
         var modsDir = Path.Combine(terrariaPath, "TerrariaModder", "mods");
-        var enabled = Path.Combine(modsDir, modId);
-        var disabled = Path.Combine(modsDir, "." + modId);
-
-        if (Directory.Exists(enabled) && !Directory.Exists(disabled))
-            Directory.Move(enabled, disabled);
+        var enabled = ResolveModDirectory(modId, modsDir, enabled: true)
+            ?? throw new InvalidOperationException($"Enabled mod '{modId}' is not installed.");
+        var disabled = Path.Combine(modsDir, "." + Path.GetFileName(enabled));
+        if (Directory.Exists(disabled))
+            throw new InvalidOperationException($"Cannot disable '{modId}' because both enabled and disabled folders exist.");
+        Directory.Move(enabled, disabled);
     }
 
     private static readonly string[] ConfigExtensions =
@@ -152,10 +186,8 @@ public class ModStateService
             var modsDir = Path.Combine(terrariaPath, "TerrariaModder", "mods");
 
             // Try both enabled and disabled paths
-            var enabled = Path.Combine(modsDir, modId);
-            var disabled = Path.Combine(modsDir, "." + modId);
-
-            modDir = Directory.Exists(enabled) ? enabled : Directory.Exists(disabled) ? disabled : null;
+            modDir = ResolveModDirectory(modId, modsDir, enabled: true)
+                ?? ResolveModDirectory(modId, modsDir, enabled: false);
         }
 
         if (modDir == null) return;
@@ -164,6 +196,15 @@ public class ModStateService
         {
             // Full delete — everything goes
             Directory.Delete(modDir, true);
+
+            // Also clean up centralized config files (scoped format: .client.json / .server.json)
+            var configsDir = Path.Combine(terrariaPath, "TerrariaModder", "core", "configs");
+            foreach (var suffix in new[] { ".client.json", ".server.json" })
+            {
+                var path = Path.Combine(configsDir, modId + suffix);
+                if (File.Exists(path))
+                    try { File.Delete(path); } catch { }
+            }
         }
         else
         {
@@ -176,50 +217,86 @@ public class ModStateService
         }
     }
 
-    private static bool HasModConfigFiles(string modDir)
+    private static string? ResolveModDirectory(string modId, string modsDir, bool enabled)
     {
-        foreach (var file in Directory.GetFiles(modDir))
+        if (!Directory.Exists(modsDir)) return null;
+        var exact = Path.Combine(modsDir, enabled ? modId : "." + modId);
+        if (Directory.Exists(exact)) return exact;
+
+        var matches = new List<string>();
+        foreach (var directory in Directory.GetDirectories(modsDir))
         {
-            var ext = Path.GetExtension(file).ToLowerInvariant();
-            if (ConfigExtensions.Contains(ext)
-                && !Path.GetFileName(file).Equals("manifest.json", StringComparison.OrdinalIgnoreCase))
+            var name = Path.GetFileName(directory);
+            if ((!name.StartsWith('.')) != enabled) continue;
+            var manifestPath = Path.Combine(directory, "manifest.json");
+            if (!File.Exists(manifestPath)) continue;
+            try
+            {
+                var manifest = JsonSerializer.Deserialize<ModManifest>(File.ReadAllText(manifestPath));
+                if (string.Equals(manifest?.Id, modId, StringComparison.OrdinalIgnoreCase))
+                    matches.Add(directory);
+            }
+            catch { }
+        }
+
+        return matches.Count switch
+        {
+            0 => null,
+            1 => matches[0],
+            _ => throw new InvalidOperationException($"Multiple {(enabled ? "enabled" : "disabled")} folders claim mod ID '{modId}'.")
+        };
+    }
+
+    private static bool HasModConfigFiles(string modDir, string configsDir, string modId)
+    {
+        // Check centralized scoped config files (current format: .client.json / .server.json)
+        foreach (var suffix in new[] { ".client.json", ".server.json" })
+        {
+            if (File.Exists(Path.Combine(configsDir, modId + suffix)))
                 return true;
         }
 
-        var configDir = Path.Combine(modDir, "config");
-        return Directory.Exists(configDir) && Directory.EnumerateFiles(configDir, "*", SearchOption.AllDirectories).Any();
+        // Check mod folder for any user data files (configs, save data, presets, any format)
+        foreach (var file in Directory.GetFiles(modDir))
+        {
+            var name = Path.GetFileName(file);
+            var ext = Path.GetExtension(file).ToLowerInvariant();
+            // Skip build artifacts — everything else is user data
+            if (name.Equals("manifest.json", StringComparison.OrdinalIgnoreCase)) continue;
+            if (ext is ".dll" or ".pdb") continue;
+            return true;
+        }
+
+        // Check ALL subdirectories for any files
+        return Directory.GetDirectories(modDir).Any(subDir =>
+            Directory.EnumerateFiles(subDir, "*", SearchOption.AllDirectories).Any());
     }
 
     private static readonly string[] AlwaysDeleteFiles = { "manifest.json" };
 
     private void DeleteNonConfigFiles(string dir)
     {
+        // Only delete build artifacts (manifest, DLLs, PDBs).
+        // Everything else is user data (configs, save data, presets, custom files of any format).
         foreach (var file in Directory.GetFiles(dir))
         {
             var fileName = Path.GetFileName(file);
+            var ext = Path.GetExtension(file).ToLowerInvariant();
 
-            // Always delete manifest and DLLs — these aren't user settings
             if (AlwaysDeleteFiles.Contains(fileName, StringComparer.OrdinalIgnoreCase)
-                || fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-                || fileName.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase))
+                || ext is ".dll" or ".pdb")
             {
                 File.Delete(file);
-                continue;
             }
-
-            var ext = Path.GetExtension(file).ToLowerInvariant();
-            if (!ConfigExtensions.Contains(ext))
-                File.Delete(file);
         }
 
+        // Keep all subdirectories — they contain user data (worlds/, characters/, etc.)
+        // Only delete empty subdirectories left behind after artifact removal
         foreach (var subDir in Directory.GetDirectories(dir))
         {
-            var dirName = Path.GetFileName(subDir);
-            // Keep config directories too (some mods store configs in subdirs)
-            if (dirName.Equals("config", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            Directory.Delete(subDir, true);
+            bool hasAnyFiles = Directory.EnumerateFiles(subDir, "*", SearchOption.AllDirectories).Any();
+            if (!hasAnyFiles)
+                Directory.Delete(subDir, true);
         }
     }
 }

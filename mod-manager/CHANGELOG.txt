@@ -1,0 +1,84 @@
+﻿TerrariaModder Vault 0.4.4
+
+This is the Windows release for Terraria 1.4.5.8. It replaces the old
+Vault catalog, download, install, update, and recovery paths with the current
+behavior described below.
+
+INSTALLING
+
+- Close any running copy of TerrariaModder Vault.
+- Extract the complete zip into a new folder. Do not merge it into an older
+  Vault program folder.
+- Run TerrariaModderVault.exe.
+- Select your Terraria folder if Vault does not detect it automatically.
+- Sign in with your own Nexus Mods account. No developer API key is included.
+
+Back up characters and worlds you care about before testing game or mod
+updates. Vault preserves mod configuration during supported updates, but mods
+can still change Terraria saves while they are running.
+
+BROWSE AND DISCOVERY
+
+- Browse now includes published mods identified by any supported Nexus signal:
+  the TerrariaModder tag, an active mod-level requirement on TerrariaModder
+  Core, or an active current-file requirement on Core.
+- Tag-only mods qualify normally. File-level requirements are resolved after
+  sign-in with the user's own Nexus account, including mods using Nexus's newer
+  per-file requirement mode.
+- Catalog paging, duplicate removal, exclusions, and sorting are deterministic.
+- Current active MAIN-file versions are used for update labels instead of stale
+  mod-page version text.
+- Mod descriptions now wrap inside the detail panel instead of being cut off
+  at the right edge, and Nexus list items no longer show raw `[/*]` markers.
+- Anonymous catalog browsing remains available and is clearly marked partial
+  because Nexus file requirements require sign-in. Provider failures use a
+  dated complete cache when available and are shown instead of silently
+  returning an arbitrary or incomplete list.
+
+NEXUS ACCOUNTS AND DOWNLOADS
+
+- Nexus sign-in uses the user's own account and stores its credential through
+  the existing protected settings path.
+- Premium accounts download the selected current MAIN file directly.
+- Free accounts use the embedded Nexus Manual Download / Slow Download flow;
+  the completed file returns to Vault and installs normally without a separate
+  save-location step.
+- Authentication, rate-limit, download, cancellation, and retry failures now
+  report useful state without exposing API keys or token-bearing links.
+- nxm:// registration can be repaired or removed without replacing unrelated
+  protocol state.
+
+INSTALLS, UPDATES, AND MOD CONTROL
+
+- Mod and Core archives are staged and validated before the active install is
+  replaced. Failed commits restore the previous working folder.
+- Zip, 7z, and RAR archives are supported with bounded extraction and path
+  validation.
+- Existing configuration and save-like mod data can be retained across updates
+  without copying stale packaged files over the new release.
+- Enabled and disabled state is preserved when an installed mod is updated.
+- Malformed manifests, duplicate identities, and ambiguous installed state are
+  reported instead of being silently ignored.
+- Terraria, Core, dependency, conflict, and version declarations produce clear
+  compatibility warnings. Users may continue when a mod could still work;
+  Vault blocks only malformed or data-unsafe operations.
+- Users can still install arbitrary local mod archives. Vault does not impose a
+  content allowlist or require mod signing.
+
+VAULT UPDATE AND RECOVERY
+
+- Vault self-update now accepts the expected Vault application payload rather
+  than an arbitrary executable layout.
+- Update extraction is bounded, temporary files are cleaned, and a failed copy
+  or replacement restores the prior application files.
+- Startup validation detects an updated application that exits immediately and
+  restores the previous build.
+
+PLATFORM NOTES
+
+- Windows 10 and 11 are the tested runtime targets for this release.
+- Linux source and packaging remain aligned, but Linux runtime behavior has not
+  been tested and is not included in this release.
+- Nexus pages and services remain external dependencies. Free users must still
+  complete Nexus's own Manual Download / Slow Download controls.
+- This release has been tested with both free and premium Nexus account paths.
