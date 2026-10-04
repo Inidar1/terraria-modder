@@ -147,6 +147,8 @@ namespace TerrariaModder.Core.Input
                 case KeyCode.MouseLeft: return _currentMouseState.LeftButton == ButtonState.Pressed;
                 case KeyCode.MouseRight: return _currentMouseState.RightButton == ButtonState.Pressed;
                 case KeyCode.MouseMiddle: return _currentMouseState.MiddleButton == ButtonState.Pressed;
+                case KeyCode.MouseSide1: return _currentMouseState.XButton1 == ButtonState.Pressed;
+                case KeyCode.MouseSide2: return _currentMouseState.XButton2 == ButtonState.Pressed;
                 default: return false;
             }
         }
@@ -163,6 +165,10 @@ namespace TerrariaModder.Core.Input
                     return _currentMouseState.RightButton == ButtonState.Pressed && _previousMouseState.RightButton == ButtonState.Released;
                 case KeyCode.MouseMiddle:
                     return _currentMouseState.MiddleButton == ButtonState.Pressed && _previousMouseState.MiddleButton == ButtonState.Released;
+                case KeyCode.MouseSide1:
+                    return _currentMouseState.XButton1 == ButtonState.Pressed && _previousMouseState.XButton1 == ButtonState.Released;
+                case KeyCode.MouseSide2:
+                    return _currentMouseState.XButton2 == ButtonState.Pressed && _previousMouseState.XButton2 == ButtonState.Released;
                 default: return false;
             }
         }
@@ -179,6 +185,10 @@ namespace TerrariaModder.Core.Input
                     return _currentMouseState.RightButton == ButtonState.Released && _previousMouseState.RightButton == ButtonState.Pressed;
                 case KeyCode.MouseMiddle:
                     return _currentMouseState.MiddleButton == ButtonState.Released && _previousMouseState.MiddleButton == ButtonState.Pressed;
+                case KeyCode.MouseSide1:
+                    return _currentMouseState.XButton1 == ButtonState.Released && _previousMouseState.XButton1 == ButtonState.Pressed;
+                case KeyCode.MouseSide2:
+                    return _currentMouseState.XButton2 == ButtonState.Released && _previousMouseState.XButton2 == ButtonState.Pressed;
                 default: return false;
             }
         }
