@@ -7,6 +7,7 @@ A lightweight runtime mod framework for Terraria 1.4.5.8. It loads .NET Framewor
 - Loads mods from <code>TerrariaModder/mods/</code> using each mod's <code>manifest.json</code>
 - Harmony-based runtime patching without replacing Terraria.exe
 - F6 Mod Menu with typed settings, validation, editable text, runtime option lists, keybind rebinding, and accessible themes
+- Keyboard and mouse keybinds, including both side mouse buttons and Ctrl/Shift/Alt combinations
 - Optional <code>ModBase</code> metadata binding while retaining binary compatibility with existing <code>IMod</code> mods
 - Content-ready and world lifecycle callbacks through <code>IModLifecycle</code>
 - Custom item registration with stable identities, texture injection, recipes, shops, drops, shimmer mappings, and missing-mod recovery

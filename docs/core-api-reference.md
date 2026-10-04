@@ -562,7 +562,7 @@ Common key names:
 - Numpad operators: `Multiply`, `Add`, `Subtract`, `Decimal`, `Divide`
 - Special: `Space`, `Enter`, `Tab`, `Escape`
 - Modifiers: `LeftControl`, `RightControl`, `LeftShift`, `RightShift`, `LeftAlt`, `RightAlt`
-- Mouse: `MouseRight` or `RMB`, `MouseMiddle` or `MMB`
+- Mouse: `MouseRight` or `RMB`, `MouseMiddle` or `MMB`, `MouseSide1`, `MouseSide2`
 - Others: `OemTilde` (tilde key), `Home`, `End`, `Insert`, `Delete`, `PageUp`, `PageDown`
 
 **Note:** `MouseLeft` cannot be used for keybinds - it's reserved for UI interaction (clicking the rebind button itself).
