@@ -152,7 +152,7 @@ Avoid conflicts with keys already used by bundled mods:
 | Backslash | AdminPanel toggle |
 | Ctrl+` | DebugTools |
 
-`MouseLeft` cannot be used as a keybind (reserved for UI interaction). `MouseRight` and `MouseMiddle` are fine.
+`MouseLeft` cannot be used as a keybind (reserved for UI interaction). Other mouse buttons are allowed.
 
 ## Pre-Release Checklist
 
