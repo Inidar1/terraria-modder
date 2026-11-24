@@ -151,8 +151,6 @@ namespace TerrariaModder.Core.Assets
                         __instance.type = Type;
                         __instance.stack = 1;
                         __instance.maxStack = 1;
-                        __instance.width = 20;
-                        __instance.height = 20;
                         __instance.rare = 0;
                         __instance.value = 0;
                         SetItemName(Type, $"[{fullId}]");
@@ -301,8 +299,6 @@ namespace TerrariaModder.Core.Assets
             SetInt("placeStyle", def.PlaceStyle);
 
             // Visual
-            SetInt("width", def.Width);
-            SetInt("height", def.Height);
             SetFloat("scale", def.Scale);
             SetInt("holdStyle", def.HoldStyle);
             SetBool("noUseGraphic", def.NoUseGraphic);
@@ -366,8 +362,6 @@ namespace TerrariaModder.Core.Assets
             item.placeStyle = def.PlaceStyle;
 
             // Visual
-            item.width = def.Width;
-            item.height = def.Height;
             item.scale = def.Scale;
             item.holdStyle = def.HoldStyle;
             item.noUseGraphic = def.NoUseGraphic;
