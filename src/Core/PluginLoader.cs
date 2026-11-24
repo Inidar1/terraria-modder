@@ -175,7 +175,7 @@ namespace TerrariaModder.Core
     /// </summary>
     public static class PluginLoader
     {
-        public const string FrameworkVersion = "0.4.1";
+        public const string FrameworkVersion = "0.4.3";
 
         // Static constructor — runs once, before any other PluginLoader code.
         // Installs global unhandled exception handler so Windows error dialogs
